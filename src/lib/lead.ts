@@ -4,7 +4,8 @@
 // Per route a climber's height is the highest hold controlled, "+" when they made a controlled
 // move past it, or TOP. One route: rank by height. Several routes: on each route tied climbers share
 // the average of their positions (rank points); the round score is the geometric mean of the route
-// rank points, lower is better. Then countback to the previous-round place; remaining ties share.
+// rank points, lower is better. Then countback to the previous-round place; on a single route, then
+// the faster climbing time; remaining ties share.
 
 export interface LeadResult {
   climber_id: string;
@@ -12,6 +13,8 @@ export interface LeadResult {
   hold: number;
   plus: boolean;
   top: boolean;
+  /** Climbing time; breaks remaining ties on single-route rounds (IFSC final rule). */
+  time_ms?: number | null;
 }
 
 /** Comparable height: TOP above any hold, hold+ above hold. */
@@ -85,7 +88,11 @@ export function leadStandings(
     const pa = points.get(a)!; const pb = points.get(b)!;
     if (Math.abs(pa - pb) > EPS) return multi ? pa - pb : pb - pa;
     const sa = prevPlace.get(a) ?? Infinity; const sb = prevPlace.get(b) ?? Infinity;
-    return sa === sb ? 0 : sa - sb;
+    if (sa !== sb) return sa - sb;
+    if (multi) return 0;
+    const ta = byClimber.get(a)!.get(routeIds[0])?.time_ms ?? Infinity;
+    const tb = byClimber.get(b)!.get(routeIds[0])?.time_ms ?? Infinity;
+    return ta === tb ? 0 : ta - tb;
   };
   const ranked = [...climbed].sort((a, b) => cmp(a, b) || starters.indexOf(a) - starters.indexOf(b));
   const out: LeadStanding[] = [];

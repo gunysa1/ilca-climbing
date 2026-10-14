@@ -18,7 +18,7 @@ export interface ResultRow extends BoulderResult { boulder_id: string; climber_i
 export interface LeadRow { boulder_id: string; climber_id: string; hold: number; plus: boolean; top: boolean; time_ms: number | null }
 
 /** lead.ts works on route_id; routes are rows of `boulders`. */
-export const toLeadResult = (r: LeadRow): LeadResult => ({ climber_id: r.climber_id, route_id: r.boulder_id, hold: r.hold, plus: r.plus, top: r.top });
+export const toLeadResult = (r: LeadRow): LeadResult => ({ climber_id: r.climber_id, route_id: r.boulder_id, hold: r.hold, plus: r.plus, top: r.top, time_ms: r.time_ms });
 
 export interface RoundData {
   round: Round | null;

@@ -246,13 +246,25 @@ insert into rounds (id, category_id, kind, status, advance_quota) values
 insert into registrations (category_id, climber_id, bib) values
   ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 1),
   ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000002', 2);
+select pg_temp.assert((select count(*) from round_scores where round_id = '30000000-0000-0000-0000-000000000006' and rank is null) = 2,
+  'starters without any result are unranked (like the results page)');
+select generate_start_list('30000000-0000-0000-0000-000000000007');
+select pg_temp.assert((select count(*) from round_starters where round_id = '30000000-0000-0000-0000-000000000007') = 0,
+  'climbers without results do not advance');
+insert into boulders (id, round_id, number) values
+  ('40000000-0000-0000-0000-000000000066', '30000000-0000-0000-0000-000000000006', 1);
+insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_attempt) values
+  ('40000000-0000-0000-0000-000000000066', '00000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000006', 1, 1),
+  ('40000000-0000-0000-0000-000000000066', '00000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000006', 1, 1);
 select generate_start_list('30000000-0000-0000-0000-000000000007');
 select pg_temp.assert((select count(*) from round_starters where round_id = '30000000-0000-0000-0000-000000000007') = 2,
   'climbers tied at the cutoff all advance');
+insert into registrations (category_id, climber_id, bib) values
+  ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-00000000000c', 3);
 delete from registrations where category_id = '20000000-0000-0000-0000-000000000004'
-  and climber_id = '00000000-0000-0000-0000-000000000002';
+  and climber_id = '00000000-0000-0000-0000-00000000000c';
 select pg_temp.assert(not exists (select 1 from round_starters where round_id = '30000000-0000-0000-0000-000000000006'
-  and climber_id = '00000000-0000-0000-0000-000000000002'), 'unregistering removes the first-round starter');
+  and climber_id = '00000000-0000-0000-0000-00000000000c'), 'unregistering removes the first-round starter');
 reset role;
 
 select pg_temp.login('00000000-0000-0000-0000-000000000001');
@@ -422,6 +434,25 @@ select pg_temp.assert((select count(*) from round_ranks where round_id = '300000
   and not exists (select 1 from round_scores where round_id = '30000000-0000-0000-0000-000000000062'),
   'lead rounds rank in round_ranks, not in the boulder view');
 select pg_temp.denied($$select updated_by from lead_results$$, 'public reads lead judge identity');
+reset role;
+-- single route, same height and same seed: the faster time ranks higher (IFSC final rule; LogLig 2026 final)
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into rounds (id, category_id, kind, status, scoring) values
+  ('30000000-0000-0000-0000-000000000063', '20000000-0000-0000-0000-000000000006', 'semifinal', 'live', 'lead');
+insert into boulders (id, round_id, number) values
+  ('40000000-0000-0000-0000-000000000064', '30000000-0000-0000-0000-000000000063', 1);
+insert into round_starters (round_id, climber_id, start_order, prev_place) values
+  ('30000000-0000-0000-0000-000000000063', '60000000-0000-0000-0000-00000000000a', 1, 3),
+  ('30000000-0000-0000-0000-000000000063', '60000000-0000-0000-0000-00000000000b', 2, 3);
+insert into lead_results (boulder_id, climber_id, round_id, hold, plus, top, time_ms) values
+  ('40000000-0000-0000-0000-000000000064', '60000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-000000000063', 35, true, false, 188000),
+  ('40000000-0000-0000-0000-000000000064', '60000000-0000-0000-0000-00000000000b', '30000000-0000-0000-0000-000000000063', 35, true, false, 130000);
+select set_config('request.jwt.claim.sub', '', false);
+select pg_temp.login(null);
+select pg_temp.assert(
+  (select array_agg(right(climber_id::text, 1) || rank order by rank) from lead_scores
+    where round_id = '30000000-0000-0000-0000-000000000063') = '{b1,a2}',
+  'lead single route: faster time breaks a tie after countback');
 reset role;
 
 select pg_temp.login('00000000-0000-0000-0000-000000000001');

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { formatHeight, heightValue, leadStandings, routeRankPoints, type LeadResult } from './lead';
 
-const r = (climber_id: string, route: string, hold: number, plus = false, top = false): LeadResult =>
-  ({ climber_id, route_id: route, hold, plus, top });
+const r = (climber_id: string, route: string, hold: number, plus = false, top = false, time_ms: number | null = null): LeadResult =>
+  ({ climber_id, route_id: route, hold, plus, top, time_ms });
 
 describe('heightValue / formatHeight', () => {
   it('orders top > hold+ > hold', () => {
@@ -40,6 +40,14 @@ describe('leadStandings', () => {
     expect(out.map((s) => [s.climber_id, s.rank, Number(s.points.toFixed(2))])).toEqual([
       ['a', 1, 1.73], ['c', 1, 1.73], ['b', 3, 2],
     ]);
+  });
+
+  it('single route: after countback, the faster climbing time ranks higher (IFSC final rule)', () => {
+    // LogLig Israeli lead championship 2026, men's final: both 35+, same qualification place, 02:10 vs 03:08
+    const out = leadStandings(['slow', 'fast'], ['r1'],
+      [r('slow', 'r1', 35, true, false, 188_000), r('fast', 'r1', 35, true, false, 130_000)],
+      new Map([['slow', 3], ['fast', 3]]));
+    expect(out.map((s) => [s.climber_id, s.rank])).toEqual([['fast', 1], ['slow', 2]]);
   });
 
   it('a missing route result counts as the lowest height on that route', () => {
