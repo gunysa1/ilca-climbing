@@ -1,0 +1,131 @@
+// Drives the admin UI end to end as a signed-in admin (see e2e/run.sh).
+import { chromium } from 'playwright';
+import { jwt } from './jwt.mjs';
+
+const [base, secret, out] = process.argv.slice(2);
+const ADMIN = '00000000-0000-0000-0000-0000000000a1';
+const session = {
+  access_token: jwt(secret, 'authenticated', ADMIN), refresh_token: 'e2e', token_type: 'bearer',
+  expires_in: 315360000, expires_at: 4102444800,
+  user: { id: ADMIN, aud: 'authenticated', role: 'authenticated', email: 'admin@ilca.test' },
+};
+
+const browser = await chromium.launch();
+const problems = [];
+async function page(lang, viewport = { width: 1280, height: 900 }) {
+  const ctx = await browser.newContext({ viewport, deviceScaleFactor: 1 });
+  await ctx.addInitScript(([s, l]) => {
+    localStorage.setItem('sb-127-auth-token', JSON.stringify(s));
+    localStorage.setItem('lang', l);
+  }, [session, lang]);
+  const p = await ctx.newPage();
+  p.on('dialog', (d) => d.accept());
+  p.on('console', (m) => { if (m.type() === 'error' && !/realtime|websocket/i.test(m.text())) problems.push(`console: ${m.text()}`); });
+  p.on('response', (r) => { if (r.url().includes('/rest/v1') && r.status() >= 400) problems.push(`${r.status()} ${r.request().method()} ${r.url()}`); });
+  return p;
+}
+const step = (name) => console.log(`- ${name}`);
+const expectText = async (p, text) => p.getByText(text, { exact: false }).first().waitFor({ timeout: 5000 });
+
+const p = await page('en');
+step('create competition');
+await p.goto(`${base}/admin`);
+await p.getByLabel('Name (English)').fill('Israeli Cup #2');
+await p.getByLabel('Name (Hebrew)').fill('גביע ישראל 2');
+await p.getByLabel('Starts').fill('2026-11-20');
+await p.getByRole('button', { name: 'Create' }).click();
+await p.waitForURL(/\/admin\/competition\//);
+const compUrl = p.url();
+
+step('add category + round + 4 boulders');
+const catForm = p.locator('form', { has: p.getByRole('heading', { name: 'New category' }) });
+await catForm.getByLabel('Name (English)').fill('Senior Women');
+await catForm.getByLabel('Name (Hebrew)').fill('בוגרות');
+await catForm.getByRole('button', { name: 'Add' }).click();
+await expectText(p, 'Senior Women');
+await p.getByRole('button', { name: 'Add round' }).click();
+await expectText(p, 'Judges & corrections');
+const boulders = p.getByLabel('Boulders').first();
+await boulders.fill('4');
+await boulders.press('Tab');
+await p.waitForFunction(() => document.querySelector('.admin-row input[type=number]')?.value === '4');
+
+step('import roster CSV');
+await p.locator('input[type=file]').setInputFiles(new URL('./roster.csv', import.meta.url).pathname);
+await expectText(p, 'Preview');
+const preview = await p.locator('.import-preview').innerText();
+for (const want of ['New categories: 1', 'New climbers: 3', 'Registrations: 3']) {
+  if (!preview.includes(want)) problems.push(`import preview missing "${want}": ${preview}`);
+}
+await p.getByRole('button', { name: 'Import', exact: true }).click();
+await expectText(p, 'Import complete');
+await expectText(p, 'Registrations (2)');
+await expectText(p, 'Registrations (1)');
+
+step('publish competition, round goes live');
+await p.getByLabel('Status').selectOption('published');
+await p.getByRole('button', { name: 'Save' }).click();
+await p.getByRole('button', { name: 'Go live' }).click();
+await expectText(p, 'Close round');
+await p.screenshot({ path: `${out}/admin-competition-en.png`, fullPage: true });
+
+step('assign judge to whole round');
+await p.getByRole('link', { name: 'Judges & corrections' }).first().click();
+await p.waitForURL(/\/admin\/round\//);
+const roundId = p.url().split('/').pop();
+await p.locator('select[name=judge]').selectOption({ label: 'Judge Yossi' });
+await p.getByRole('button', { name: 'Assign' }).click();
+await p.locator('.admin-row', { hasText: 'Judge Yossi' }).getByText('Whole round').waitFor();
+
+step('correct a result, check audit');
+await p.locator('tr', { hasText: 'נועה לוי' }).getByRole('button', { name: '✎' }).click();
+await p.getByLabel('Attempts 1').fill('2');
+await p.getByLabel('Zone 1').fill('1');
+await p.getByLabel('Top 1').fill('2');
+await p.getByRole('button', { name: 'Save' }).click();
+await p.locator('tr', { hasText: 'נועה לוי' }).getByText('2/1/2').first().waitFor();
+await p.locator('.panel', { hasText: 'Audit log' }).getByText('By Admin ILCA').waitFor();
+step('reject an impossible result (top before zone)');
+await p.locator('tr', { hasText: 'תמר כהן' }).getByRole('button', { name: '✎' }).click();
+await p.getByLabel('Attempts 1').fill('3');
+await p.getByLabel('Zone 1').fill('3');
+await p.getByLabel('Top 1').fill('2');
+await p.getByRole('button', { name: 'Save' }).click();
+await p.getByText('✗ Boulder 1').waitFor();
+await p.screenshot({ path: `${out}/admin-round-en.png`, fullPage: true });
+
+step('public results show the corrected score');
+await p.goto(`${base}/round/${roundId}`);
+await p.locator('tr', { hasText: 'Noa' }).or(p.locator('tr', { hasText: 'נועה' })).getByText('24.9').waitFor();
+
+step('people: link parent account, make judge a coach, link athlete');
+await p.goto(`${base}/admin/people`);
+const parentRow = p.locator('tr', { hasText: 'parent@ilca.test' });
+await parentRow.locator('select').selectOption({ label: 'נועה לוי · מטפסי תל אביב' });
+await p.locator('tr', { hasText: 'נועה לוי' }).getByText('parent@ilca.test').waitFor();
+const coachBox = p.locator('tr', { hasText: 'judge@ilca.test' }).getByLabel('Coach');
+await coachBox.click(); // controlled: flips once the server confirms and the list reloads
+await p.waitForFunction(() => [...document.querySelectorAll('tr')].find((r) => r.textContent.includes('judge@ilca.test'))
+  ?.querySelectorAll('input[type=checkbox]')[1]?.checked);
+await p.locator('.panel', { hasText: 'Coaches & athletes' }).locator('select').selectOption({ label: 'Judge Yossi' });
+const coachPanel = p.locator('.panel', { hasText: 'Coaches & athletes' });
+await coachPanel.getByPlaceholder(/Search/).fill('תמר');
+await coachPanel.locator('.picker-hits').getByRole('button', { name: 'Add' }).click();
+await coachPanel.locator('.admin-row', { hasText: 'תמר כהן' }).waitFor();
+await p.screenshot({ path: `${out}/admin-people-en.png`, fullPage: true });
+
+step('Hebrew + 390px screenshots');
+const he = await page('he', { width: 390, height: 844 });
+await he.goto(compUrl);
+await he.getByText('בוגרות').first().waitFor();
+await he.screenshot({ path: `${out}/admin-competition-he-390.png`, fullPage: true });
+await he.goto(`${base}/admin/round/${roundId}`);
+await he.getByText('יומן שינויים').waitFor();
+await he.screenshot({ path: `${out}/admin-round-he-390.png`, fullPage: true });
+
+await browser.close();
+if (problems.length) {
+  console.error(`E2E FAILED:\n${problems.join('\n')}`);
+  process.exit(1);
+}
+console.log('E2E ADMIN FLOW PASSED');
