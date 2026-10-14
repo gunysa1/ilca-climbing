@@ -3,7 +3,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-PGBIN="${PGBIN:-$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)}"
+PGBIN="${PGBIN:-$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1 || true)}"
+if [ ! -x "${PGBIN:-}/initdb" ]; then
+  echo "test:db: Postgres binaries not found (looked in ${PGBIN:-/usr/lib/postgresql/*/bin})." >&2
+  echo "Install Postgres 16 or set PGBIN to the directory containing initdb/pg_ctl." >&2
+  exit 1
+fi
 DATA="$(mktemp -d)"
 PORT="${PGPORT_TEST:-54329}"
 trap '"$PGBIN/pg_ctl" -D "$DATA" -m immediate stop >/dev/null 2>&1 || true; rm -rf "$DATA"' EXIT
