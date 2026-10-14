@@ -23,17 +23,19 @@ Extra guarantees:
 - Climbers can only be scored in categories they are registered in.
 - A top always implies a zone on the same or an earlier attempt (DB check constraint).
 
-All of this is covered by `supabase/tests/rls_test.sql` (28 assertions).
+All of this is covered by `supabase/tests/rls_test.sql` (32 assertions, incl. scoring tie-breaks).
 
 ## Scoring
 
 Default format is **IFSC 2025** boulder scoring: top = 25 points, zone = 10 points, minus 0.1 for
-each failed attempt before the highest hold reached; rank by total points. A `classic` format
+each failed attempt before the highest hold reached (never below 0); rank by total points. Equal
+points are broken by countback to the previous round's rank, then fewer attempts on tops, then
+fewer attempts on zones; remaining ties share a rank. A `classic` format
 (tops, zones, top attempts, zone attempts) is available per round. Logic lives in
 `src/lib/scoring.ts` and is mirrored in SQL (`boulder_points`, `round_scores`).
 
-> To verify: these rules are from the IFSC 2025 rulebook, not yet checked against the
-> current temporary app (see `docs/reference-analysis.md`).
+Verified against official IFSC 2026 results and the temporary ILCA app's scoring code
+(see `docs/reference-analysis.md`).
 
 ## Climber history
 
@@ -67,5 +69,6 @@ Database:
 ## Not built yet
 
 - Admin UI (competitions, rounds, assignments are managed through SQL / Supabase dashboard for now)
-- Style alignment with ifsc.results.info and feature parity check with the temporary app
+- Parity gaps from `docs/reference-analysis.md`: category groups, advancement quota, appeals,
+  judge locking, exports, notifications
 - Import of history from the current LogLig app
