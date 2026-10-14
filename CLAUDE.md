@@ -9,29 +9,33 @@ See README.md for the role/isolation table and scripts.
   Any change to tables/policies must keep `npm run test:db` green and add assertions to
   `supabase/tests/rls_test.sql` for new access paths.
 - Scoring logic exists twice: `src/lib/scoring.ts` and SQL `boulder_points` / `round_scores` (latest
-  definition in `20261015000001_scoring_tiebreaks.sql`). Change both together; tests on both sides use
+  definition in `20261015000005_start_lists.sql`; countback reads the stored seed `round_starters.prev_place`). Change both together; tests on both sides use
   the same cases (top on 3rd attempt = 24.8; tie-breaks: points, previous-round rank, top attempts,
   zone attempts).
 - Identity: profiles exist without accounts. `profiles.user_id` links a login (only via `link_account()`);
   policies use `my_profile_id()`, never `auth.uid()` = profile id. Client code uses `useAuth().profileId`.
+- Who climbs a round = `round_starters` (first rounds follow registrations by trigger; later rounds via
+  `generate_start_list()`, top `rounds.advance_quota`). Results are only accepted for starters.
 - Clients must select `RESULT_COLUMNS` from `boulder_results` (never `*`): `updated_by` is not granted.
 - Dependencies are pinned exact; `.npmrc` sets legacy-peer-deps (npm 10 crashes on vitest 5 peers).
 - Before claiming done: `npm run typecheck && npm test && npm run build && npm run test:db`; for UI/admin
   changes also `npm run test:e2e` (Docker + Playwright Chromium; screenshots in `$E2E_OUT`).
 
 ## Status (2026-10-15, local session)
-Done: schema + RLS + scoring tests (51 DB assertions, 20 unit tests, admin E2E flow), app pages (live
+Done: schema + RLS + scoring tests (78 DB assertions, 23 unit tests, admin E2E flow), app pages (live
 results, competition, round results with Realtime, login, judge home + scoring pad, coach, my history),
 PWA shell, reference analysis (`docs/reference-analysis.md`, IFSC style + tie-breaks), profiles without
 accounts, admin UI (competitions/categories/rounds/boulders, registrations + CSV roster import, judge
-assignments, result corrections + audit, accounts/roles/linking, coach links).
+assignments, result corrections + audit, accounts/roles/linking, coach links), per-round start lists
+with advancement quota and seeds, age classes inside combined categories (results filter), "–" for
+climbers who haven't climbed.
 
 Local toolchain: REA needs Node 24 (`~/.nvm/versions/node/v24.22.0`), default Node is 25. Postgres 16
 under /usr/lib/postgresql/16, Java 21, Playwright Chromium in ~/.cache/ms-playwright.
 
 Open work, in order:
-1. Parity gaps from the reference analysis: category groups, advancement quota + next-round start
-   lists, appeals, judge claim/lock, favorites, PDF/Excel export, notifications.
+1. Parity gaps from the reference analysis: appeals, judge claim/lock, favorites, PDF/Excel export,
+   notifications. Migration 20261015000005 is NOT yet applied to the live project.
 2. Real Supabase project `rkuuzforzfjbdnybddwb` (linked 2026-10-15, all migrations applied with
    `npx -y supabase@2.121.0 db push --linked`; `.env.local` uses the publishable key). Remaining: first
    admin account, end-to-end test of all roles on the live project. Run `db advisors --linked` after

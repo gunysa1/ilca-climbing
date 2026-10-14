@@ -27,8 +27,8 @@ Climbers don't need a login. Admins create or import climber profiles; `profiles
 links a login account, set only through the admin-only `link_account()` function (clients can't write
 that column). Every "is this me" check uses `my_profile_id()`.
 
-All of this is covered by `supabase/tests/rls_test.sql` (51 assertions, incl. scoring tie-breaks,
-profiles without accounts and the roster import).
+All of this is covered by `supabase/tests/rls_test.sql` (78 assertions, incl. scoring tie-breaks,
+profiles without accounts, start lists/advancement and the roster import).
 
 ## Scoring
 
@@ -71,6 +71,12 @@ Database:
   (scoring format, planned → live → closed), number of boulders.
 - **Registrations**: search or create climbers, bibs, and **CSV roster import** (same Hebrew/English
   headers as the temporary app; ID numbers are ignored; preview first, then one all-or-nothing import).
+- **Rounds**: first rounds take everyone registered; later rounds get a start list generated from the
+  previous round (top N via "advance from previous round", ties at the cutoff advance, worst-ranked
+  starts first, previous places kept for countback).
+- **Age classes**: climbers of several age classes can compete in one category (like the temporary
+  app's category groups); results can be filtered and re-ranked per age class. CSV: a "קבוצה"/group
+  column becomes the category and the row's category the age class.
 - **Round**: assign judges (whole round or one boulder), correct results after the round, audit log.
 - **People**: accounts with roles (judge/coach/admin), link a login to an imported climber, coach ↔
   athlete links.
