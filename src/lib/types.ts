@@ -8,6 +8,16 @@ export interface Profile {
   full_name_he: string | null;
   club: string | null;
   country: string;
+  gender?: 'female' | 'male' | 'mixed' | null;
+}
+
+/** Row of public.admin_accounts() (admins only). */
+export interface AdminAccount {
+  user_id: string;
+  email: string | null;
+  profile_id: string | null;
+  full_name: string | null;
+  roles: AppRole[];
 }
 
 export interface Competition {

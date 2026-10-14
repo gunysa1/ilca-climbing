@@ -16,6 +16,7 @@ export function Layout() {
             {session && <NavLink to="/me">{t('myHistory')}</NavLink>}
             {hasRole('coach') && <NavLink to="/coach">{t('coach')}</NavLink>}
             {hasRole('judge') && <NavLink to="/judge">{t('judge')}</NavLink>}
+            {hasRole('admin') && <NavLink to="/admin">{t('admin')}</NavLink>}
           </nav>
           <div className="nav-end">
             <button className="link" onClick={() => setLang(lang === 'he' ? 'en' : 'he')}>

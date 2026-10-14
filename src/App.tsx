@@ -9,6 +9,10 @@ import { JudgeBoulder, JudgeHome } from './pages/Judge';
 import { Live } from './pages/Live';
 import { Login } from './pages/Login';
 import { Me } from './pages/Me';
+import { AdminCompetition } from './pages/admin/AdminCompetition';
+import { AdminHome } from './pages/admin/AdminHome';
+import { AdminPeople } from './pages/admin/AdminPeople';
+import { AdminRound } from './pages/admin/AdminRound';
 import { RoundResults } from './pages/RoundResults';
 
 export function App() {
@@ -28,6 +32,10 @@ export function App() {
               <Route path="coach" element={<RequireRole role="coach"><Coach /></RequireRole>} />
               <Route path="judge" element={<RequireRole role="judge"><JudgeHome /></RequireRole>} />
               <Route path="judge/:roundId/:boulderId" element={<RequireRole role="judge"><JudgeBoulder /></RequireRole>} />
+              <Route path="admin" element={<RequireRole role="admin"><AdminHome /></RequireRole>} />
+              <Route path="admin/competition/:id" element={<RequireRole role="admin"><AdminCompetition /></RequireRole>} />
+              <Route path="admin/round/:id" element={<RequireRole role="admin"><AdminRound /></RequireRole>} />
+              <Route path="admin/people" element={<RequireRole role="admin"><AdminPeople /></RequireRole>} />
               <Route path="*" element={<Live />} />
             </Route>
           </Routes>
