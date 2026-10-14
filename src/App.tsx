@@ -1,0 +1,38 @@
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { Layout } from './components/Layout';
+import { RequireRole } from './components/RequireRole';
+import { AuthProvider } from './lib/auth';
+import { I18nProvider } from './lib/i18n';
+import { Coach } from './pages/Coach';
+import { CompetitionPage } from './pages/CompetitionPage';
+import { JudgeBoulder, JudgeHome } from './pages/Judge';
+import { Live } from './pages/Live';
+import { Login } from './pages/Login';
+import { Me } from './pages/Me';
+import { RoundResults } from './pages/RoundResults';
+
+export function App() {
+  return (
+    <I18nProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route element={<Layout />}>
+              {/* public */}
+              <Route index element={<Live />} />
+              <Route path="competition/:id" element={<CompetitionPage />} />
+              <Route path="round/:id" element={<RoundResults />} />
+              <Route path="login" element={<Login />} />
+              {/* signed-in roles */}
+              <Route path="me" element={<RequireRole><Me /></RequireRole>} />
+              <Route path="coach" element={<RequireRole role="coach"><Coach /></RequireRole>} />
+              <Route path="judge" element={<RequireRole role="judge"><JudgeHome /></RequireRole>} />
+              <Route path="judge/:roundId/:boulderId" element={<RequireRole role="judge"><JudgeBoulder /></RequireRole>} />
+              <Route path="*" element={<Live />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
+    </I18nProvider>
+  );
+}

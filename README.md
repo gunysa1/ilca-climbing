@@ -1,0 +1,71 @@
+# ILCA Climbing
+
+Competition app for the Israeli climbing team: live boulder results, a judge scoring pad,
+coach views and a full results history per climber. Hebrew (RTL) by default, English toggle.
+Installable as a PWA; deploys to Netlify; data in Supabase (Postgres + Auth + Realtime).
+
+## Roles and isolation
+
+Isolation is enforced **in the database** with row level security (RLS), not in the UI.
+Hiding a menu item is cosmetic; a user who calls the API directly still gets only what RLS allows.
+
+| Role | Can read | Can write |
+|---|---|---|
+| Public (no login) | Published competitions, live/closed results | – |
+| Climber | Own private profile, own history, coach notes **shared** with them | Own profile |
+| Coach | Private profile + history of **linked** athletes only | Notes on linked athletes |
+| Judge | Results of boulders they are assigned to | Results **only** for assigned boulders, **only** while the round is live |
+| Admin | Everything, incl. the score audit log | Competitions, rounds, roles, judge/coach assignments |
+
+Extra guarantees:
+- Who entered a score (`updated_by`) is hidden from everyone but admins (column privileges).
+- Every score change is appended to `score_events` (judge, time, values) for disputes.
+- Climbers can only be scored in categories they are registered in.
+- A top always implies a zone on the same or an earlier attempt (DB check constraint).
+
+All of this is covered by `supabase/tests/rls_test.sql` (28 assertions).
+
+## Scoring
+
+Default format is **IFSC 2025** boulder scoring: top = 25 points, zone = 10 points, minus 0.1 for
+each failed attempt before the highest hold reached; rank by total points. A `classic` format
+(tops, zones, top attempts, zone attempts) is available per round. Logic lives in
+`src/lib/scoring.ts` and is mirrored in SQL (`boulder_points`, `round_scores`).
+
+> To verify: these rules are from the IFSC 2025 rulebook, not yet checked against the
+> current temporary app (see `docs/reference-analysis.md`).
+
+## Climber history
+
+`climber_history` (SQL view) lists every round a climber competed in: competition, date,
+category, round, tops, zones, points, rank and field size. Shown on **My history** for climbers
+and per athlete on the **Coach** page.
+
+## Getting started
+
+```bash
+npm install
+cp .env.example .env.local      # fill in your Supabase URL + anon key
+npm run dev
+```
+
+Database:
+1. Create a Supabase project.
+2. Apply `supabase/migrations/*.sql` (Supabase CLI `supabase db push`, or paste into the SQL editor).
+3. Create users (Authentication → Users). Each new user automatically gets a profile and the
+   `climber` role. Grant other roles with the snippets in `supabase/admin.sql`.
+
+## Scripts
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Dev server |
+| `npm run build` | Typecheck + production build to `dist/` |
+| `npm test` | Unit tests (scoring, judge pad) |
+| `npm run test:db` | Spins up a throwaway Postgres and runs the RLS isolation tests (needs Postgres 16 binaries) |
+
+## Not built yet
+
+- Admin UI (competitions, rounds, assignments are managed through SQL / Supabase dashboard for now)
+- Style alignment with ifsc.results.info and feature parity check with the temporary app
+- Import of history from the current LogLig app
