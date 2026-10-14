@@ -115,6 +115,12 @@ const dict = {
   by: { he: 'על ידי', en: 'By' },
   time: { he: 'זמן', en: 'Time' },
   birthDate: { he: 'תאריך לידה', en: 'Birth date' },
+  all: { he: 'הכל', en: 'All' },
+  ageClass: { he: 'גיל', en: 'Age class' },
+  advanceQuota: { he: 'עולים מהסבב הקודם', en: 'Advance from previous round' },
+  generateStartList: { he: 'צור רשימת עלייה', en: 'Generate start list' },
+  starters: { he: 'מטפסים בסבב', en: 'Starters' },
+  startOrder: { he: 'סדר עלייה', en: 'Start order' },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type MsgKey = keyof typeof dict;

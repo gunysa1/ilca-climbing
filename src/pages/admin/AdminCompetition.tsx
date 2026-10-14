@@ -9,8 +9,8 @@ import { ClimberPicker } from './ClimberPicker';
 import { RosterImport } from './RosterImport';
 
 const KINDS: Round['kind'][] = ['qualification', 'semifinal', 'final'];
-type RoundRow = Round & { boulders: { id: string; number: number }[] };
-interface Registration { category_id: string; climber_id: string; bib: number | null; profile: Profile }
+type RoundRow = Round & { advance_quota: number | null; boulders: { id: string; number: number }[]; round_starters: { count: number }[] };
+interface Registration { category_id: string; climber_id: string; bib: number | null; age_class: string | null; profile: Profile }
 export type CategoryRow = Category & { rounds: RoundRow[]; registrations: Registration[] };
 
 export function AdminCompetition() {
@@ -27,7 +27,7 @@ export function AdminCompetition() {
     const [{ data: c, error: e1 }, { data: cs, error: e2 }] = await Promise.all([
       supabase.from('competitions').select('*').eq('id', id).single(),
       supabase.from('categories')
-        .select('*, rounds(*, boulders(id, number)), registrations(category_id, climber_id, bib, profile:profiles(id, full_name, full_name_he, club, country))')
+        .select('*, rounds(*, boulders(id, number), round_starters(count)), registrations(category_id, climber_id, bib, age_class, profile:profiles(id, full_name, full_name_he, club, country))')
         .eq('competition_id', id).order('name'),
     ]);
     setComp(c as Competition);
@@ -130,7 +130,7 @@ function CategoryPanel({ cat, run }: { cat: CategoryRow; run: Run }) {
 
       <h3>{t('rounds')}</h3>
       <ul className="admin-rows">
-        {rounds.map((r) => <RoundRowEditor key={r.id} round={r} run={run} />)}
+        {rounds.map((r, i) => <RoundRowEditor key={r.id} round={r} first={i === 0} run={run} />)}
       </ul>
       {missing.length > 0 && (
         <form className="inline-form" onSubmit={(e) => {
@@ -146,7 +146,7 @@ function CategoryPanel({ cat, run }: { cat: CategoryRow; run: Run }) {
 
       <h3>{t('registrations')} ({regs.length})</h3>
       <table className="admin-table">
-        <thead><tr><th>{t('bib')}</th><th>{t('athlete')}</th><th>{t('club')}</th><th /></tr></thead>
+        <thead><tr><th>{t('bib')}</th><th>{t('athlete')}</th><th>{t('ageClass')}</th><th>{t('club')}</th><th /></tr></thead>
         <tbody>
           {regs.map((g) => (
             <tr key={g.climber_id}>
@@ -158,6 +158,13 @@ function CategoryPanel({ cat, run }: { cat: CategoryRow; run: Run }) {
                 }} />
               </td>
               <td>{localized(lang, g.profile.full_name, g.profile.full_name_he)}</td>
+              <td>
+                <input className="bib-input" aria-label={t('ageClass')} defaultValue={g.age_class ?? ''} onBlur={(e) => {
+                  const ageClass = e.target.value.trim() || null;
+                  if (ageClass !== g.age_class) void run(supabase.from('registrations').update({ age_class: ageClass })
+                    .eq('category_id', cat.id).eq('climber_id', g.climber_id));
+                }} />
+              </td>
               <td className="muted">{g.profile.club}</td>
               <td><button className="link danger-text" onClick={() =>
                 run(supabase.from('registrations').delete().eq('category_id', cat.id).eq('climber_id', g.climber_id))}>
@@ -179,7 +186,7 @@ function CategoryPanel({ cat, run }: { cat: CategoryRow; run: Run }) {
   );
 }
 
-function RoundRowEditor({ round, run }: { round: RoundRow; run: Run }) {
+function RoundRowEditor({ round, first, run }: { round: RoundRow; first: boolean; run: Run }) {
   const { t } = useI18n();
   const count = round.boulders.length;
 
@@ -217,6 +224,21 @@ function RoundRowEditor({ round, run }: { round: RoundRow; run: Run }) {
       {round.status === 'planned' && <button className="secondary" onClick={() => void status('live')}>{t('goLive')}</button>}
       {round.status === 'live' && <button className="secondary" onClick={() => void status('closed')}>{t('closeRound')}</button>}
       {round.status !== 'planned' && <button className="link" onClick={() => void status('planned')}>{t('reopen')}</button>}
+      <span className="muted">{t('starters')}: {round.round_starters[0]?.count ?? 0}</span>
+      {!first && (
+        <>
+          <label className="inline">{t('advanceQuota')}
+            <input className="bib-input" type="number" min={1} defaultValue={round.advance_quota ?? ''} key={round.advance_quota ?? 'all'}
+              onBlur={(e) => {
+                const q = e.target.value ? Number(e.target.value) : null;
+                if (q !== round.advance_quota) void run(supabase.from('rounds').update({ advance_quota: q }).eq('id', round.id));
+              }} />
+          </label>
+          <button className="secondary" onClick={() => void run(supabase.rpc('generate_start_list', { p_round: round.id }))}>
+            {t('generateStartList')}
+          </button>
+        </>
+      )}
       <Link to={`/admin/round/${round.id}`}>{t('manageRound')}</Link>
       <button className="link danger-text" onClick={() => window.confirm(t('confirmDelete')) &&
         run(supabase.from('rounds').delete().eq('id', round.id))}>{t('delete')}</button>

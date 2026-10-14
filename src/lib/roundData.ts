@@ -3,38 +3,47 @@ import { supabase } from './supabase';
 import { RESULT_COLUMNS, type Boulder, type Profile, type Round } from './types';
 import type { BoulderResult } from './scoring';
 
-export interface Starter { climber_id: string; bib: number | null; profile: Profile }
+/** A climber on a round's start list (round_starters + their registration). */
+export interface Starter {
+  climber_id: string;
+  bib: number | null;
+  age_class: string | null;
+  start_order: number | null;
+  /** Previous-round place (countback seed), stored when the start list was generated. */
+  prev_place: number | null;
+  profile: Profile;
+}
 export interface ResultRow extends BoulderResult { boulder_id: string; climber_id: string }
 
 export interface RoundData {
   round: Round | null;
   boulders: Boulder[];
+  /** Ordered by start order. */
   starters: Starter[];
   results: Map<string, ResultRow>; // key: `${boulder_id}:${climber_id}`
-  /** Final rank per climber in the previous round of the category (countback tie-break). */
-  prevRanks: Map<string, number>;
   loading: boolean;
 }
 
-const ROUND_ORDER: Round['kind'][] = ['qualification', 'semifinal', 'final'];
-
-/** Ranks from the latest earlier round of the same category, as computed by public.round_scores. */
-async function loadPrevRanks(round: Round): Promise<Map<string, number>> {
-  const earlier = ROUND_ORDER.slice(0, ROUND_ORDER.indexOf(round.kind));
-  if (earlier.length === 0) return new Map();
-  const { data: rounds } = await supabase.from('rounds').select('id, kind')
-    .eq('category_id', round.category_id).in('kind', earlier);
-  const prev = (rounds ?? []).sort((a, b) => ROUND_ORDER.indexOf(b.kind) - ROUND_ORDER.indexOf(a.kind))[0];
-  if (!prev) return new Map();
-  const { data: scores } = await supabase.from('round_scores').select('climber_id, rank').eq('round_id', prev.id);
-  return new Map((scores ?? []).map((s) => [s.climber_id as string, s.rank as number]));
+/** Start list of a round, joined with bib and age class from the category's registrations. */
+export async function loadStarters(round: Pick<Round, 'id' | 'category_id'>): Promise<{ starters: Starter[]; error: string | null }> {
+  const [{ data: rows, error: e1 }, { data: regs, error: e2 }] = await Promise.all([
+    supabase.from('round_starters')
+      .select('climber_id, start_order, prev_place, profile:profiles(id, full_name, full_name_he, club, country)')
+      .eq('round_id', round.id),
+    supabase.from('registrations').select('climber_id, bib, age_class').eq('category_id', round.category_id),
+  ]);
+  const reg = new Map((regs ?? []).map((g) => [g.climber_id as string, g as { bib: number | null; age_class: string | null }]));
+  const starters = ((rows ?? []) as unknown as Omit<Starter, 'bib' | 'age_class'>[]).map((r) => ({
+    ...r, bib: reg.get(r.climber_id)?.bib ?? null, age_class: reg.get(r.climber_id)?.age_class ?? null,
+  })).sort((a, b) => (a.start_order ?? 1e9) - (b.start_order ?? 1e9) || (a.bib ?? 1e9) - (b.bib ?? 1e9));
+  return { starters, error: e1?.message ?? e2?.message ?? null };
 }
 
 export const resultKey = (boulderId: string, climberId: string) => `${boulderId}:${climberId}`;
 
 /** Loads a round with its boulders, starters and results, and keeps results live via Realtime. */
 export function useRoundData(roundId: string | undefined): RoundData {
-  const [state, setState] = useState<RoundData>({ round: null, boulders: [], starters: [], results: new Map(), prevRanks: new Map(), loading: true });
+  const [state, setState] = useState<RoundData>({ round: null, boulders: [], starters: [], results: new Map(), loading: true });
 
   useEffect(() => {
     if (!roundId) return;
@@ -43,20 +52,17 @@ export function useRoundData(roundId: string | undefined): RoundData {
     (async () => {
       const { data: round } = await supabase.from('rounds').select('*').eq('id', roundId).single();
       if (!round || cancelled) { setState((s) => ({ ...s, loading: false })); return; }
-      const [{ data: boulders }, { data: regs }, { data: results }, prevRanks] = await Promise.all([
+      const [{ data: boulders }, { starters }, { data: results }] = await Promise.all([
         supabase.from('boulders').select('*').eq('round_id', roundId).order('number'),
-        supabase.from('registrations').select('climber_id, bib, profile:profiles(id, full_name, full_name_he, club, country)')
-          .eq('category_id', round.category_id).order('bib'),
+        loadStarters(round as Round),
         supabase.from('boulder_results').select(RESULT_COLUMNS).eq('round_id', roundId),
-        loadPrevRanks(round as Round),
       ]);
       if (cancelled) return;
       setState({
         round: round as Round,
         boulders: (boulders as Boulder[]) ?? [],
-        starters: (regs as unknown as Starter[]) ?? [],
+        starters,
         results: new Map(((results as ResultRow[]) ?? []).map((r) => [resultKey(r.boulder_id, r.climber_id), r])),
-        prevRanks,
         loading: false,
       });
     })();

@@ -73,6 +73,17 @@ export function rank(rows: RoundTotals[], format: ScoringFormat): (RoundTotals &
   return ranked;
 }
 
+/**
+ * Ranking for display: climbers with at least one attempt are ranked; the rest (not climbed yet)
+ * get rank null and keep their input (start) order after the ranked ones, like the temporary app's "–".
+ */
+export function standings(rows: RoundTotals[], format: ScoringFormat, climbed: Set<string>): (RoundTotals & { rank: number | null })[] {
+  return [
+    ...rank(rows.filter((r) => climbed.has(r.climber_id)), format),
+    ...rows.filter((r) => !climbed.has(r.climber_id)).map((r) => ({ ...r, rank: null })),
+  ];
+}
+
 // ---------------------------------------------------------------------------
 // Judge pad state machine. "attempts" includes the attempt in progress;
 // zone/top attach to the current attempt.

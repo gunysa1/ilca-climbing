@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyAction, boulderPoints, EMPTY_RESULT, rank, totals } from './scoring';
+import { applyAction, boulderPoints, EMPTY_RESULT, rank, standings, totals } from './scoring';
 
 describe('boulderPoints (IFSC 2025)', () => {
   it('scores flash top, late top, zone and nothing', () => {
@@ -93,5 +93,16 @@ describe('applyAction (judge pad)', () => {
   it('ignores input after a top', () => {
     const topped = { attempts: 1, zone_attempt: 1, top_attempt: 1 };
     expect(applyAction(topped, 'attempt')).toBe(topped);
+  });
+});
+
+describe('standings', () => {
+  const row = (id: string, points: number) => ({ climber_id: id, tops: 0, zones: 0, top_attempts: 0, zone_attempts: 0, points });
+  it('climbers without any attempt get no rank and follow the ranked ones in start order', () => {
+    const out = standings([row('a', 0), row('b', 10), row('c', 0), row('d', 0)], 'ifsc2025', new Set(['b', 'c']));
+    expect(out.map((r) => [r.climber_id, r.rank])).toEqual([['b', 1], ['c', 2], ['a', null], ['d', null]]);
+  });
+  it('nobody climbed yet: nobody is ranked', () => {
+    expect(standings([row('a', 0), row('b', 0)], 'ifsc2025', new Set()).every((r) => r.rank === null)).toBe(true);
   });
 });

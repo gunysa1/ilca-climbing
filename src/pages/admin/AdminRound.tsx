@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link, useParams } from 'react-router-dom';
 import { RoundStatus } from '../../components/RoundStatus';
 import { localized, useI18n } from '../../lib/i18n';
-import { resultKey, type ResultRow, type Starter } from '../../lib/roundData';
+import { loadStarters, resultKey, type ResultRow, type Starter } from '../../lib/roundData';
 import { supabase } from '../../lib/supabase';
 import { RESULT_COLUMNS, type AdminAccount, type Boulder, type Round } from '../../lib/types';
 import { AdminNav, ErrorLine } from './AdminHome';
@@ -37,8 +37,7 @@ export function AdminRound() {
     if (error || !r) return setError(error?.message ?? null);
     const [b, regs, res, asg, acc, ev] = await Promise.all([
       supabase.from('boulders').select('*').eq('round_id', id).order('number'),
-      supabase.from('registrations').select('climber_id, bib, profile:profiles(id, full_name, full_name_he, club, country)')
-        .eq('category_id', r.category_id).order('bib'),
+      loadStarters(r),
       supabase.from('boulder_results').select(RESULT_COLUMNS).eq('round_id', id),
       supabase.from('judge_assignments').select('id, boulder_id, judge:profiles(id, full_name, full_name_he)').eq('round_id', id),
       supabase.rpc('admin_accounts'),
@@ -46,7 +45,7 @@ export function AdminRound() {
     ]);
     setRound(r as RoundInfo);
     setBoulders((b.data as Boulder[]) ?? []);
-    const st = (regs.data as unknown as Starter[]) ?? [];
+    const st: Starter[] = regs.starters;
     setStarters(st);
     setResults(new Map(((res.data as ResultRow[]) ?? []).map((x) => [resultKey(x.boulder_id, x.climber_id), x])));
     setAssignments((asg.data as unknown as Assignment[]) ?? []);
@@ -58,7 +57,7 @@ export function AdminRound() {
     const { data: who } = ids.length ? await supabase.from('profiles').select('id, full_name, full_name_he').in('id', ids) : { data: [] };
     setNames(new Map([...st.map((s) => s.profile), ...((who ?? []) as { id: string; full_name: string; full_name_he: string | null }[])]
       .map((p) => [p.id, localized(lang, p.full_name, p.full_name_he)])));
-    setError(b.error?.message ?? regs.error?.message ?? res.error?.message ?? asg.error?.message ?? acc.error?.message ?? ev.error?.message ?? null);
+    setError(b.error?.message ?? regs.error ?? res.error?.message ?? asg.error?.message ?? acc.error?.message ?? ev.error?.message ?? null);
   }, [id, lang]);
   useEffect(() => { void reload(); }, [reload]);
 

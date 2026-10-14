@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { RoundStatus } from '../components/RoundStatus';
 import { localized, useI18n } from '../lib/i18n';
 import { resultKey, useRoundData, type ResultRow } from '../lib/roundData';
-import { boulderPoints, EMPTY_RESULT, rank, totals } from '../lib/scoring';
+import { boulderPoints, EMPTY_RESULT, standings, totals } from '../lib/scoring';
 
 /** IFSC-style tile: top half filled on a top, bottom half on a zone, slash when attempted without zone. */
 function Cell({ r, number }: { r: ResultRow | undefined; number: number }) {
@@ -23,16 +23,23 @@ function Cell({ r, number }: { r: ResultRow | undefined; number: number }) {
 export function RoundResults() {
   const { id } = useParams();
   const { t, lang } = useI18n();
-  const { round, boulders, starters, results, prevRanks, loading } = useRoundData(id);
+  const { round, boulders, starters, results, loading } = useRoundData(id);
+  const [ageClass, setAgeClass] = useState<string | null>(null);
+  const ageClasses = useMemo(() => [...new Set(starters.map((s) => s.age_class).filter((a): a is string => !!a))].sort(), [starters]);
 
+  // Within an age-class filter the ranking is recomputed among those climbers (like the
+  // temporary app's per-category results inside a combined group).
   const ranked = useMemo(() => {
     if (!round) return [];
-    const rows = starters.map((s) => ({
+    const shown = starters.filter((s) => !ageClass || s.age_class === ageClass);
+    const rows = shown.map((s) => ({
       ...totals(s.climber_id, boulders.map((b) => results.get(resultKey(b.id, s.climber_id)) ?? EMPTY_RESULT)),
-      prev_rank: prevRanks.get(s.climber_id) ?? null,
+      prev_rank: s.prev_place,
     }));
-    return rank(rows, round.scoring);
-  }, [round, starters, boulders, results, prevRanks]);
+    const climbed = new Set(shown.filter((s) => boulders.some((b) => (results.get(resultKey(b.id, s.climber_id))?.attempts ?? 0) > 0))
+      .map((s) => s.climber_id));
+    return standings(rows, round.scoring, climbed);
+  }, [round, starters, boulders, results, ageClass]);
 
   const byId = new Map(starters.map((s) => [s.climber_id, s]));
 
@@ -42,6 +49,14 @@ export function RoundResults() {
   return (
     <section>
       <h1>{t(round.kind)} <RoundStatus status={round.status} /></h1>
+      {ageClasses.length > 0 && (
+        <div className="chips">
+          <button className={`chip ${ageClass === null ? 'selected' : ''}`} onClick={() => setAgeClass(null)}>{t('all')}</button>
+          {ageClasses.map((a) => (
+            <button key={a} className={`chip ${ageClass === a ? 'selected' : ''}`} onClick={() => setAgeClass(a)}>{a}</button>
+          ))}
+        </div>
+      )}
       <div className="table-wrap">
         <table className="results">
           <thead>
@@ -56,16 +71,16 @@ export function RoundResults() {
               const s = byId.get(row.climber_id)!;
               return (
                 <tr key={row.climber_id}>
-                  <td className="rank">{row.rank}</td>
+                  <td className="rank">{row.rank ?? '–'}</td>
                   <td className="name">
                     <span className="athlete">{localized(lang, s.profile.full_name, s.profile.full_name_he)}</span>
-                    <span className="athlete-meta">{[s.bib, s.profile.club].filter(Boolean).join(' • ')}</span>
+                    <span className="athlete-meta">{[s.bib, s.age_class, s.profile.club].filter(Boolean).join(' • ')}</span>
                     <span className="ascents">
                       {boulders.map((b) => <Cell key={b.id} number={b.number} r={results.get(resultKey(b.id, row.climber_id))} />)}
                     </span>
                   </td>
                   <td className="score">
-                    {round.scoring === 'ifsc2025'
+                    {row.rank === null ? '–' : round.scoring === 'ifsc2025'
                       ? row.points.toFixed(1)
                       : `${row.tops}T${row.zones}z ${row.top_attempts} ${row.zone_attempts}`}
                   </td>
