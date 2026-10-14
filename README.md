@@ -27,7 +27,7 @@ Climbers don't need a login. Admins create or import climber profiles; `profiles
 links a login account, set only through the admin-only `link_account()` function (clients can't write
 that column). Every "is this me" check uses `my_profile_id()`.
 
-All of this is covered by `supabase/tests/rls_test.sql` (78 assertions, incl. scoring tie-breaks,
+All of this is covered by `supabase/tests/rls_test.sql` (80 assertions, incl. scoring tie-breaks,
 profiles without accounts, start lists/advancement and the roster import).
 
 ## Scoring

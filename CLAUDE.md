@@ -22,7 +22,7 @@ See README.md for the role/isolation table and scripts.
   changes also `npm run test:e2e` (Docker + Playwright Chromium; screenshots in `$E2E_OUT`).
 
 ## Status (2026-10-15, local session)
-Done: schema + RLS + scoring tests (78 DB assertions, 23 unit tests, admin E2E flow), app pages (live
+Done: schema + RLS + scoring tests (80 DB assertions, 23 unit tests, admin E2E flow), app pages (live
 results, competition, round results with Realtime, login, judge home + scoring pad, coach, my history),
 PWA shell, reference analysis (`docs/reference-analysis.md`, IFSC style + tie-breaks), profiles without
 accounts, admin UI (competitions/categories/rounds/boulders, registrations + CSV roster import, judge
@@ -35,7 +35,7 @@ under /usr/lib/postgresql/16, Java 21, Playwright Chromium in ~/.cache/ms-playwr
 
 Open work, in order:
 1. Parity gaps from the reference analysis: appeals, judge claim/lock, favorites, PDF/Excel export,
-   notifications. Migration 20261015000005 is NOT yet applied to the live project.
+   notifications. Live project is at migration 20261015000005; 20261015000006 pending.
 2. Real Supabase project `rkuuzforzfjbdnybddwb` (linked 2026-10-15, all migrations applied with
    `npx -y supabase@2.121.0 db push --linked`; `.env.local` uses the publishable key). Remaining: first
    admin account, end-to-end test of all roles on the live project. Run `db advisors --linked` after
