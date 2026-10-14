@@ -140,7 +140,7 @@ export function AdminRound() {
                   {boulders.map((b) => {
                     if (lead) {
                       const l = leadResults.get(resultKey(b.id, s.climber_id));
-                      return <td key={b.id} className="mono">{l ? formatHeight(l) : ''}</td>;
+                      return <td key={b.id} className="mono" dir="ltr">{l ? formatHeight(l) : ''}</td>;
                     }
                     const r = results.get(resultKey(b.id, s.climber_id));
                     return <td key={b.id} className="mono">{r ? `${r.attempts}/${r.zone_attempt ?? '-'}/${r.top_attempt ?? '-'}` : ''}</td>;

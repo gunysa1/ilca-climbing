@@ -192,7 +192,7 @@ function LeadPad({ roundId, routeId, starter, initial }:
     <div className="pad">
       <h2>{localized(lang, starter.profile.full_name, starter.profile.full_name_he)}</h2>
       <div className="pad-readout lead-readout">
-        <div><span className="muted">{t('hold')}</span><strong>{formatHeight({ hold, plus, top })}</strong></div>
+        <div><span className="muted">{t('hold')}</span><strong dir="ltr">{formatHeight({ hold, plus, top })}</strong></div>
       </div>
       <div className="pad-buttons">
         <button className="pad-undo" onClick={() => { setHold((h) => Math.max(0, h - 1)); changed(); }} disabled={top || hold === 0}>−1</button>

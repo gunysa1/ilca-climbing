@@ -26,7 +26,7 @@ function Cell({ r, number }: { r: ResultRow | undefined; number: number }) {
 function RouteChip({ r, number }: { r: LeadRow | undefined; number: number }) {
   return (
     <span className="asc">
-      <span className={`route-chip${r?.top ? ' top' : ''}${r ? '' : ' empty'}`}>{r ? formatHeight(r) : ''}</span>
+      <span className={`route-chip${r?.top ? ' top' : ''}${r ? '' : ' empty'}`} dir="ltr">{r ? formatHeight(r) : ''}</span>
       <span className="asc-label">{number}</span>
     </span>
   );
