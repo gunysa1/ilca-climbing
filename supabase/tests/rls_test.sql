@@ -368,6 +368,72 @@ select pg_temp.assert(exists (select 1 from profile_private where id = '50000000
   'coach reads linked imported athlete');
 reset role;
 
+-- ---------------------------------------------------------------- lead
+-- Same cases as src/lib/lead.test.ts.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into profiles (id, full_name) values
+  ('60000000-0000-0000-0000-00000000000a', 'Lead A'), ('60000000-0000-0000-0000-00000000000b', 'Lead B'),
+  ('60000000-0000-0000-0000-00000000000c', 'Lead C'), ('60000000-0000-0000-0000-00000000000d', 'Lead D');
+insert into categories (id, competition_id, name, gender) values
+  ('20000000-0000-0000-0000-000000000006', '10000000-0000-0000-0000-000000000001', 'Lead Open', 'mixed');
+-- single-route final with seeds a=5, b=2 (start list written directly, as an import would)
+insert into rounds (id, category_id, kind, status, scoring) values
+  ('30000000-0000-0000-0000-000000000061', '20000000-0000-0000-0000-000000000006', 'final', 'live', 'lead'),
+  ('30000000-0000-0000-0000-000000000062', '20000000-0000-0000-0000-000000000006', 'qualification', 'live', 'lead');
+insert into boulders (id, round_id, number) values
+  ('40000000-0000-0000-0000-000000000061', '30000000-0000-0000-0000-000000000061', 1),
+  ('40000000-0000-0000-0000-000000000062', '30000000-0000-0000-0000-000000000062', 1),
+  ('40000000-0000-0000-0000-000000000063', '30000000-0000-0000-0000-000000000062', 2);
+insert into registrations (category_id, climber_id) values
+  ('20000000-0000-0000-0000-000000000006', '60000000-0000-0000-0000-00000000000a'),
+  ('20000000-0000-0000-0000-000000000006', '60000000-0000-0000-0000-00000000000b'),
+  ('20000000-0000-0000-0000-000000000006', '60000000-0000-0000-0000-00000000000c'),
+  ('20000000-0000-0000-0000-000000000006', '60000000-0000-0000-0000-00000000000d');
+insert into round_starters (round_id, climber_id, start_order, prev_place) values
+  ('30000000-0000-0000-0000-000000000061', '60000000-0000-0000-0000-00000000000a', 1, 5),
+  ('30000000-0000-0000-0000-000000000061', '60000000-0000-0000-0000-00000000000b', 2, 2),
+  ('30000000-0000-0000-0000-000000000061', '60000000-0000-0000-0000-00000000000c', 3, null),
+  ('30000000-0000-0000-0000-000000000061', '60000000-0000-0000-0000-00000000000d', 4, null);
+insert into lead_results (boulder_id, climber_id, round_id, hold, plus, top) values
+  ('40000000-0000-0000-0000-000000000061', '60000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-000000000061', 30, true, false),
+  ('40000000-0000-0000-0000-000000000061', '60000000-0000-0000-0000-00000000000b', '30000000-0000-0000-0000-000000000061', 30, true, false),
+  ('40000000-0000-0000-0000-000000000061', '60000000-0000-0000-0000-00000000000c', '30000000-0000-0000-0000-000000000061', 40, false, true),
+  ('40000000-0000-0000-0000-000000000061', '60000000-0000-0000-0000-00000000000d', '30000000-0000-0000-0000-000000000061', 30, true, false),
+-- two-route qualification: route 1 a>b>c, route 2 c>b>a (d registered, never climbs)
+  ('40000000-0000-0000-0000-000000000062', '60000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-000000000062', 40, false, false),
+  ('40000000-0000-0000-0000-000000000062', '60000000-0000-0000-0000-00000000000b', '30000000-0000-0000-0000-000000000062', 30, false, false),
+  ('40000000-0000-0000-0000-000000000062', '60000000-0000-0000-0000-00000000000c', '30000000-0000-0000-0000-000000000062', 20, false, false),
+  ('40000000-0000-0000-0000-000000000063', '60000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-000000000062', 10, false, false),
+  ('40000000-0000-0000-0000-000000000063', '60000000-0000-0000-0000-00000000000b', '30000000-0000-0000-0000-000000000062', 20, false, false),
+  ('40000000-0000-0000-0000-000000000063', '60000000-0000-0000-0000-00000000000c', '30000000-0000-0000-0000-000000000062', 30, false, false);
+select set_config('request.jwt.claim.sub', '', false);
+
+select pg_temp.login(null);
+select pg_temp.assert(
+  (select array_agg(right(climber_id::text, 1) || rank order by rank, climber_id) from lead_scores
+    where round_id = '30000000-0000-0000-0000-000000000061') = '{c1,b2,a3,d4}',
+  'lead single route: height (TOP > 30+), then countback');
+select pg_temp.assert(
+  (select array_agg(right(climber_id::text, 1) || coalesce(rank::text, '-') || ':' || coalesce(round(points, 2)::text, '')
+     order by rank nulls last, climber_id) from lead_scores
+    where round_id = '30000000-0000-0000-0000-000000000062') = '{a1:1.73,c1:1.73,b3:2.00,d-:}',
+  'lead two routes: geometric mean of route ranks, ties share, not climbed unranked');
+select pg_temp.assert((select count(*) from round_ranks where round_id = '30000000-0000-0000-0000-000000000062' and rank is not null) = 3
+  and not exists (select 1 from round_scores where round_id = '30000000-0000-0000-0000-000000000062'),
+  'lead rounds rank in round_ranks, not in the boulder view');
+select pg_temp.denied($$select updated_by from lead_results$$, 'public reads lead judge identity');
+reset role;
+
+select pg_temp.login('00000000-0000-0000-0000-000000000001');
+select pg_temp.denied($$update lead_results set hold = 50 where round_id = '30000000-0000-0000-0000-000000000061'$$,
+  'climber edits lead results');
+reset role;
+select pg_temp.assert((select count(*) from lead_events where round_id = '30000000-0000-0000-0000-000000000061') = 4,
+  'every lead score change is audited');
+select pg_temp.denied($$insert into lead_results (boulder_id, climber_id, round_id, hold, plus, top)
+  values ('40000000-0000-0000-0000-000000000063', '60000000-0000-0000-0000-00000000000d', '30000000-0000-0000-0000-000000000062', 1, true, true)$$,
+  'lead TOP with plus rejected');
+
 -- ---------------------------------------------------------------- function privileges (Supabase advisors)
 -- Supabase grants EXECUTE on new functions to anon directly; admin-only and trigger functions must not keep it.
 select pg_temp.assert(not has_function_privilege('anon', f, 'execute'), 'anon cannot execute ' || f)
@@ -380,6 +446,7 @@ select pg_temp.assert(not has_function_privilege(r, f, 'execute'), r || ' cannot
 from unnest(array['anon', 'authenticated']) r,
      unnest(array['public.handle_new_user()', 'public.boulder_results_stamp()',
                   'public.boulder_results_check_registration()', 'public.registrations_sync_starters()',
+                  'public.lead_results_stamp()',
                   'public.rounds_seed_starters()']) f;
 select pg_temp.assert(has_function_privilege('authenticated', 'public.admin_accounts()', 'execute')
   and has_function_privilege('anon', 'public.has_role(public.app_role)', 'execute'),
