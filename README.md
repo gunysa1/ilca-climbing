@@ -23,7 +23,12 @@ Extra guarantees:
 - Climbers can only be scored in categories they are registered in.
 - A top always implies a zone on the same or an earlier attempt (DB check constraint).
 
-All of this is covered by `supabase/tests/rls_test.sql` (32 assertions, incl. scoring tie-breaks).
+Climbers don't need a login. Admins create or import climber profiles; `profiles.user_id` optionally
+links a login account, set only through the admin-only `link_account()` function (clients can't write
+that column). Every "is this me" check uses `my_profile_id()`.
+
+All of this is covered by `supabase/tests/rls_test.sql` (51 assertions, incl. scoring tie-breaks,
+profiles without accounts and the roster import).
 
 ## Scoring
 
@@ -55,7 +60,19 @@ Database:
 1. Create a Supabase project.
 2. Apply `supabase/migrations/*.sql` (Supabase CLI `supabase db push`, or paste into the SQL editor).
 3. Create users (Authentication → Users). Each new user automatically gets a profile and the
-   `climber` role. Grant other roles with the snippets in `supabase/admin.sql`.
+   `climber` role. Make the first admin with the snippet in `supabase/admin.sql`; after that use the
+   **Admin** pages in the app.
+
+## Admin
+
+`/admin` (admin role only):
+- **Competitions**: create/edit competitions (draft → published → finished), categories, rounds
+  (scoring format, planned → live → closed), number of boulders.
+- **Registrations**: search or create climbers, bibs, and **CSV roster import** (same Hebrew/English
+  headers as the temporary app; ID numbers are ignored; preview first, then one all-or-nothing import).
+- **Round**: assign judges (whole round or one boulder), correct results after the round, audit log.
+- **People**: accounts with roles (judge/coach/admin), link a login to an imported climber, coach ↔
+  athlete links.
 
 ## Scripts
 
@@ -65,10 +82,10 @@ Database:
 | `npm run build` | Typecheck + production build to `dist/` |
 | `npm test` | Unit tests (scoring, judge pad) |
 | `npm run test:db` | Spins up a throwaway Postgres and runs the RLS isolation tests (needs Postgres 16 binaries) |
+| `npm run test:e2e` | Admin UI end to end: throwaway Postgres + PostgREST (Docker) + Playwright Chromium |
 
 ## Not built yet
 
-- Admin UI (competitions, rounds, assignments are managed through SQL / Supabase dashboard for now)
 - Parity gaps from `docs/reference-analysis.md`: category groups, advancement quota, appeals,
   judge locking, exports, notifications
 - Import of history from the current LogLig app
