@@ -67,7 +67,7 @@ begin
     get diagnostics n = row_count;
     if n > 0 then raise exception 'FAIL (allowed): %', msg; end if;
   exception
-    when insufficient_privilege or check_violation or raise_exception then
+    when insufficient_privilege or check_violation or raise_exception or unique_violation then
       if sqlerrm like 'FAIL%' then raise; end if;
   end;
   raise notice 'ok - denied: %', msg;
@@ -255,6 +255,39 @@ select pg_temp.assert((select medical_notes from profile_private) = 'peanut alle
 select pg_temp.assert(
   (select count(*) from climber_history where climber_id = my_profile_id() and round = 'qualification') = 1,
   'linked account sees its history');
+reset role;
+
+-- roster import is one transaction, under the caller's RLS
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select import_roster(
+  '[{"id":"20000000-0000-0000-0000-000000000009","competition_id":"10000000-0000-0000-0000-000000000001","name":"U19 Girls","name_he":null,"gender":"female"}]',
+  '[{"id":"50000000-0000-0000-0000-000000000002","full_name":"Roster Kid","full_name_he":null,"club":"X","gender":"female"}]',
+  '[{"id":"50000000-0000-0000-0000-000000000002","birth_date":"2009-01-02","email":null}]',
+  '[{"category_id":"20000000-0000-0000-0000-000000000009","climber_id":"50000000-0000-0000-0000-000000000002","bib":7}]');
+select pg_temp.assert(
+  (select bib from registrations where climber_id = '50000000-0000-0000-0000-000000000002') = 7,
+  'admin imports a roster (category, profile, private row, registration)');
+select pg_temp.denied($$select import_roster('[]',
+  '[{"id":"50000000-0000-0000-0000-000000000004","full_name":"Half Import","full_name_he":null,"club":null,"gender":null}]', '[]',
+  '[{"category_id":"20000000-0000-0000-0000-000000000009","climber_id":"50000000-0000-0000-0000-000000000002","bib":8}]')$$,
+  'roster import with a duplicate registration');
+select pg_temp.assert(not exists (select 1 from profiles where id = '50000000-0000-0000-0000-000000000004'),
+  'failed roster import leaves nothing behind');
+reset role;
+select pg_temp.login('00000000-0000-0000-0000-000000000001');
+select pg_temp.denied($$select import_roster('[]',
+  '[{"id":"50000000-0000-0000-0000-000000000003","full_name":"Sneaky","full_name_he":null,"club":null,"gender":null}]', '[]', '[]')$$,
+  'climber imports a roster');
+reset role;
+
+-- admin corrects a result after the round closed; the audit records the admin
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+update boulder_results set attempts = 2, zone_attempt = 1, top_attempt = 2
+  where boulder_id = '40000000-0000-0000-0000-000000000041' and climber_id = '00000000-0000-0000-0000-000000000001';
+select pg_temp.assert(
+  (select judge_id from score_events where boulder_id = '40000000-0000-0000-0000-000000000041'
+     and climber_id = '00000000-0000-0000-0000-000000000001' order by id desc limit 1) = my_profile_id(),
+  'admin correction on a closed round is audited with the admin');
 reset role;
 
 -- coach linked by profile id (not account id)
