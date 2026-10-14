@@ -3,15 +3,19 @@ import { useParams } from 'react-router-dom';
 import { RoundStatus } from '../components/RoundStatus';
 import { localized, useI18n } from '../lib/i18n';
 import { resultKey, useRoundData, type ResultRow } from '../lib/roundData';
-import { boulderPoints, rank, totals } from '../lib/scoring';
+import { boulderPoints, EMPTY_RESULT, rank, totals } from '../lib/scoring';
 
-function Cell({ r }: { r: ResultRow | undefined }) {
-  if (!r || r.attempts === 0) return <span className="bcell bcell-empty" />;
-  const cls = r.top_attempt != null ? 'bcell-top' : r.zone_attempt != null ? 'bcell-zone' : 'bcell-none';
+/** IFSC-style tile: top half filled on a top, bottom half on a zone, slash when attempted without zone. */
+function Cell({ r, number }: { r: ResultRow | undefined; number: number }) {
+  const attempted = !!r && r.attempts > 0;
+  const cls = !attempted ? 'asc-empty' : r.zone_attempt == null ? 'asc-none' : '';
   return (
-    <span className={`bcell ${cls}`} title={`${boulderPoints(r)}`}>
-      <span className="bcell-t">{r.top_attempt ?? ''}</span>
-      <span className="bcell-z">{r.zone_attempt ?? ''}</span>
+    <span className="asc" title={attempted ? `${boulderPoints(r)}` : undefined}>
+      <span className={`asc-cell ${cls}`}>
+        <span className={`asc-top${r?.top_attempt != null ? ' on' : ''}`}>{r?.top_attempt ?? ''}</span>
+        <span className={`asc-zone${r?.zone_attempt != null ? ' on' : ''}`}>{r?.zone_attempt ?? ''}</span>
+      </span>
+      <span className="asc-label">{number}</span>
     </span>
   );
 }
@@ -19,14 +23,16 @@ function Cell({ r }: { r: ResultRow | undefined }) {
 export function RoundResults() {
   const { id } = useParams();
   const { t, lang } = useI18n();
-  const { round, boulders, starters, results, loading } = useRoundData(id);
+  const { round, boulders, starters, results, prevRanks, loading } = useRoundData(id);
 
   const ranked = useMemo(() => {
     if (!round) return [];
-    const rows = starters.map((s) =>
-      totals(s.climber_id, boulders.map((b) => results.get(resultKey(b.id, s.climber_id)) ?? { attempts: 0, zone_attempt: null, top_attempt: null })));
+    const rows = starters.map((s) => ({
+      ...totals(s.climber_id, boulders.map((b) => results.get(resultKey(b.id, s.climber_id)) ?? EMPTY_RESULT)),
+      prev_rank: prevRanks.get(s.climber_id) ?? null,
+    }));
     return rank(rows, round.scoring);
-  }, [round, starters, boulders, results]);
+  }, [round, starters, boulders, results, prevRanks]);
 
   const byId = new Map(starters.map((s) => [s.climber_id, s]));
 
@@ -40,10 +46,9 @@ export function RoundResults() {
         <table className="results">
           <thead>
             <tr>
-              <th>{t('rank')}</th>
+              <th className="rank">{t('rank')}</th>
               <th className="name">{t('athlete')}</th>
-              {boulders.map((b) => <th key={b.id}>{b.number}</th>)}
-              <th>{round.scoring === 'ifsc2025' ? t('points') : `${t('tops')}/${t('zones')}`}</th>
+              <th className="score">{round.scoring === 'ifsc2025' ? t('points') : `${t('tops')}/${t('zones')}`}</th>
             </tr>
           </thead>
           <tbody>
@@ -54,9 +59,11 @@ export function RoundResults() {
                   <td className="rank">{row.rank}</td>
                   <td className="name">
                     <span className="athlete">{localized(lang, s.profile.full_name, s.profile.full_name_he)}</span>
-                    {s.profile.club && <span className="muted small">{s.profile.club}</span>}
+                    <span className="athlete-meta">{[s.bib, s.profile.club].filter(Boolean).join(' • ')}</span>
+                    <span className="ascents">
+                      {boulders.map((b) => <Cell key={b.id} number={b.number} r={results.get(resultKey(b.id, row.climber_id))} />)}
+                    </span>
                   </td>
-                  {boulders.map((b) => <td key={b.id}><Cell r={results.get(resultKey(b.id, row.climber_id))} /></td>)}
                   <td className="score">
                     {round.scoring === 'ifsc2025'
                       ? row.points.toFixed(1)
