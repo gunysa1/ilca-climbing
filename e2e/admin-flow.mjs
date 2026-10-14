@@ -25,7 +25,14 @@ async function page(lang, viewport = { width: 1280, height: 900 }) {
   return p;
 }
 const step = (name) => console.log(`- ${name}`);
-const expectText = async (p, text) => p.getByText(text, { exact: false }).first().waitFor({ timeout: 5000 });
+const expectText = async (p, text) => {
+  try { await p.getByText(text, { exact: false }).first().waitFor({ timeout: 5000 }); }
+  catch (e) {
+    const errs = await p.locator('.error').allInnerTexts();
+    await p.screenshot({ path: `${out}/failure.png`, fullPage: true });
+    throw new Error(`waiting for "${text}" failed; page errors: ${JSON.stringify(errs)}; problems: ${JSON.stringify(problems)}`);
+  }
+};
 
 const p = await page('en');
 step('create competition');
@@ -54,13 +61,15 @@ step('import roster CSV');
 await p.locator('input[type=file]').setInputFiles(new URL('./roster.csv', import.meta.url).pathname);
 await expectText(p, 'Preview');
 const preview = await p.locator('.import-preview').innerText();
-for (const want of ['New categories: 1', 'New climbers: 3', 'Registrations: 3']) {
+for (const want of ['New categories: 0', 'New climbers: 3', 'Registrations: 3']) {
   if (!preview.includes(want)) problems.push(`import preview missing "${want}": ${preview}`);
 }
 await p.getByRole('button', { name: 'Import', exact: true }).click();
 await expectText(p, 'Import complete');
-await expectText(p, 'Registrations (2)');
-await expectText(p, 'Registrations (1)');
+await expectText(p, 'Registrations (3)');
+if ((await p.getByLabel('Age class').evaluateAll((els) => els.map((e) => e.value))).join(',') !== ',,בנות U19') {
+  problems.push('age classes not imported from the group column');
+}
 
 step('publish competition, round goes live');
 await p.getByLabel('Status').selectOption('published');
@@ -94,9 +103,27 @@ await p.getByRole('button', { name: 'Save' }).click();
 await p.getByText('✗ Boulder 1').waitFor();
 await p.screenshot({ path: `${out}/admin-round-en.png`, fullPage: true });
 
-step('public results show the corrected score');
+step('public results: corrected score, "–" for not climbed, age-class filter');
 await p.goto(`${base}/round/${roundId}`);
-await p.locator('tr', { hasText: 'Noa' }).or(p.locator('tr', { hasText: 'נועה' })).getByText('24.9').waitFor();
+await p.locator('tr', { hasText: 'נועה' }).getByText('24.9').waitFor();
+const tamarRow = (await p.locator('tr', { hasText: 'תמר' }).innerText()).replace(/\s+/g, ' ');
+if (!/^– .*–$/.test(tamarRow.trim())) problems.push(`not-climbed row should show – for rank and score: "${tamarRow}"`);
+await p.getByRole('button', { name: 'בנות U19' }).click();
+if ((await p.locator('tbody tr').count()) !== 1) problems.push('age-class filter should show one climber');
+await p.screenshot({ path: `${out}/results-filter-en.png`, fullPage: true });
+
+step('final: quota 1, generated start list has only the leader');
+await p.goto(compUrl);
+await p.locator('select[name=kind]').selectOption('final');
+await p.getByRole('button', { name: 'Add round' }).click();
+const finalRow = p.locator('.admin-row', { hasText: 'Final' });
+await finalRow.waitFor();
+const quota = finalRow.getByLabel('Advance from previous round');
+await quota.fill('1');
+await quota.press('Tab');
+await p.waitForTimeout(500);
+await finalRow.getByRole('button', { name: 'Generate start list' }).click();
+await finalRow.getByText('Starters: 1').waitFor();
 
 step('people: link parent account, make judge a coach, link athlete');
 await p.goto(`${base}/admin/people`);

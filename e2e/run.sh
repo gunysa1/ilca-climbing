@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 PGBIN="${PGBIN:-$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1 || true)}"
 [ -x "${PGBIN:-}/initdb" ] || { echo "e2e: Postgres binaries not found; set PGBIN" >&2; exit 1; }
 PGPORT=54339; API=54321; REST=54322; WEB=4180
-DATA="$(mktemp -d)"; OUT="${E2E_OUT:-$DATA/out}"; mkdir -p "$OUT"
+DATA="$(mktemp -d)"; OUT="${E2E_OUT:-$(mktemp -d)}"; mkdir -p "$OUT"
 NAME="ilca-e2e-postgrest-$$"
 SECRET="e2e-only-jwt-secret-at-least-32-characters-long"
 cleanup() {
@@ -15,9 +15,14 @@ cleanup() {
   [ -n "${PROXY:-}" ] && kill "$PROXY" 2>/dev/null || true
   [ -n "${WEBPID:-}" ] && kill "$WEBPID" 2>/dev/null || true
   "$PGBIN/pg_ctl" -D "$DATA/pg" -m immediate stop >/dev/null 2>&1 || true
-  rm -rf "$DATA/pg"
+  rm -rf "$DATA"
 }
 trap cleanup EXIT
+
+# A leftover server on one of our ports would make this run test a stale build: refuse instead.
+for port in $PGPORT $API $REST $WEB; do
+  if ss -ltn | grep -q ":$port "; then echo "e2e: port $port is already in use (leftover run?)" >&2; exit 1; fi
+done
 
 "$PGBIN/initdb" -D "$DATA/pg" -U postgres -A trust >/dev/null
 "$PGBIN/pg_ctl" -D "$DATA/pg" -o "-p $PGPORT -k $DATA -c listen_addresses=127.0.0.1" -w start >/dev/null
@@ -35,8 +40,8 @@ node e2e/proxy.mjs "$API" "http://127.0.0.1:$REST" & PROXY=$!
 
 ANON=$(node e2e/jwt.mjs "$SECRET" anon)
 VITE_SUPABASE_URL="http://127.0.0.1:$API" VITE_SUPABASE_ANON_KEY="$ANON" \
-  npx vite build --outDir "$DATA/dist" --emptyOutDir >/dev/null
-npx vite preview --outDir "$DATA/dist" --host 127.0.0.1 --port "$WEB" --strictPort >/dev/null 2>&1 & WEBPID=$!
+  node node_modules/vite/bin/vite.js build --outDir "$DATA/dist" --emptyOutDir >/dev/null
+node node_modules/vite/bin/vite.js preview --outDir "$DATA/dist" --host 127.0.0.1 --port "$WEB" --strictPort >/dev/null 2>&1 & WEBPID=$!
 ready() { curl -sf "http://127.0.0.1:$REST/" >/dev/null && curl -sf "http://127.0.0.1:$WEB/" >/dev/null; }
 for _ in $(seq 100); do ready && break; sleep 0.2; done
 ready || { echo "e2e: PostgREST or web server did not start" >&2; docker logs "$NAME" 2>&1 | tail -5 >&2; exit 1; }
