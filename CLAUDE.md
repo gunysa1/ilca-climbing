@@ -35,7 +35,7 @@ under /usr/lib/postgresql/16, Java 21, Playwright Chromium in ~/.cache/ms-playwr
 
 Open work, in order:
 1. Parity gaps from the reference analysis: appeals, judge claim/lock, favorites, PDF/Excel export,
-   notifications. Live project is at migration 20261015000005; 20261015000006 pending.
+   notifications. Live project is at migration 20261015000006 (all applied).
 2. Real Supabase project `rkuuzforzfjbdnybddwb` (linked 2026-10-15, all migrations applied with
    `npx -y supabase@2.121.0 db push --linked`; `.env.local` uses the publishable key). Remaining: first
    admin account, end-to-end test of all roles on the live project. Run `db advisors --linked` after
