@@ -297,4 +297,17 @@ select pg_temp.assert(exists (select 1 from profile_private where id = '50000000
   'coach reads linked imported athlete');
 reset role;
 
+-- ---------------------------------------------------------------- function privileges (Supabase advisors)
+-- Supabase grants EXECUTE on new functions to anon directly; admin-only and trigger functions must not keep it.
+select pg_temp.assert(not has_function_privilege('anon', f, 'execute'), 'anon cannot execute ' || f)
+from unnest(array['public.admin_accounts()', 'public.link_account(uuid,uuid)', 'public.unlink_account(uuid)',
+                  'public.import_roster(jsonb,jsonb,jsonb,jsonb)']) f;
+select pg_temp.assert(not has_function_privilege(r, f, 'execute'), r || ' cannot execute trigger ' || f)
+from unnest(array['anon', 'authenticated']) r,
+     unnest(array['public.handle_new_user()', 'public.boulder_results_stamp()',
+                  'public.boulder_results_check_registration()']) f;
+select pg_temp.assert(has_function_privilege('authenticated', 'public.admin_accounts()', 'execute')
+  and has_function_privilege('anon', 'public.has_role(public.app_role)', 'execute'),
+  'admins (authenticated) keep admin RPCs; RLS helpers stay executable');
+
 \echo ALL RLS TESTS PASSED
