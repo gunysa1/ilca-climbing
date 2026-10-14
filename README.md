@@ -58,7 +58,8 @@ npm run dev
 
 Database:
 1. Create a Supabase project.
-2. Apply `supabase/migrations/*.sql` (Supabase CLI `supabase db push`, or paste into the SQL editor).
+2. Apply `supabase/migrations/*.sql`: `npx supabase login`, `npx supabase link --project-ref <ref>`,
+   `npx supabase db push --linked`. Then check `npx supabase db advisors --linked`.
 3. Create users (Authentication → Users). Each new user automatically gets a profile and the
    `climber` role. Make the first admin with the snippet in `supabase/admin.sql`; after that use the
    **Admin** pages in the app.

@@ -32,7 +32,10 @@ under /usr/lib/postgresql/16, Java 21, Playwright Chromium in ~/.cache/ms-playwr
 Open work, in order:
 1. Parity gaps from the reference analysis: category groups, advancement quota + next-round start
    lists, appeals, judge claim/lock, favorites, PDF/Excel export, notifications.
-2. Real Supabase project: apply migrations, set `.env.local`, end-to-end test of all roles.
+2. Real Supabase project `rkuuzforzfjbdnybddwb` (linked 2026-10-15, all migrations applied with
+   `npx -y supabase@2.121.0 db push --linked`; `.env.local` uses the publishable key). Remaining: first
+   admin account, end-to-end test of all roles on the live project. Run `db advisors --linked` after
+   schema changes; remaining SECURITY warnings are the intended RLS helpers and admin RPCs.
 3. Netlify deploy (netlify.toml present).
 4. LogLig history import **via export** (decided 2026-10-15): the user/ILCA will get a CSV/Excel export
    from LogLig; build an importer into competitions/categories/rounds/results once a sample file exists.
