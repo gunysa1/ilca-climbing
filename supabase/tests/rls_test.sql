@@ -182,7 +182,10 @@ insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_at
   ('40000000-0000-0000-0000-000000000032', '00000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000003', 3, 1, null),
   -- Tamar: top on 1st (25.0) + zone on 2nd (9.9) = 34.9, top attempts 1
   ('40000000-0000-0000-0000-000000000031', '00000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000003', 1, 1, 1),
-  ('40000000-0000-0000-0000-000000000032', '00000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000003', 3, 2, null),
+  ('40000000-0000-0000-0000-000000000032', '00000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000003', 3, 2, null);
+-- The final's start list comes from the qualification ranking (seeds = qualification places).
+select generate_start_list('30000000-0000-0000-0000-000000000004');
+insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt) values
   -- Final: both flash
   ('40000000-0000-0000-0000-000000000041', '00000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000004', 1, 1, 1),
   ('40000000-0000-0000-0000-000000000041', '00000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000004', 1, 1, 1);
@@ -203,6 +206,69 @@ select pg_temp.assert(
   'climber history uses tie-broken rank');
 select pg_temp.assert(public.boulder_points(150, null) = 0 and public.boulder_points(1, 300) = 0,
   'points never go below zero');
+reset role;
+
+-- ---------------------------------------------------------------- start lists and advancement
+-- Registrations fill the first round's start list automatically; later rounds are generated.
+select pg_temp.assert(
+  (select count(*) from round_starters where round_id = '30000000-0000-0000-0000-000000000003') = 2
+  and (select array_agg(start_order || ':' || climber_id order by start_order) from round_starters
+       where round_id = '30000000-0000-0000-0000-000000000004')
+      = array['1:00000000-0000-0000-0000-000000000001', '2:00000000-0000-0000-0000-000000000002'],
+  'final start list: qualifiers in reverse ranking order (worst first) with seeds');
+select pg_temp.assert(
+  (select array_agg(prev_place order by climber_id) from round_starters
+    where round_id = '30000000-0000-0000-0000-000000000004') = '{2,1}',
+  'start list stores previous-round places');
+
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+-- semi-final with quota 1 in category 1: only the qualification winner (Noa, 24.8) advances
+insert into rounds (id, category_id, kind, status, advance_quota) values
+  ('30000000-0000-0000-0000-000000000005', '20000000-0000-0000-0000-000000000001', 'semifinal', 'planned', 1);
+select generate_start_list('30000000-0000-0000-0000-000000000005');
+select pg_temp.assert(
+  (select array_agg(climber_id) from round_starters where round_id = '30000000-0000-0000-0000-000000000005')
+    = array['00000000-0000-0000-0000-000000000001'::uuid],
+  'advancement takes the top advance_quota of the previous round');
+select pg_temp.denied($$select generate_start_list('30000000-0000-0000-0000-000000000003')$$,
+  'regenerate a start list once results exist');
+update registrations set age_class = 'U19'
+  where category_id = '20000000-0000-0000-0000-000000000001' and climber_id = '00000000-0000-0000-0000-000000000002';
+select pg_temp.assert((select age_class from registrations where climber_id = '00000000-0000-0000-0000-000000000002'
+  and category_id = '20000000-0000-0000-0000-000000000001') = 'U19', 'admin sets an age class');
+-- ties at the cutoff all advance: quota 1, both climbers tied for 1st in a fresh category
+insert into categories (id, competition_id, name, gender) values
+  ('20000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000003', 'Tie Men', 'male');
+insert into rounds (id, category_id, kind, status) values
+  ('30000000-0000-0000-0000-000000000006', '20000000-0000-0000-0000-000000000004', 'qualification', 'closed');
+insert into rounds (id, category_id, kind, status, advance_quota) values
+  ('30000000-0000-0000-0000-000000000007', '20000000-0000-0000-0000-000000000004', 'final', 'planned', 1);
+insert into registrations (category_id, climber_id, bib) values
+  ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 1),
+  ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000002', 2);
+select generate_start_list('30000000-0000-0000-0000-000000000007');
+select pg_temp.assert((select count(*) from round_starters where round_id = '30000000-0000-0000-0000-000000000007') = 2,
+  'climbers tied at the cutoff all advance');
+delete from registrations where category_id = '20000000-0000-0000-0000-000000000004'
+  and climber_id = '00000000-0000-0000-0000-000000000002';
+select pg_temp.assert(not exists (select 1 from round_starters where round_id = '30000000-0000-0000-0000-000000000006'
+  and climber_id = '00000000-0000-0000-0000-000000000002'), 'unregistering removes the first-round starter');
+reset role;
+
+select pg_temp.login('00000000-0000-0000-0000-000000000001');
+select pg_temp.denied($$select generate_start_list('30000000-0000-0000-0000-000000000005')$$, 'climber generates a start list');
+select pg_temp.assert((select count(*) from round_starters where round_id = '30000000-0000-0000-0000-000000000003') = 2,
+  'start lists of public rounds are readable');
+reset role;
+-- results only for climbers on the round's start list (Tamar did not advance to the semi-final)
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into boulders (id, round_id, number) values
+  ('40000000-0000-0000-0000-000000000051', '30000000-0000-0000-0000-000000000005', 1);
+select set_config('request.jwt.claim.sub', '', false);
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.denied($$insert into boulder_results (boulder_id, climber_id, round_id, attempts)
+  values ('40000000-0000-0000-0000-000000000051', '00000000-0000-0000-0000-000000000002',
+          '30000000-0000-0000-0000-000000000005', 1)$$, 'result for a climber not on the start list');
 reset role;
 
 -- ---------------------------------------------------------------- profiles without accounts
@@ -263,10 +329,15 @@ select import_roster(
   '[{"id":"20000000-0000-0000-0000-000000000009","competition_id":"10000000-0000-0000-0000-000000000001","name":"U19 Girls","name_he":null,"gender":"female"}]',
   '[{"id":"50000000-0000-0000-0000-000000000002","full_name":"Roster Kid","full_name_he":null,"club":"X","gender":"female"}]',
   '[{"id":"50000000-0000-0000-0000-000000000002","birth_date":"2009-01-02","email":null}]',
-  '[{"category_id":"20000000-0000-0000-0000-000000000009","climber_id":"50000000-0000-0000-0000-000000000002","bib":7}]');
+  '[{"category_id":"20000000-0000-0000-0000-000000000009","climber_id":"50000000-0000-0000-0000-000000000002","bib":7,"age_class":"U17"}]');
 select pg_temp.assert(
   (select bib from registrations where climber_id = '50000000-0000-0000-0000-000000000002') = 7,
   'admin imports a roster (category, profile, private row, registration)');
+select pg_temp.assert(
+  (select age_class from registrations where climber_id = '50000000-0000-0000-0000-000000000002') = 'U17'
+  and exists (select 1 from round_starters s join rounds r on r.id = s.round_id
+              where s.climber_id = '50000000-0000-0000-0000-000000000002') is false,
+  'roster import keeps the age class (no rounds yet, so no starters)');
 select pg_temp.denied($$select import_roster('[]',
   '[{"id":"50000000-0000-0000-0000-000000000004","full_name":"Half Import","full_name_he":null,"club":null,"gender":null}]', '[]',
   '[{"category_id":"20000000-0000-0000-0000-000000000009","climber_id":"50000000-0000-0000-0000-000000000002","bib":8}]')$$,
@@ -301,11 +372,12 @@ reset role;
 -- Supabase grants EXECUTE on new functions to anon directly; admin-only and trigger functions must not keep it.
 select pg_temp.assert(not has_function_privilege('anon', f, 'execute'), 'anon cannot execute ' || f)
 from unnest(array['public.admin_accounts()', 'public.link_account(uuid,uuid)', 'public.unlink_account(uuid)',
-                  'public.import_roster(jsonb,jsonb,jsonb,jsonb)']) f;
+                  'public.import_roster(jsonb,jsonb,jsonb,jsonb)', 'public.generate_start_list(uuid)']) f;
 select pg_temp.assert(not has_function_privilege(r, f, 'execute'), r || ' cannot execute trigger ' || f)
 from unnest(array['anon', 'authenticated']) r,
      unnest(array['public.handle_new_user()', 'public.boulder_results_stamp()',
-                  'public.boulder_results_check_registration()']) f;
+                  'public.boulder_results_check_registration()', 'public.registrations_sync_starters()',
+                  'public.rounds_seed_starters()']) f;
 select pg_temp.assert(has_function_privilege('authenticated', 'public.admin_accounts()', 'execute')
   and has_function_privilege('anon', 'public.has_role(public.app_role)', 'execute'),
   'admins (authenticated) keep admin RPCs; RLS helpers stay executable');
