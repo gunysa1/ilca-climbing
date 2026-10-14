@@ -32,5 +32,9 @@ Open work, in order:
    lists, appeals, judge claim/lock, favorites, PDF/Excel export, notifications.
 3. Real Supabase project: apply migrations, set `.env.local`, end-to-end test of all roles.
 4. Netlify deploy (netlify.toml present).
-5. Open questions for the user: should climber results be private (currently public like IFSC)?
-   Import history from LogLig (needs a LogLig token/export; see reference analysis §4)?
+5. LogLig history import **via export** (decided 2026-10-15): the user/ILCA will get a CSV/Excel export
+   from LogLig; build an importer into competitions/categories/rounds/results once a sample file exists.
+
+Decisions (2026-10-15): climber results stay **public** like IFSC (published competitions and their
+results readable without login; private profile data stays RLS-protected). History comes from a
+LogLig export, not its API.
