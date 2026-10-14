@@ -157,4 +157,52 @@ select pg_temp.denied($$insert into boulder_results (boulder_id, climber_id, rou
   values ('40000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000002',
           '30000000-0000-0000-0000-000000000001', 1, null, 1)$$, 'top without zone rejected');
 
+-- ---------------------------------------------------------------- scoring tie-breaks
+-- Same order as src/lib/scoring.ts: points, previous-round rank, top attempts, zone attempts.
+-- Qualification: both 34.9 points; Tamar has fewer top attempts (1 vs 2) -> Tamar 1st.
+-- Final: both 25.0 and equal attempts; countback to qualification -> Tamar 1st again.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into competitions (id, name, starts_on, ends_on, status) values
+  ('10000000-0000-0000-0000-000000000003', 'Tie-break cup', '2026-11-01', '2026-11-01', 'published');
+insert into categories (id, competition_id, name, gender) values
+  ('20000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000003', 'Open Women', 'female');
+insert into rounds (id, category_id, kind, status) values
+  ('30000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000003', 'qualification', 'closed'),
+  ('30000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000003', 'final', 'closed');
+insert into boulders (id, round_id, number) values
+  ('40000000-0000-0000-0000-000000000031', '30000000-0000-0000-0000-000000000003', 1),
+  ('40000000-0000-0000-0000-000000000032', '30000000-0000-0000-0000-000000000003', 2),
+  ('40000000-0000-0000-0000-000000000041', '30000000-0000-0000-0000-000000000004', 1);
+insert into registrations values
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 1),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000002', 2);
+insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt) values
+  -- Noa: top on 2nd (24.9) + zone on 1st (10.0) = 34.9, top attempts 2
+  ('40000000-0000-0000-0000-000000000031', '00000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000003', 2, 1, 2),
+  ('40000000-0000-0000-0000-000000000032', '00000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000003', 3, 1, null),
+  -- Tamar: top on 1st (25.0) + zone on 2nd (9.9) = 34.9, top attempts 1
+  ('40000000-0000-0000-0000-000000000031', '00000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000003', 1, 1, 1),
+  ('40000000-0000-0000-0000-000000000032', '00000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000003', 3, 2, null),
+  -- Final: both flash
+  ('40000000-0000-0000-0000-000000000041', '00000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000004', 1, 1, 1),
+  ('40000000-0000-0000-0000-000000000041', '00000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000004', 1, 1, 1);
+select set_config('request.jwt.claim.sub', '', false);
+
+select pg_temp.login(null);
+select pg_temp.assert(
+  (select array_agg(points::text || '#' || rank order by climber_id) from round_scores
+    where round_id = '30000000-0000-0000-0000-000000000003') = '{34.9#2,34.9#1}',
+  'equal points: fewer top attempts ranks higher');
+select pg_temp.assert(
+  (select array_agg(prev_rank::text || '>' || rank order by climber_id) from round_scores
+    where round_id = '30000000-0000-0000-0000-000000000004') = '{2>2,1>1}',
+  'equal points and attempts: countback to previous round');
+select pg_temp.assert(
+  (select rank from climber_history where climber_id = '00000000-0000-0000-0000-000000000001'
+     and competition_id = '10000000-0000-0000-0000-000000000003' and round = 'final') = 2,
+  'climber history uses tie-broken rank');
+select pg_temp.assert(public.boulder_points(150, null) = 0 and public.boulder_points(1, 300) = 0,
+  'points never go below zero');
+reset role;
+
 \echo ALL RLS TESTS PASSED

@@ -13,11 +13,11 @@ export interface BoulderResult {
 
 export const EMPTY_RESULT: BoulderResult = { attempts: 0, zone_attempt: null, top_attempt: null };
 
-/** IFSC 2025: top 25, zone 10, minus 0.1 per failed attempt before the highest hold reached. */
+/** IFSC 2025: top 25, zone 10, minus 0.1 per failed attempt before the highest hold reached (never below 0). */
 export function boulderPoints(r: Pick<BoulderResult, 'zone_attempt' | 'top_attempt'>): number {
   // Work in tenths to avoid floating point drift.
-  if (r.top_attempt != null) return (250 - (r.top_attempt - 1)) / 10;
-  if (r.zone_attempt != null) return (100 - (r.zone_attempt - 1)) / 10;
+  if (r.top_attempt != null) return Math.max(250 - (r.top_attempt - 1), 0) / 10;
+  if (r.zone_attempt != null) return Math.max(100 - (r.zone_attempt - 1), 0) / 10;
   return 0;
 }
 
@@ -28,6 +28,8 @@ export interface RoundTotals {
   top_attempts: number;
   zone_attempts: number;
   points: number;
+  /** Rank in the previous round of the same category (countback), if any. */
+  prev_rank?: number | null;
 }
 
 export function totals(climber_id: string, results: BoulderResult[]): RoundTotals {
@@ -42,8 +44,20 @@ export function totals(climber_id: string, results: BoulderResult[]): RoundTotal
   return t;
 }
 
+const tenths = (points: number) => Math.round(points * 10);
+
+/**
+ * IFSC 2025 order: points, then countback to the previous-round rank (missing ranks last),
+ * then fewer attempts on tops, then fewer attempts on zones. Same order as the temporary
+ * ILCA app and public.round_scores.
+ */
 function compare(a: RoundTotals, b: RoundTotals, format: ScoringFormat): number {
-  if (format === 'ifsc2025') return b.points - a.points;
+  if (format === 'ifsc2025') {
+    const ap = a.prev_rank ?? Infinity;
+    const bp = b.prev_rank ?? Infinity;
+    return tenths(b.points) - tenths(a.points) || (ap === bp ? 0 : ap - bp) ||
+      a.top_attempts - b.top_attempts || a.zone_attempts - b.zone_attempts;
+  }
   return b.tops - a.tops || b.zones - a.zones || a.top_attempts - b.top_attempts || a.zone_attempts - b.zone_attempts;
 }
 

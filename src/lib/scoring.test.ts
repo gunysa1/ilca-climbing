@@ -8,6 +8,17 @@ describe('boulderPoints (IFSC 2025)', () => {
     expect(boulderPoints({ zone_attempt: 2, top_attempt: null })).toBe(9.9);
     expect(boulderPoints({ zone_attempt: null, top_attempt: null })).toBe(0);
   });
+
+  it('matches official IFSC 2026 results (Innsbruck boulder final)', () => {
+    expect(boulderPoints({ zone_attempt: 8, top_attempt: 11 })).toBe(24);
+    expect(boulderPoints({ zone_attempt: 4, top_attempt: null })).toBe(9.7);
+    expect(boulderPoints({ zone_attempt: 12, top_attempt: null })).toBe(8.9);
+  });
+
+  it('never goes below zero', () => {
+    expect(boulderPoints({ zone_attempt: 150, top_attempt: null })).toBe(0);
+    expect(boulderPoints({ zone_attempt: 1, top_attempt: 300 })).toBe(0);
+  });
 });
 
 describe('totals', () => {
@@ -32,6 +43,30 @@ describe('rank', () => {
     expect(rank([c, b, d, a], 'ifsc2025').map((r) => [r.climber_id, r.rank])).toEqual([
       ['a', 1], ['b', 2], ['c', 3], ['d', 3],
     ]);
+  });
+
+  it('breaks equal points by previous-round rank (countback)', () => {
+    // Innsbruck 2026 boulder final: 59.3 each, 2nd vs 5th in the semi-final.
+    const kawamata = { ...c, climber_id: 'kawamata', points: 59.3, prev_rank: 2 };
+    const lee = { ...c, climber_id: 'lee', points: 59.3, prev_rank: 5 };
+    expect(rank([lee, kawamata], 'ifsc2025').map((r) => [r.climber_id, r.rank])).toEqual([
+      ['kawamata', 1], ['lee', 2],
+    ]);
+  });
+
+  it('then fewer top attempts, then fewer zone attempts', () => {
+    const e = { climber_id: 'e', tops: 1, zones: 2, top_attempts: 3, zone_attempts: 4, points: 34.7 };
+    const f = { ...e, climber_id: 'f', top_attempts: 2, zone_attempts: 5 };
+    const g = { ...e, climber_id: 'g', zone_attempts: 3 };
+    expect(rank([e, g, f], 'ifsc2025').map((r) => [r.climber_id, r.rank])).toEqual([
+      ['f', 1], ['g', 2], ['e', 3],
+    ]);
+  });
+
+  it('a climber without a previous-round rank sorts after one with it', () => {
+    const p = { ...c, climber_id: 'p', prev_rank: 9 };
+    const q = { ...c, climber_id: 'q', prev_rank: null };
+    expect(rank([q, p], 'ifsc2025').map((r) => r.climber_id)).toEqual(['p', 'q']);
   });
 
   it('classic format uses tops, zones, then attempts', () => {
