@@ -1,5 +1,9 @@
 import type { ScoringFormat } from './scoring';
 
+/** Boulder formats (scoring.ts) plus lead (lead.ts). */
+export type RoundFormat = ScoringFormat | 'lead';
+export const isLead = (r: { scoring: RoundFormat }) => r.scoring === 'lead';
+
 export type AppRole = 'climber' | 'coach' | 'judge' | 'admin';
 
 export interface Profile {
@@ -43,7 +47,7 @@ export interface Round {
   category_id: string;
   kind: 'qualification' | 'semifinal' | 'final';
   status: 'planned' | 'live' | 'closed';
-  scoring: ScoringFormat;
+  scoring: RoundFormat;
 }
 
 export interface Boulder {
@@ -73,3 +77,5 @@ export interface HistoryRow {
 
 /** Columns of boulder_results readable by clients (updated_by is admin-only). */
 export const RESULT_COLUMNS = 'boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt, updated_at';
+/** Columns of lead_results readable by clients (updated_by is admin-only). */
+export const LEAD_COLUMNS = 'boulder_id, climber_id, round_id, hold, plus, top, time_ms, updated_at';

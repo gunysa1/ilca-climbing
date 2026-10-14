@@ -104,6 +104,10 @@ button { font: inherit; cursor: pointer; }
 .asc-none { background: linear-gradient(to bottom left, transparent calc(50% - .5px), var(--asc-ink) 50%, transparent calc(50% + .5px)) var(--asc-bg); }
 .asc-empty { border-style: dashed; border-color: var(--none); }
 .asc-label { color: var(--text); }
+.route-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; height: 28px; padding: 0 6px;
+  border: 1px solid var(--asc-ink); border-radius: 4px; font-size: 12px; font-weight: 700; background: var(--asc-bg); color: var(--text); }
+.route-chip.top { background: var(--asc-ink); color: var(--asc-on-ink); }
+.route-chip.empty { border-style: dashed; border-color: var(--none); }
 
 /* Stats */
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; margin-bottom: 1rem; }
@@ -175,6 +179,9 @@ label.inline { display: inline-flex; gap: .35rem; align-items: center; font-weig
 .pad-zone { background: var(--zone); }
 .pad-top { background: var(--top); }
 .pad-undo { background: var(--ink); }
+.pad-buttons button[aria-pressed="true"] { outline: 4px solid var(--text); outline-offset: -4px; }
+.lead-readout { grid-template-columns: 1fr; }
+.pad-save { width: 100%; margin-top: .75rem; min-height: 3.5rem; font-size: 1.1rem; align-self: stretch; }
 .pad-status { min-height: 1.5rem; text-align: center; }
 .pad-status.saved { color: var(--top); }
 .pad-status.error { color: var(--live); font-weight: 700; }

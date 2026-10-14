@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase';
-import { RESULT_COLUMNS, type Boulder, type Profile, type Round } from './types';
+import { LEAD_COLUMNS, RESULT_COLUMNS, type Boulder, type Profile, type Round } from './types';
+import type { LeadResult } from './lead';
 import type { BoulderResult } from './scoring';
 
 /** A climber on a round's start list (round_starters + their registration). */
@@ -14,6 +15,10 @@ export interface Starter {
   profile: Profile;
 }
 export interface ResultRow extends BoulderResult { boulder_id: string; climber_id: string }
+export interface LeadRow { boulder_id: string; climber_id: string; hold: number; plus: boolean; top: boolean; time_ms: number | null }
+
+/** lead.ts works on route_id; routes are rows of `boulders`. */
+export const toLeadResult = (r: LeadRow): LeadResult => ({ climber_id: r.climber_id, route_id: r.boulder_id, hold: r.hold, plus: r.plus, top: r.top });
 
 export interface RoundData {
   round: Round | null;
@@ -21,6 +26,8 @@ export interface RoundData {
   /** Ordered by start order. */
   starters: Starter[];
   results: Map<string, ResultRow>; // key: `${boulder_id}:${climber_id}`
+  /** Lead rounds: results per route, same key. */
+  leadResults: Map<string, LeadRow>;
   loading: boolean;
 }
 
@@ -43,7 +50,7 @@ export const resultKey = (boulderId: string, climberId: string) => `${boulderId}
 
 /** Loads a round with its boulders, starters and results, and keeps results live via Realtime. */
 export function useRoundData(roundId: string | undefined): RoundData {
-  const [state, setState] = useState<RoundData>({ round: null, boulders: [], starters: [], results: new Map(), loading: true });
+  const [state, setState] = useState<RoundData>({ round: null, boulders: [], starters: [], results: new Map(), leadResults: new Map(), loading: true });
 
   useEffect(() => {
     if (!roundId) return;
@@ -52,10 +59,12 @@ export function useRoundData(roundId: string | undefined): RoundData {
     (async () => {
       const { data: round } = await supabase.from('rounds').select('*').eq('id', roundId).single();
       if (!round || cancelled) { setState((s) => ({ ...s, loading: false })); return; }
-      const [{ data: boulders }, { starters }, { data: results }] = await Promise.all([
+      const lead = (round as Round).scoring === 'lead';
+      const [{ data: boulders }, { starters }, { data: results }, { data: leadRows }] = await Promise.all([
         supabase.from('boulders').select('*').eq('round_id', roundId).order('number'),
         loadStarters(round as Round),
-        supabase.from('boulder_results').select(RESULT_COLUMNS).eq('round_id', roundId),
+        lead ? Promise.resolve({ data: [] }) : supabase.from('boulder_results').select(RESULT_COLUMNS).eq('round_id', roundId),
+        lead ? supabase.from('lead_results').select(LEAD_COLUMNS).eq('round_id', roundId) : Promise.resolve({ data: [] }),
       ]);
       if (cancelled) return;
       setState({
@@ -63,6 +72,7 @@ export function useRoundData(roundId: string | undefined): RoundData {
         boulders: (boulders as Boulder[]) ?? [],
         starters,
         results: new Map(((results as ResultRow[]) ?? []).map((r) => [resultKey(r.boulder_id, r.climber_id), r])),
+        leadResults: new Map(((leadRows as LeadRow[]) ?? []).map((r) => [resultKey(r.boulder_id, r.climber_id), r])),
         loading: false,
       });
     })();
@@ -77,6 +87,17 @@ export function useRoundData(roundId: string | undefined): RoundData {
             const results = new Map(s.results);
             results.set(resultKey(row.boulder_id, row.climber_id), row);
             return { ...s, results };
+          });
+        })
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'lead_results', filter: `round_id=eq.${roundId}` },
+        (payload) => {
+          const row = payload.new as LeadRow;
+          if (!row?.boulder_id) return;
+          setState((s) => {
+            const leadResults = new Map(s.leadResults);
+            leadResults.set(resultKey(row.boulder_id, row.climber_id), row);
+            return { ...s, leadResults };
           });
         })
       .subscribe();

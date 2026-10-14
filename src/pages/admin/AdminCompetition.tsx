@@ -139,7 +139,7 @@ function CategoryPanel({ cat, run }: { cat: CategoryRow; run: Run }) {
           void run(supabase.from('rounds').insert({ category_id: cat.id, kind: f.get('kind'), scoring: f.get('scoring') }));
         }}>
           <select name="kind">{missing.map((k) => <option key={k} value={k}>{t(k)}</option>)}</select>
-          <select name="scoring"><option value="ifsc2025">{t('ifsc2025')}</option><option value="classic">{t('classic')}</option></select>
+          <select name="scoring"><option value="ifsc2025">{t('ifsc2025')}</option><option value="classic">{t('classic')}</option><option value="lead">{t('lead')}</option></select>
           <button className="secondary">{t('addRound')}</button>
         </form>
       )}
@@ -200,7 +200,7 @@ function RoundRowEditor({ round, first, run }: { round: RoundRow; first: boolean
     } else {
       // Deleting a boulder deletes its results (cascade): only allow if none were entered.
       const drop = round.boulders.filter((b) => b.number > n).map((b) => b.id);
-      const { count: scored } = await supabase.from('boulder_results').select('boulder_id', { count: 'exact', head: true })
+      const { count: scored } = await supabase.from(round.scoring === 'lead' ? 'lead_results' : 'boulder_results').select('boulder_id', { count: 'exact', head: true })
         .in('boulder_id', drop);
       if (scored) { await run(Promise.resolve({ error: { message: `${t('boulders')}: results exist` } })); return; }
       await run(supabase.from('boulders').delete().in('id', drop));
@@ -213,13 +213,14 @@ function RoundRowEditor({ round, first, run }: { round: RoundRow; first: boolean
     <li className="admin-row">
       <strong>{t(round.kind)}</strong>
       <RoundStatus status={round.status} />
-      <label className="inline">{t('boulders')}
+      <label className="inline">{t(round.scoring === 'lead' ? 'routes' : 'boulders')}
         <input className="bib-input" type="number" min={0} max={30} defaultValue={count} key={count}
           onBlur={(e) => void setBoulderCount(Number(e.target.value))} />
       </label>
       <select value={round.scoring} onChange={(e) => void run(supabase.from('rounds').update({ scoring: e.target.value }).eq('id', round.id))}>
         <option value="ifsc2025">{t('ifsc2025')}</option>
         <option value="classic">{t('classic')}</option>
+        <option value="lead">{t('lead')}</option>
       </select>
       {round.status === 'planned' && <button className="secondary" onClick={() => void status('live')}>{t('goLive')}</button>}
       {round.status === 'live' && <button className="secondary" onClick={() => void status('closed')}>{t('closeRound')}</button>}

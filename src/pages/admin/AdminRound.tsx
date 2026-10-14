@@ -2,19 +2,24 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link, useParams } from 'react-router-dom';
 import { RoundStatus } from '../../components/RoundStatus';
 import { localized, useI18n } from '../../lib/i18n';
-import { loadStarters, resultKey, type ResultRow, type Starter } from '../../lib/roundData';
+import { formatHeight } from '../../lib/lead';
+import { loadStarters, resultKey, type LeadRow, type ResultRow, type Starter } from '../../lib/roundData';
 import { supabase } from '../../lib/supabase';
-import { RESULT_COLUMNS, type AdminAccount, type Boulder, type Round } from '../../lib/types';
+import { LEAD_COLUMNS, RESULT_COLUMNS, type AdminAccount, type Boulder, type Round } from '../../lib/types';
 import { AdminNav, ErrorLine } from './AdminHome';
 
 interface RoundInfo extends Round {
   category: { name: string; name_he: string | null; competition_id: string };
 }
 interface Assignment { id: string; boulder_id: string | null; judge: { id: string; full_name: string; full_name_he: string | null } }
+/** Row of score_events (boulder) or lead_events (lead). */
 interface ScoreEvent {
-  id: number; boulder_id: string; climber_id: string; attempts: number;
-  zone_attempt: number | null; top_attempt: number | null; judge_id: string | null; created_at: string;
+  id: number; boulder_id: string; climber_id: string; judge_id: string | null; created_at: string;
+  attempts?: number; zone_attempt?: number | null; top_attempt?: number | null;
+  hold?: number; plus?: boolean; top?: boolean;
 }
+const eventText = (e: ScoreEvent) => e.hold != null ? formatHeight({ hold: e.hold, plus: !!e.plus, top: !!e.top })
+  : `${e.attempts}/${e.zone_attempt ?? '-'}/${e.top_attempt ?? '-'}`;
 
 export function AdminRound() {
   const { id } = useParams();
@@ -23,6 +28,7 @@ export function AdminRound() {
   const [boulders, setBoulders] = useState<Boulder[]>([]);
   const [starters, setStarters] = useState<Starter[]>([]);
   const [results, setResults] = useState<Map<string, ResultRow>>(new Map());
+  const [leadResults, setLeadResults] = useState<Map<string, LeadRow>>(new Map());
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [judges, setJudges] = useState<AdminAccount[]>([]);
   const [events, setEvents] = useState<ScoreEvent[]>([]);
@@ -35,19 +41,22 @@ export function AdminRound() {
     const { data: r, error } = await supabase.from('rounds')
       .select('*, category:categories(name, name_he, competition_id)').eq('id', id).single();
     if (error || !r) return setError(error?.message ?? null);
+    const lead = r.scoring === 'lead';
     const [b, regs, res, asg, acc, ev] = await Promise.all([
       supabase.from('boulders').select('*').eq('round_id', id).order('number'),
       loadStarters(r),
-      supabase.from('boulder_results').select(RESULT_COLUMNS).eq('round_id', id),
+      supabase.from(lead ? 'lead_results' : 'boulder_results').select(lead ? LEAD_COLUMNS : RESULT_COLUMNS).eq('round_id', id),
       supabase.from('judge_assignments').select('id, boulder_id, judge:profiles(id, full_name, full_name_he)').eq('round_id', id),
       supabase.rpc('admin_accounts'),
-      supabase.from('score_events').select('*').eq('round_id', id).order('created_at', { ascending: false }).limit(200),
+      supabase.from(lead ? 'lead_events' : 'score_events').select('*').eq('round_id', id).order('created_at', { ascending: false }).limit(200),
     ]);
     setRound(r as RoundInfo);
     setBoulders((b.data as Boulder[]) ?? []);
     const st: Starter[] = regs.starters;
     setStarters(st);
-    setResults(new Map(((res.data as ResultRow[]) ?? []).map((x) => [resultKey(x.boulder_id, x.climber_id), x])));
+    const resRows = (res.data ?? []) as unknown as (ResultRow & LeadRow)[];
+    setResults(lead ? new Map() : new Map(resRows.map((x) => [resultKey(x.boulder_id, x.climber_id), x])));
+    setLeadResults(lead ? new Map(resRows.map((x) => [resultKey(x.boulder_id, x.climber_id), x])) : new Map());
     setAssignments((asg.data as unknown as Assignment[]) ?? []);
     setJudges(((acc.data as AdminAccount[]) ?? []).filter((a) => a.profile_id && a.roles.includes('judge')));
     const evs = (ev.data as ScoreEvent[]) ?? [];
@@ -70,6 +79,7 @@ export function AdminRound() {
   const boulderNo = useMemo(() => new Map(boulders.map((b) => [b.id, b.number])), [boulders]);
 
   if (!round) return <section><AdminNav /><ErrorLine error={error} /><p className="muted">{t('loading')}</p></section>;
+  const lead = round.scoring === 'lead';
 
   function assign(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -104,7 +114,7 @@ export function AdminRound() {
           </select>
           <select name="boulder">
             <option value="all">{t('wholeRound')}</option>
-            {boulders.map((b) => <option key={b.id} value={b.id}>{t('boulder')} {b.number}</option>)}
+            {boulders.map((b) => <option key={b.id} value={b.id}>{t(lead ? 'route' : 'boulder')} {b.number}</option>)}
           </select>
           <button className="secondary" disabled={judges.length === 0}>{t('assign')}</button>
         </form>
@@ -118,15 +128,20 @@ export function AdminRound() {
               <tr><th>{t('bib')}</th><th>{t('athlete')}</th>{boulders.map((b) => <th key={b.id}>{b.number}</th>)}<th /></tr>
             </thead>
             <tbody>
-              {starters.map((s) => editing === s.climber_id ? (
-                <CorrectionRow key={s.climber_id} starter={s} boulders={boulders} results={results}
-                  onCancel={() => setEditing(null)}
-                  onSave={async (p) => { await run(p); setEditing(null); }} />
+              {starters.map((s) => editing === s.climber_id ? (lead
+                ? <LeadCorrectionRow key={s.climber_id} starter={s} routes={boulders} results={leadResults}
+                    onCancel={() => setEditing(null)} onSave={async (p) => { await run(p); setEditing(null); }} />
+                : <CorrectionRow key={s.climber_id} starter={s} boulders={boulders} results={results}
+                    onCancel={() => setEditing(null)} onSave={async (p) => { await run(p); setEditing(null); }} />
               ) : (
                 <tr key={s.climber_id}>
                   <td>{s.bib}</td>
                   <td>{localized(lang, s.profile.full_name, s.profile.full_name_he)}</td>
                   {boulders.map((b) => {
+                    if (lead) {
+                      const l = leadResults.get(resultKey(b.id, s.climber_id));
+                      return <td key={b.id} className="mono">{l ? formatHeight(l) : ''}</td>;
+                    }
                     const r = results.get(resultKey(b.id, s.climber_id));
                     return <td key={b.id} className="mono">{r ? `${r.attempts}/${r.zone_attempt ?? '-'}/${r.top_attempt ?? '-'}` : ''}</td>;
                   })}
@@ -136,7 +151,7 @@ export function AdminRound() {
             </tbody>
           </table>
         </div>
-        <p className="muted small">{t('attempts')} / {t('zone')} / {t('top')}</p>
+        {!lead && <p className="muted small">{t('attempts')} / {t('zone')} / {t('top')}</p>}
       </div>
 
       <div className="panel">
@@ -148,8 +163,8 @@ export function AdminRound() {
               <tr key={e.id}>
                 <td className="muted small">{new Date(e.created_at).toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB')}</td>
                 <td>{names.get(e.climber_id) ?? e.climber_id.slice(0, 8)}</td>
-                <td>{t('boulder')} {boulderNo.get(e.boulder_id)}</td>
-                <td className="mono">{e.attempts}/{e.zone_attempt ?? '-'}/{e.top_attempt ?? '-'}</td>
+                <td>{t(lead ? 'route' : 'boulder')} {boulderNo.get(e.boulder_id)}</td>
+                <td className="mono">{eventText(e)}</td>
                 <td className="muted">{t('by')} {e.judge_id ? names.get(e.judge_id) ?? '?' : '—'}</td>
               </tr>
             ))}
@@ -217,6 +232,65 @@ function CorrectionRow({ starter, boulders, results, onSave, onCancel }: {
           <input aria-label={`${t('attempts')} ${b.number}`} type="number" min={0} value={cells[b.id].attempts} onChange={set(b.id, 'attempts')} />
           <input aria-label={`${t('zone')} ${b.number}`} type="number" min={1} value={cells[b.id].zone} onChange={set(b.id, 'zone')} />
           <input aria-label={`${t('top')} ${b.number}`} type="number" min={1} value={cells[b.id].top} onChange={set(b.id, 'top')} />
+        </td>
+      ))}
+      <td>
+        <button className="primary" onClick={() => void save()}>{t('save')}</button>
+        <button className="link" onClick={onCancel}>✕</button>
+      </td>
+    </tr>
+  );
+}
+
+/** Inline editor for one climber's lead results across the round's routes. */
+function LeadCorrectionRow({ starter, routes, results, onSave, onCancel }: {
+  starter: Starter; routes: Boulder[]; results: Map<string, LeadRow>;
+  onSave: (p: PromiseLike<{ error: { message: string } | null }>) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const { t, lang } = useI18n();
+  type LeadCell = { hold: string; plus: boolean; top: boolean };
+  const [cells, setCells] = useState<Record<string, LeadCell>>(() => Object.fromEntries(routes.map((b) => {
+    const r = results.get(resultKey(b.id, starter.climber_id));
+    return [b.id, { hold: r ? String(r.hold) : '', plus: r?.plus ?? false, top: r?.top ?? false }];
+  })));
+  const set = (id: string, patch: Partial<LeadCell>) => setCells({ ...cells, [id]: { ...cells[id], ...patch } });
+
+  async function save() {
+    const upserts = [];
+    const deletes = [];
+    for (const b of routes) {
+      const c = cells[b.id];
+      const had = results.has(resultKey(b.id, starter.climber_id));
+      if (c.hold.trim() === '' && !c.top) { if (had) deletes.push(b.id); continue; }
+      upserts.push({ boulder_id: b.id, climber_id: starter.climber_id, round_id: b.round_id,
+        hold: Number(c.hold) || 0, plus: c.top ? false : c.plus, top: c.top });
+    }
+    await onSave((async () => {
+      if (upserts.length) {
+        const { error } = await supabase.from('lead_results').upsert(upserts, { onConflict: 'boulder_id,climber_id' });
+        if (error) return { error };
+      }
+      if (deletes.length) {
+        const { error } = await supabase.from('lead_results').delete().eq('climber_id', starter.climber_id).in('boulder_id', deletes);
+        if (error) return { error };
+      }
+      return { error: null };
+    })());
+  }
+
+  return (
+    <tr className="editing">
+      <td>{starter.bib}</td>
+      <td>{localized(lang, starter.profile.full_name, starter.profile.full_name_he)}</td>
+      {routes.map((b) => (
+        <td key={b.id} className="cell-edit">
+          <input aria-label={`${t('hold')} ${b.number}`} type="number" min={0} value={cells[b.id].hold}
+            onChange={(e) => set(b.id, { hold: e.target.value })} disabled={cells[b.id].top} />
+          <label className="inline small"><input type="checkbox" aria-label={`+ ${b.number}`} checked={cells[b.id].plus}
+            disabled={cells[b.id].top} onChange={(e) => set(b.id, { plus: e.target.checked })} />+</label>
+          <label className="inline small"><input type="checkbox" aria-label={`TOP ${b.number}`} checked={cells[b.id].top}
+            onChange={(e) => set(b.id, { top: e.target.checked, plus: false })} />TOP</label>
         </td>
       ))}
       <td>
