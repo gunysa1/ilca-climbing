@@ -46,7 +46,7 @@ export function RosterImport({ competitionId, categories, onDone }: {
       });
       const privates = plan.newProfiles.map(({ key, row }) => ({ id: ids.get(key)!, birth_date: row.birthDate, email: row.email }));
       const regs = plan.registrations.map((r) => ({
-        category_id: ids.get(r.category) ?? r.category, climber_id: ids.get(r.climber) ?? r.climber, bib: r.bib,
+        category_id: ids.get(r.category) ?? r.category, climber_id: ids.get(r.climber) ?? r.climber, bib: r.bib, age_class: r.ageClass,
       }));
       // One transaction (public.import_roster): a failing row rolls back the whole import.
       const { error } = await supabase.rpc('import_roster', {

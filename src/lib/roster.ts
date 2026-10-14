@@ -9,6 +9,8 @@ export interface RosterRow {
   name: string;
   club: string;
   category: string;
+  /** Sub-category inside a combined category (e.g. U19 in senior women), from a group column. */
+  ageClass: string | null;
   gender: 'female' | 'male' | null;
   bib: number | null;
   birthDate: string | null; // ISO yyyy-mm-dd
@@ -47,13 +49,16 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
+const norm = (v: string | null | undefined) => (v ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+
 const normHeader = (v: string) => v
   .replace(/[‎‏‪-‮]/g, '')
   .replace(/['"׳״‘’ʼ`]/g, '')
   .replace(/\s+/g, ' ').trim().toLowerCase();
 
-const HEADERS: Record<Exclude<keyof RosterRow, 'line'>, string[]> = {
+const HEADERS: Record<Exclude<keyof RosterRow, 'line' | 'ageClass'> | 'group', string[]> = {
   name: ['שם מלא', 'שם', 'name', 'full name'],
+  group: ['קבוצה', 'קבוצת דירוג', 'group', 'category group'],
   club: ['שם אגודה', 'אגודה', 'מועדון', 'club'],
   category: ['קטגוריה', 'category'],
   gender: ['מגדר', 'גנדר', "ג'נדר", 'gender'],
@@ -96,12 +101,16 @@ export function parseRoster(text: string): { rows: RosterRow[]; errors: RosterEr
     const line = i + 2;
     const get = (f: keyof typeof HEADERS) => (col[f] >= 0 ? (cells[col[f]] ?? '').trim() : '');
     const name = get('name').replace(/\s+/g, ' ');
-    const category = get('category');
+    // With a group column, the group is the category climbers are ranked in and the row's own
+    // category becomes its age class (the temporary app's "category groups").
+    const group = get('group');
+    const category = group || get('category');
+    const ageClass = group && get('category') && norm(get('category')) !== norm(group) ? get('category') : null;
     if (!name) { errors.push({ line, message: 'missing name' }); return; }
     if (!category) { errors.push({ line, message: 'missing category' }); return; }
     const bib = Number.parseInt(get('bib'), 10);
     rows.push({
-      line, name, club: get('club'), category, gender: parseGender(get('gender')),
+      line, name, club: get('club'), category, ageClass, gender: parseGender(get('gender')),
       bib: Number.isFinite(bib) && bib > 0 ? bib : null,
       birthDate: parseDate(get('birthDate')), email: get('email') || null,
     });
@@ -121,11 +130,9 @@ export interface ImportPlan {
   newCategories: { key: string; name: string; gender: Category['gender'] }[];
   newProfiles: { key: string; row: RosterRow }[];
   /** category / climber are existing ids or keys of newCategories / newProfiles. */
-  registrations: { line: number; category: string; climber: string; bib: number | null }[];
+  registrations: { line: number; category: string; climber: string; bib: number | null; ageClass: string | null }[];
   skipped: { line: number; reason: 'duplicate' | 'ambiguous' | 'already registered' }[];
 }
-
-const norm = (v: string | null | undefined) => (v ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
 
 export function planImport(rows: RosterRow[], ctx: ImportContext): ImportPlan {
   const plan: ImportPlan = { newCategories: [], newProfiles: [], registrations: [], skipped: [] };
@@ -166,7 +173,7 @@ export function planImport(rows: RosterRow[], ctx: ImportContext): ImportPlan {
       climber = `new-profile:${row.line}`;
       plan.newProfiles.push({ key: climber, row });
     }
-    plan.registrations.push({ line: row.line, category, climber, bib: row.bib });
+    plan.registrations.push({ line: row.line, category, climber, bib: row.bib, ageClass: row.ageClass });
   }
   return plan;
 }

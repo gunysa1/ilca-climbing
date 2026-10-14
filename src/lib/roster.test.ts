@@ -20,7 +20,7 @@ describe('parseRoster', () => {
     const { rows, errors } = parseRoster(csv);
     expect(errors).toEqual([]);
     expect(rows).toEqual([{
-      line: 2, name: 'נועה לוי', club: 'מטפסי תל אביב', category: 'בוגרות', gender: 'female',
+      line: 2, name: 'נועה לוי', club: 'מטפסי תל אביב', category: 'בוגרות', ageClass: null, gender: 'female',
       bib: 107, birthDate: '2008-03-05', email: null,
     }]);
     expect(JSON.stringify(rows)).not.toContain('123456789');
@@ -31,6 +31,11 @@ describe('parseRoster', () => {
     const { rows, errors } = parseRoster(csv);
     expect(rows.map((r) => [r.name, r.gender, r.bib, r.email])).toEqual([['Tamar Cohen', 'female', 12, 't@x.il']]);
     expect(errors).toEqual([{ line: 3, message: 'missing name' }, { line: 4, message: 'missing category' }]);
+  });
+
+  it('a group column becomes the category and the row category its age class', () => {
+    const csv = 'שם מלא,קבוצה,קטגוריה\nמאיה גל,בוגרות,בנות U19\nנועה לוי,בוגרות,בוגרות\n';
+    expect(parseRoster(csv).rows.map((r) => [r.category, r.ageClass])).toEqual([['בוגרות', 'בנות U19'], ['בוגרות', null]]);
   });
 
   it('fails clearly when there is no name column', () => {
@@ -49,21 +54,21 @@ describe('planImport', () => {
     registrations: [{ category_id: 'cat-w', climber_id: 'p-reg' }],
   };
   const row = (over: Partial<ReturnType<typeof parseRoster>['rows'][number]>) => ({
-    line: 2, name: '', club: '', category: 'בוגרות', gender: 'female' as const, bib: null, birthDate: null, email: null, ...over,
+    line: 2, name: '', club: '', category: 'בוגרות', ageClass: null, gender: 'female' as const, bib: null, birthDate: null, email: null, ...over,
   });
 
   it('reuses existing categories and profiles, creates missing ones', () => {
     const plan = planImport([
-      row({ line: 2, name: ' נועה  לוי ', club: 'מטפסי תל אביב', bib: 107 }),
+      row({ line: 2, name: ' נועה  לוי ', club: 'מטפסי תל אביב', bib: 107, ageClass: 'U21' }),
       row({ line: 3, name: 'Tamar Cohen', club: 'Top Netanya', category: 'U19 Girls', bib: 12 }),
       row({ line: 4, name: 'Yael Bar', category: 'U19 Girls', gender: 'female' }),
     ], ctx);
     expect(plan.newCategories).toEqual([{ key: 'new-cat:u19 girls', name: 'U19 Girls', gender: 'female' }]);
     expect(plan.newProfiles.map((p) => p.row.name)).toEqual(['Tamar Cohen', 'Yael Bar']);
     expect(plan.registrations).toEqual([
-      { line: 2, category: 'cat-w', climber: 'p-noa', bib: 107 },
-      { line: 3, category: 'new-cat:u19 girls', climber: 'new-profile:3', bib: 12 },
-      { line: 4, category: 'new-cat:u19 girls', climber: 'new-profile:4', bib: null },
+      { line: 2, category: 'cat-w', climber: 'p-noa', bib: 107, ageClass: 'U21' },
+      { line: 3, category: 'new-cat:u19 girls', climber: 'new-profile:3', bib: 12, ageClass: null },
+      { line: 4, category: 'new-cat:u19 girls', climber: 'new-profile:4', bib: null, ageClass: null },
     ]);
     expect(plan.skipped).toEqual([]);
   });
