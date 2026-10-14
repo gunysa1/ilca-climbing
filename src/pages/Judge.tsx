@@ -22,16 +22,16 @@ interface Assignment {
 /** List of the judge's assignments in live rounds (RLS returns only the caller's own). */
 export function JudgeHome() {
   const { t, lang } = useI18n();
-  const { session } = useAuth();
+  const { profileId } = useAuth();
   const [items, setItems] = useState<Assignment[] | null>(null);
 
   useEffect(() => {
-    if (!session) return;
+    if (!profileId) return;
     supabase.from('judge_assignments')
       .select('id, round_id, boulder_id, round:rounds!inner(kind, status, boulders(id, round_id, number), category:categories(name, name_he, competition:competitions(name, name_he)))')
-      .eq('judge_id', session.user.id).eq('round.status', 'live')
+      .eq('judge_id', profileId).eq('round.status', 'live')
       .then(({ data }) => setItems((data as unknown as Assignment[]) ?? []));
-  }, [session]);
+  }, [profileId]);
 
   return (
     <section>

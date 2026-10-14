@@ -8,20 +8,20 @@ import type { Profile } from '../lib/types';
 
 export function Coach() {
   const { t, lang } = useI18n();
-  const { session } = useAuth();
+  const { profileId } = useAuth();
   const [athletes, setAthletes] = useState<Profile[] | null>(null);
   const [selected, setSelected] = useState<Profile | null>(null);
 
   useEffect(() => {
-    if (!session) return;
+    if (!profileId) return;
     supabase.from('coach_athletes').select('climber:profiles!coach_athletes_climber_id_fkey(id, full_name, full_name_he, club, country)')
-      .eq('coach_id', session.user.id)
+      .eq('coach_id', profileId)
       .then(({ data }) => {
         const list = ((data ?? []) as unknown as { climber: Profile }[]).map((r) => r.climber);
         setAthletes(list);
         setSelected((s) => s ?? list[0] ?? null);
       });
-  }, [session]);
+  }, [profileId]);
 
   return (
     <section>

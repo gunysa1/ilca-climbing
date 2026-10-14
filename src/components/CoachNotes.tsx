@@ -11,7 +11,7 @@ interface Note { id: string; body: string; shared_with_climber: boolean; created
  */
 export function CoachNotes({ climberId, canWrite }: { climberId: string; canWrite: boolean }) {
   const { t, lang } = useI18n();
-  const { session } = useAuth();
+  const { profileId } = useAuth();
   const [notes, setNotes] = useState<Note[]>([]);
   const [body, setBody] = useState('');
   const [shared, setShared] = useState(false);
@@ -24,9 +24,9 @@ export function CoachNotes({ climberId, canWrite }: { climberId: string; canWrit
 
   async function add(e: FormEvent) {
     e.preventDefault();
-    if (!session || !body.trim()) return;
+    if (!profileId || !body.trim()) return;
     const { error } = await supabase.from('coach_notes')
-      .insert({ coach_id: session.user.id, climber_id: climberId, body: body.trim(), shared_with_climber: shared });
+      .insert({ coach_id: profileId, climber_id: climberId, body: body.trim(), shared_with_climber: shared });
     if (!error) { setBody(''); setShared(false); void load(); }
   }
 

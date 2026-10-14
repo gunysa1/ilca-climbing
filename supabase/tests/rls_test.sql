@@ -205,4 +205,63 @@ select pg_temp.assert(public.boulder_points(150, null) = 0 and public.boulder_po
   'points never go below zero');
 reset role;
 
+-- ---------------------------------------------------------------- profiles without accounts
+-- Admin imports a climber who has no login, registers them, later links a parent's new account.
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+insert into profiles (id, full_name, club) values
+  ('50000000-0000-0000-0000-000000000001', 'Imported Kid', 'Haifa Climbing');
+insert into profile_private (id, email, medical_notes) values
+  ('50000000-0000-0000-0000-000000000001', 'kid@test', 'peanut allergy');
+insert into registrations values
+  ('20000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', 3);
+select pg_temp.assert((select user_id from profiles where id = '50000000-0000-0000-0000-000000000001') is null,
+  'admin creates a climber profile without an account');
+select pg_temp.assert(
+  (select count(*) from admin_accounts() where email in ('noa@test', 'judge@test')) = 2,
+  'admin lists accounts with emails');
+select pg_temp.denied($$update profiles set user_id = '00000000-0000-0000-0000-00000000000a'
+  where id = '50000000-0000-0000-0000-000000000001'$$, 'admin sets user_id directly (must use link_account)');
+reset role;
+
+select pg_temp.login('00000000-0000-0000-0000-000000000001');
+select pg_temp.denied($$select * from admin_accounts()$$, 'climber lists accounts');
+select pg_temp.denied($$select link_account('50000000-0000-0000-0000-000000000001', auth.uid())$$,
+  'climber links themselves to another profile');
+select pg_temp.denied($$update profiles set user_id = null where id = auth.uid()$$, 'climber unlinks own profile');
+select pg_temp.assert(not exists (select 1 from profile_private where id = '50000000-0000-0000-0000-000000000001'),
+  'climber cannot read an unlinked profile''s private data');
+update profiles set club = 'Tel Aviv Boulders' where id = auth.uid();
+select pg_temp.assert((select club from profiles where id = auth.uid()) = 'Tel Aviv Boulders',
+  'climber still edits own public profile');
+reset role;
+
+-- a parent signs up (trigger creates an empty profile), admin links the imported profile
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('00000000-0000-0000-0000-00000000000f', 'kid@test', '{"full_name":"Kid"}');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select link_account('50000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000f');
+select pg_temp.assert(
+  (select user_id from profiles where id = '50000000-0000-0000-0000-000000000001') = '00000000-0000-0000-0000-00000000000f'
+  and not exists (select 1 from profiles where id = '00000000-0000-0000-0000-00000000000f'),
+  'link_account attaches the account and drops its empty auto profile');
+select pg_temp.denied($$select link_account('50000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')$$,
+  'link_account refuses an account whose own profile has data');
+reset role;
+
+select pg_temp.login('00000000-0000-0000-0000-00000000000f');
+select pg_temp.assert(my_profile_id() = '50000000-0000-0000-0000-000000000001', 'linked account resolves its profile');
+select pg_temp.assert((select medical_notes from profile_private) = 'peanut allergy',
+  'linked account reads its private data');
+select pg_temp.assert(
+  (select count(*) from climber_history where climber_id = my_profile_id() and round = 'qualification') = 1,
+  'linked account sees its history');
+reset role;
+
+-- coach linked by profile id (not account id)
+insert into coach_athletes values ('00000000-0000-0000-0000-00000000000c', '50000000-0000-0000-0000-000000000001');
+select pg_temp.login('00000000-0000-0000-0000-00000000000c');
+select pg_temp.assert(exists (select 1 from profile_private where id = '50000000-0000-0000-0000-000000000001'),
+  'coach reads linked imported athlete');
+reset role;
+
 \echo ALL RLS TESTS PASSED

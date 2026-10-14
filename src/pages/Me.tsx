@@ -5,13 +5,13 @@ import { useI18n } from '../lib/i18n';
 
 export function Me() {
   const { t } = useI18n();
-  const { session } = useAuth();
-  if (!session) return null;
+  const { profileId } = useAuth();
+  if (!profileId) return null;
   return (
     <section>
       <h1>{t('myHistory')}</h1>
-      <History climberId={session.user.id} />
-      <CoachNotes climberId={session.user.id} canWrite={false} />
+      <History climberId={profileId} />
+      <CoachNotes climberId={profileId} canWrite={false} />
     </section>
   );
 }
