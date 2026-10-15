@@ -41,7 +41,7 @@ interface Row { climber_id: string; rank: number | null; score: string }
 export function RoundResults() {
   const { id } = useParams();
   const { t, lang } = useI18n();
-  const { round, boulders, starters, results, leadResults, loading } = useRoundData(id);
+  const { round, boulders, starters, results, leadResults, totals: storedTotals, loading } = useRoundData(id);
   const [ageClass, setAgeClass] = useState<string | null>(null);
   const [onlyFavorites, setOnlyFavorites] = useState(false);
   const [context, setContext] = useState<{ category: string; category_he: string | null;
@@ -89,18 +89,22 @@ export function RoundResults() {
         .map((s) => ({ climber_id: s.climber_id, rank: s.rank, score: s.rank === null ? '–' : multi ? s.points.toFixed(2) : '' }));
     }
     const format = round.scoring as ScoringFormat;
-    const totalsRows = shown.map((s) => ({
-      ...totals(s.climber_id, boulders.map((b) => results.get(resultKey(b.id, s.climber_id)) ?? EMPTY_RESULT)),
-      prev_rank: s.prev_place,
-    }));
-    const climbed = new Set(shown.filter((s) => boulders.some((b) => (results.get(resultKey(b.id, s.climber_id))?.attempts ?? 0) > 0))
-      .map((s) => s.climber_id));
+    // Totals-only rounds (older LogLig history) carry stored totals instead of per-boulder results.
+    const totalsRows = shown.map((s) => {
+      const stored = storedTotals.get(s.climber_id);
+      return stored ? { ...stored, points: 0, prev_rank: s.prev_place } : {
+        ...totals(s.climber_id, boulders.map((b) => results.get(resultKey(b.id, s.climber_id)) ?? EMPTY_RESULT)),
+        prev_rank: s.prev_place,
+      };
+    });
+    const climbed = new Set(shown.filter((s) => storedTotals.has(s.climber_id)
+      || boulders.some((b) => (results.get(resultKey(b.id, s.climber_id))?.attempts ?? 0) > 0)).map((s) => s.climber_id));
     return standings(totalsRows, format, climbed).map((r) => ({
       climber_id: r.climber_id, rank: r.rank,
       score: r.rank === null ? '–' : format === 'ifsc2025'
         ? r.points.toFixed(1) : `${r.tops}T${r.zones}z ${r.top_attempts} ${r.zone_attempts}`,
     }));
-  }, [round, shown, boulders, results, leadResults]);
+  }, [round, shown, boulders, results, leadResults, storedTotals]);
 
   const byId = new Map(starters.map((s) => [s.climber_id, s]));
   // The favorites filter only hides rows: ranks stay those of the whole round (group / age class).

@@ -82,5 +82,7 @@ export interface HistoryRow {
 
 /** Columns of boulder_results readable by clients (updated_by is admin-only). */
 export const RESULT_COLUMNS = 'boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt, updated_at';
+/** Totals-only boulder rounds (older LogLig history): per-round T/Z totals, no per-boulder detail. */
+export const TOTALS_COLUMNS = 'round_id, climber_id, tops, zones, top_attempts, zone_attempts';
 /** Columns of lead_results readable by clients (updated_by is admin-only). */
 export const LEAD_COLUMNS = 'boulder_id, climber_id, round_id, hold, plus, top, time_ms, updated_at';

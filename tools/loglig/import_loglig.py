@@ -7,8 +7,9 @@ replaces the given competitions in the app's schema:
 
   competitions (finished), categories (one per LogLig category), rounds (closed) with start lists
   and seeds, boulder_results (boulder: per-boulder top/zone attempts from the plain pages) or
-  lead_results (lead: per-route height and time from the LS pages), climber profiles without
-  accounts (+ private birth date).
+  lead_results (lead: per-route height and time from the LS pages), round_totals (older boulder
+  pages that only publish per-round totals "2T 3Z 3 5": rounds scored 'classic' without boulders),
+  climber profiles without accounts (+ private birth date).
 
 Ids are uuid5 of LogLig ids, so re-running replaces the same competitions, and a climber (name +
 birth date) maps to the same profile across competitions. LogLig does not publish total attempts
@@ -25,6 +26,8 @@ import uuid
 from pathlib import Path
 
 NS = uuid.UUID('6b7f4a52-2c1e-4f4e-9a3b-1c0de1ca0001')  # ILCA LogLig import namespace
+# LogLig test entries, not ILCA competitions: "אליפות פקטיבית לבדיקת מערכת", "בדיקה", "ניסוי".
+TEST_COMPETITIONS = {'4768', '12829', '15209'}
 ROUND_KINDS = {'מוקדמות': 'qualification', 'מוקדמות לגמר': 'qualification', 'חצי גמר': 'semifinal', 'גמר': 'final'}
 
 
@@ -81,10 +84,18 @@ def parse_competition(archive: Path, season: str, cid: str) -> dict:
         plain = plain_path.read_text(encoding='utf-8')
         discipline = detect_discipline(plain)
         if discipline is None:
-            continue  # only classic totals or 0T 0Z placeholders: nothing faithful to import
+            continue  # only 0T 0Z placeholders (national league): nothing faithful to import
         dob = {}  # name -> birth date (plain pages only)
         rounds = []
-        if discipline == 'boulder':
+        if discipline == 'boulder_totals':
+            for heading, rows in sections(plain):
+                climbers = [{'name': r[1], 'dob': r[2], 'club': r[3], 'rank': parse_rank(r[0]), 'total': r[-1],
+                             'totals': tuple(int(x) for x in m.groups()) if (m := TOTALS.fullmatch(r[-1])) else None}
+                            for r in rows]
+                # a round of only "0T 0Z 0 0" is a placeholder, not results
+                if any(c['totals'] and any(c['totals']) for c in climbers):
+                    rounds.append({'kind': ROUND_KINDS[heading], 'climbers': climbers})
+        elif discipline == 'boulder':
             for heading, rows in sections(plain):
                 climbers = []
                 for r in rows:
@@ -160,15 +171,20 @@ def merge_split_categories(cid: str, cats: list[dict]) -> list[dict]:
     return out
 
 
+TOTALS = re.compile(r'(\d+)T (\d+)Z (\d+) (\d+)')
+
+
 def detect_discipline(plain: str) -> str | None:
     """'boulder' when per-boulder detail ("1 2:1 2 0:3 ...") is present, 'lead' when results are lead
-    rank points (e.g. 2.121; heights are on the LS page), else None: LogLig's classic boulder totals
-    ("5T 7Z 9 12") have no per-boulder detail and national-league pages only hold "0T 0Z 0 0"."""
+    rank points (e.g. 2.121; heights are on the LS page), 'boulder_totals' when only classic per-round
+    totals ("5T 7Z 9 12") are published, else None: national-league pages only hold "0T 0Z 0 0"."""
     rows = [r for _, rows in sections(plain) for r in rows if parse_rank(r[0]) is not None]
     if any(re.search(r'\d+ \d+:\d+', r[1]) for r in rows):
         return 'boulder'
     if any(re.fullmatch(r'\d+\.\d+', r[-1]) for r in rows):
         return 'lead'
+    if any(TOTALS.fullmatch(r[-1]) and r[-1] != '0T 0Z 0 0' for r in rows):
+        return 'boulder_totals'
     return None
 
 
@@ -190,7 +206,7 @@ def parse_height(h: str) -> tuple[int, bool, bool] | None:
 def to_rows(comps: list[dict]) -> dict:
     """Rows for each table, keyed by table name."""
     t = {k: [] for k in ('competitions', 'categories', 'rounds', 'boulders', 'profiles', 'profile_private',
-                         'registrations', 'round_starters', 'boulder_results', 'lead_results')}
+                         'registrations', 'round_starters', 'round_totals', 'boulder_results', 'lead_results')}
     seen_profiles = set()
     for comp in comps:
         comp_id = uid('competition', comp['id'])
@@ -207,7 +223,7 @@ def to_rows(comps: list[dict]) -> dict:
                     continue
                 round_id = uid('round', cat['id'], rnd['kind'])
                 t['rounds'].append({'id': round_id, 'category_id': cat_id, 'kind': rnd['kind'], 'status': 'closed',
-                                    'scoring': 'lead' if cat['discipline'] == 'lead' else 'ifsc2025'})
+                                    'scoring': {'lead': 'lead', 'boulder_totals': 'classic'}.get(cat['discipline'], 'ifsc2025')})
                 n_routes = max([b[0] for c in rnd['climbers'] for b in c.get('boulders', [])] +
                                [len(c.get('routes', [])) for c in rnd['climbers']] + [0])
                 route_ids = {n: uid('route', round_id, n) for n in range(1, n_routes + 1)}
@@ -228,6 +244,10 @@ def to_rows(comps: list[dict]) -> dict:
                                                 'group_label': c.get('group')})
                     if c['rank'] is not None:
                         ranks[pid] = c['rank']
+                        if c.get('totals'):
+                            tops, zones, top_att, zone_att = c['totals']
+                            t['round_totals'].append({'round_id': round_id, 'climber_id': pid, 'tops': tops, 'zones': zones,
+                                                      'top_attempts': top_att, 'zone_attempts': zone_att})
                     for n, top, zone in c.get('boulders', []):
                         zone = zone or top  # a top implies the zone
                         if top and zone > top:  # zone can't come after the top
@@ -264,6 +284,7 @@ def sql(comps: list[dict]) -> str:
         'profile_private': 'id, birth_date',
         'registrations': 'category_id, climber_id',
         'round_starters': 'round_id, climber_id, start_order, prev_place, group_label',
+        'round_totals': 'round_id, climber_id, tops, zones, top_attempts, zone_attempts',
         'boulder_results': 'boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt',
         'lead_results': 'boulder_id, climber_id, round_id, hold, plus, top, time_ms',
     }
@@ -283,7 +304,10 @@ def main() -> None:
     if check:
         args = args[1:]
     archive = Path(args[0])
-    comps = [parse_competition(archive, *spec.split(':')) for spec in args[1:]]
+    specs = [spec for spec in args[1:] if spec.split(':')[1] not in TEST_COMPETITIONS]
+    if len(specs) < len(args) - 1:
+        print('skipping LogLig test competitions', file=sys.stderr)
+    comps = [parse_competition(archive, *spec.split(':')) for spec in specs]
     if check:
         ranks = [{'round_id': uid('round', cat['id'], rnd['kind']), 'climber_id': uid('climber', c['name'], c['dob']), 'rank': c['rank']}
                  for comp in comps for cat in comp['categories'] for rnd in cat['rounds'] for c in rnd['climbers']]

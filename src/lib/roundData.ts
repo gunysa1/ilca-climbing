@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase';
-import { LEAD_COLUMNS, RESULT_COLUMNS, type Boulder, type Profile, type Round } from './types';
+import { LEAD_COLUMNS, RESULT_COLUMNS, TOTALS_COLUMNS, type Boulder, type Profile, type Round } from './types';
 import type { LeadResult } from './lead';
 import type { BoulderResult } from './scoring';
 
@@ -17,6 +17,8 @@ export interface Starter {
   profile: Profile;
 }
 export interface ResultRow extends BoulderResult { boulder_id: string; climber_id: string }
+/** Stored round totals (totals-only rounds imported from LogLig). */
+export interface TotalsRow { climber_id: string; tops: number; zones: number; top_attempts: number; zone_attempts: number }
 export interface LeadRow { boulder_id: string; climber_id: string; hold: number; plus: boolean; top: boolean; time_ms: number | null }
 
 /** lead.ts works on route_id; routes are rows of `boulders`. */
@@ -30,6 +32,8 @@ export interface RoundData {
   results: Map<string, ResultRow>; // key: `${boulder_id}:${climber_id}`
   /** Lead rounds: results per route, same key. */
   leadResults: Map<string, LeadRow>;
+  /** Totals-only rounds: stored totals per climber id. */
+  totals: Map<string, TotalsRow>;
   loading: boolean;
 }
 
@@ -52,23 +56,24 @@ export const resultKey = (boulderId: string, climberId: string) => `${boulderId}
 
 /** Loads a round with its boulders, starters and results, and keeps results live via Realtime. */
 export function useRoundData(roundId: string | undefined): RoundData {
-  const [state, setState] = useState<RoundData>({ round: null, boulders: [], starters: [], results: new Map(), leadResults: new Map(), loading: true });
+  const [state, setState] = useState<RoundData>({ round: null, boulders: [], starters: [], results: new Map(), leadResults: new Map(), totals: new Map(), loading: true });
 
   useEffect(() => {
     if (!roundId) return;
     let cancelled = false;
     // A different round: never show the previous round's data while this one loads.
-    setState({ round: null, boulders: [], starters: [], results: new Map(), leadResults: new Map(), loading: true });
+    setState({ round: null, boulders: [], starters: [], results: new Map(), leadResults: new Map(), totals: new Map(), loading: true });
 
     (async () => {
       const { data: round } = await supabase.from('rounds').select('*').eq('id', roundId).single();
       if (!round || cancelled) { setState((s) => ({ ...s, loading: false })); return; }
       const lead = (round as Round).scoring === 'lead';
-      const [{ data: boulders }, { starters }, { data: results }, { data: leadRows }] = await Promise.all([
+      const [{ data: boulders }, { starters }, { data: results }, { data: leadRows }, { data: totalRows }] = await Promise.all([
         supabase.from('boulders').select('*').eq('round_id', roundId).order('number'),
         loadStarters(round as Round),
         lead ? Promise.resolve({ data: [] }) : supabase.from('boulder_results').select(RESULT_COLUMNS).eq('round_id', roundId),
         lead ? supabase.from('lead_results').select(LEAD_COLUMNS).eq('round_id', roundId) : Promise.resolve({ data: [] }),
+        (round as Round).scoring === 'classic' ? supabase.from('round_totals').select(TOTALS_COLUMNS).eq('round_id', roundId) : Promise.resolve({ data: [] }),
       ]);
       if (cancelled) return;
       setState({
@@ -77,6 +82,7 @@ export function useRoundData(roundId: string | undefined): RoundData {
         starters,
         results: new Map(((results as ResultRow[]) ?? []).map((r) => [resultKey(r.boulder_id, r.climber_id), r])),
         leadResults: new Map(((leadRows as LeadRow[]) ?? []).map((r) => [resultKey(r.boulder_id, r.climber_id), r])),
+        totals: new Map(((totalRows as TotalsRow[]) ?? []).map((r) => [r.climber_id, r])),
         loading: false,
       });
     })();

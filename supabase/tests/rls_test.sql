@@ -519,6 +519,42 @@ select pg_temp.assert(
   'advancement from groups takes the top of each group (quota split evenly)');
 reset role;
 
+-- ---------------------------------------------------------------- totals-only rounds (LogLig history)
+reset role;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into rounds (id, category_id, kind, status, scoring) values
+  ('30000000-0000-0000-0000-000000000081', '20000000-0000-0000-0000-000000000008', 'qualification', 'closed', 'classic');
+insert into round_starters (round_id, climber_id, start_order) values
+  ('30000000-0000-0000-0000-000000000081', '60000000-0000-0000-0000-00000000000a', 1),
+  ('30000000-0000-0000-0000-000000000081', '60000000-0000-0000-0000-00000000000b', 2),
+  ('30000000-0000-0000-0000-000000000081', '60000000-0000-0000-0000-00000000000c', 3),
+  ('30000000-0000-0000-0000-000000000081', '60000000-0000-0000-0000-00000000000d', 4)
+  on conflict do nothing;
+insert into round_totals (round_id, climber_id, tops, zones, top_attempts, zone_attempts) values
+  ('30000000-0000-0000-0000-000000000081', '60000000-0000-0000-0000-00000000000a', 1, 2, 3, 5),
+  ('30000000-0000-0000-0000-000000000081', '60000000-0000-0000-0000-00000000000b', 2, 3, 3, 5),
+  ('30000000-0000-0000-0000-000000000081', '60000000-0000-0000-0000-00000000000c', 1, 2, 3, 5);
+select set_config('request.jwt.claim.sub', '', false);
+select pg_temp.login(null);
+select pg_temp.assert(
+  (select array_agg(right(climber_id::text, 1) || coalesce(rank::text, '-') || ':' || tops || 'T' || zones || 'Z'
+     order by climber_id) from round_scores
+    where round_id = '30000000-0000-0000-0000-000000000081') = '{a2:1T2Z,b1:2T3Z,c2:1T2Z,d-:0T0Z}',
+  'totals-only round: ranked from stored totals (T, Z, attempts), no total = unranked');
+select pg_temp.assert(
+  (select count(*) from round_totals where round_id = '30000000-0000-0000-0000-000000000081') = 3,
+  'public reads totals of a public round');
+select pg_temp.assert(
+  (select rank from climber_history where climber_id = '60000000-0000-0000-0000-00000000000b'
+     and round_id = '30000000-0000-0000-0000-000000000081') = 1,
+  'totals-only rounds appear in climber history');
+select pg_temp.denied($$insert into round_totals values
+  ('30000000-0000-0000-0000-000000000081', '60000000-0000-0000-0000-00000000000d', 9, 9, 9, 9)$$, 'anon writes totals');
+select pg_temp.login('00000000-0000-0000-0000-000000000002');
+select pg_temp.denied($$update round_totals set tops = 5 where climber_id = '60000000-0000-0000-0000-00000000000a'$$,
+  'climber edits totals');
+reset role;
+
 -- ---------------------------------------------------------------- function privileges (Supabase advisors)
 -- Supabase grants EXECUTE on new functions to anon directly; admin-only and trigger functions must not keep it.
 select pg_temp.assert(not has_function_privilege('anon', f, 'execute'), 'anon cannot execute ' || f)
