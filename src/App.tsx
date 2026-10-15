@@ -16,6 +16,7 @@ import { AdminHome } from './pages/admin/AdminHome';
 import { AdminPeople } from './pages/admin/AdminPeople';
 import { AdminRound } from './pages/admin/AdminRound';
 import { RoundResults } from './pages/RoundResults';
+import { Search } from './pages/Search';
 
 export function App() {
   return (
@@ -30,6 +31,7 @@ export function App() {
               <Route path="round/:id" element={<RoundResults />} />
               <Route path="climber/:id" element={<Climber />} />
               <Route path="favorites" element={<Favorites />} />
+              <Route path="search" element={<Search />} />
               <Route path="login" element={<Login />} />
               {/* signed-in roles */}
               <Route path="me" element={<RequireRole><Me /></RequireRole>} />

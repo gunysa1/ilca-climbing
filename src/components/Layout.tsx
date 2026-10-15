@@ -14,6 +14,7 @@ export function Layout() {
           <nav className="nav">
             <NavLink to="/" end>{t('live')}</NavLink>
             <NavLink to="/favorites" aria-label={t('favorites')}>★ {t('favorites')}</NavLink>
+            <NavLink to="/search" aria-label={t('search')}>🔍</NavLink>
             {session && <NavLink to="/me">{t('myHistory')}</NavLink>}
             {hasRole('coach') && <NavLink to="/coach">{t('coach')}</NavLink>}
             {hasRole('judge') && <NavLink to="/judge">{t('judge')}</NavLink>}
