@@ -113,3 +113,12 @@ describe('standings', () => {
     expect(standings([row('a', 0), row('b', 0)], 'ifsc2025', new Set()).every((r) => r.rank === null)).toBe(true);
   });
 });
+
+describe('judge pad: removing a mistaken attempt', () => {
+  it('goes down one attempt, never below the zone attempt or zero, and not after a top', () => {
+    expect(applyAction({ attempts: 3, zone_attempt: null, top_attempt: null }, 'unattempt').attempts).toBe(2);
+    expect(applyAction({ attempts: 2, zone_attempt: 2, top_attempt: null }, 'unattempt').attempts).toBe(2);
+    expect(applyAction({ attempts: 0, zone_attempt: null, top_attempt: null }, 'unattempt').attempts).toBe(0);
+    expect(applyAction({ attempts: 3, zone_attempt: 1, top_attempt: 3 }, 'unattempt').attempts).toBe(3);
+  });
+});

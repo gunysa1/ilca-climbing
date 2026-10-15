@@ -121,11 +121,21 @@ step('judge pad: claim, score, lock; admin sees the lock, opens an appeal; publi
 const jp = await page('en', { width: 1280, height: 900 }, judgeSession);
 await jp.goto(`${base}/judge`);
 await jp.getByRole('link', { name: 'Boulder 2' }).click();
-await jp.getByRole('button', { name: /מאיה גל/ }).click();
-await jp.getByRole('button', { name: /\+1/ }).click();
-await jp.locator('.pad-buttons').getByRole('button', { name: 'Zone' }).click();
+await jp.getByText(/1 \/ 3/).waitFor();                       // one climber at a time, in start order
+await jp.getByRole('button', { name: /List/ }).click();
+await jp.locator('.starter-list').getByRole('button', { name: /מאיה גל/ }).click();
+await jp.locator('.pad-head').getByText('מאיה גל').waitFor();
+await jp.getByRole('button', { name: 'Zone' }).click();          // zone before any attempt: asks first
+await jp.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+await jp.getByRole('button', { name: 'Add attempt' }).click();
+await jp.getByRole('button', { name: 'Add attempt' }).click();
+await jp.getByRole('button', { name: 'Remove attempt' }).click(); // a mistaken tap
+await jp.getByRole('button', { name: 'Zone' }).click();
 await jp.locator('.pad-status').getByText('Saved').waitFor();
-await jp.getByRole('button', { name: /Finish/ }).click();
+await jp.locator('.score-box').getByText('10.0').waitFor();       // live points: zone on the 1st attempt
+await jp.getByRole('button', { name: /Next · lock/ }).click();
+await jp.getByRole('dialog').getByText(/1 Attempts · Zone 1 · no Top/).waitFor();
+await jp.getByRole('dialog').getByRole('button', { name: 'Yes, lock' }).click();
 await jp.getByText('This result is locked').waitFor();
 await jp.screenshot({ path: `${out}/judge-locked-en.png` });
 await p.goto(`${base}/admin/round/${roundId}`);

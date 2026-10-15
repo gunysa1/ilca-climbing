@@ -605,11 +605,11 @@ select pg_temp.assert((select judge_name from claim_climber('30000000-0000-0000-
   'a second judge sees the climber is held by the first');
 select pg_temp.assert((select count(*) from judge_claims) = 1, 'judges of the boulder see its claims');
 reset role;
-update judge_claims set claimed_at = now() - interval '11 minutes';
+update judge_claims set claimed_at = now() - interval '31 seconds';
 select pg_temp.login('00000000-0000-0000-0000-0000000000b2');
 select pg_temp.assert((select judge_name from claim_climber('30000000-0000-0000-0000-000000000001',
   '40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')) = 'Judge Two',
-  'a stale claim (10+ minutes) can be taken over');
+  'a stale claim (30+ seconds) can be taken over');
 select release_claim('40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002');
 select pg_temp.assert(not exists (select 1 from judge_claims), 'judge releases own claim');
 select pg_temp.denied($$select claim_climber('30000000-0000-0000-0000-000000000001',

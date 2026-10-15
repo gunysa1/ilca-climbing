@@ -96,7 +96,7 @@ export function standings(rows: RoundTotals[], format: ScoringFormat, climbed: S
 // Judge pad state machine. "attempts" includes the attempt in progress;
 // zone/top attach to the current attempt.
 // ---------------------------------------------------------------------------
-export type JudgeAction = 'attempt' | 'zone' | 'top';
+export type JudgeAction = 'attempt' | 'unattempt' | 'zone' | 'top';
 
 export function applyAction(r: BoulderResult, action: JudgeAction): BoulderResult {
   if (r.top_attempt != null) return r; // topped: boulder finished for this climber
@@ -104,6 +104,10 @@ export function applyAction(r: BoulderResult, action: JudgeAction): BoulderResul
   switch (action) {
     case 'attempt':
       return { ...r, attempts: r.attempts + 1 };
+    case 'unattempt':
+      // a mistaken tap: never below the attempt the zone was recorded on
+      if (r.attempts <= Math.max(r.zone_attempt ?? 0, 0)) return r;
+      return { ...r, attempts: r.attempts - 1 };
     case 'zone':
       if (r.zone_attempt != null) return r;
       return { ...r, attempts: current, zone_attempt: current };

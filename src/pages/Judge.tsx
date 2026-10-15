@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { localized, useI18n } from '../lib/i18n';
 import { formatHeight } from '../lib/lead';
 import { resultKey, useRoundData, type LeadRow, type Starter } from '../lib/roundData';
-import { applyAction, EMPTY_RESULT, type BoulderResult, type JudgeAction } from '../lib/scoring';
+import { applyAction, boulderPoints, EMPTY_RESULT, type BoulderResult, type JudgeAction } from '../lib/scoring';
 import { supabase } from '../lib/supabase';
 import { LEAD_COLUMNS, RESULT_COLUMNS, type Boulder, type RoundFormat } from '../lib/types';
 
@@ -60,9 +60,13 @@ export function JudgeHome() {
   );
 }
 
-/** Who holds a climber on a boulder: the calling judge claims them (re-claimed every 2 minutes while
- * the pad is open, released on close); another judge's fresh claim blocks the pad. */
-function useClaim(roundId: string, boulderId: string, climberId: string) {
+/** Claims refresh every 10 s; another judge's claim older than 30 s is stale (claim_climber). */
+const CLAIM_BEAT_MS = 10_000;
+const CLAIM_STALE_MS = 30_000;
+
+/** Who holds a climber on a boulder: the calling judge claims them while the pad is open (re-claimed
+ * every 10 s, released on close); another judge's fresh claim keeps the pad read-only. */
+function useClaim(roundId: string, boulderId: string, climberId: string, enabled: boolean) {
   const { profileId } = useAuth();
   const [holder, setHolder] = useState<{ judge_id: string; judge_name: string } | null>(null);
   const claim = useCallback(async () => {
@@ -70,14 +74,15 @@ function useClaim(roundId: string, boulderId: string, climberId: string) {
     setHolder(((data ?? []) as { judge_id: string; judge_name: string }[])[0] ?? null);
   }, [roundId, boulderId, climberId]);
   useEffect(() => {
+    if (!enabled) return;
     void claim();
-    const beat = setInterval(() => void claim(), 120_000);
+    const beat = setInterval(() => void claim(), CLAIM_BEAT_MS);
     return () => { clearInterval(beat); void supabase.rpc('release_claim', { p_boulder: boulderId, p_climber: climberId }); };
-  }, [claim, boulderId, climberId]);
-  return { holder, mine: !!holder && holder.judge_id === profileId, retry: claim };
+  }, [claim, boulderId, climberId, enabled]);
+  return { holder, mine: !enabled || (!!holder && holder.judge_id === profileId), loading: enabled && !holder };
 }
 
-/** Claims on a boulder by other judges, live (climber id -> judge name). */
+/** Fresh claims on a boulder by other judges, live (climber id -> judge name). */
 function useBoulderClaims(boulderId: string | undefined) {
   const { profileId } = useAuth();
   const [claims, setClaims] = useState(new Map<string, string>());
@@ -86,88 +91,168 @@ function useBoulderClaims(boulderId: string | undefined) {
     const load = () => supabase.from('judge_claims').select('climber_id, judge_id, claimed_at, judge:profiles!judge_claims_judge_id_fkey(full_name)')
       .eq('boulder_id', boulderId)
       .then(({ data }) => setClaims(new Map(((data ?? []) as unknown as { climber_id: string; judge_id: string; claimed_at: string; judge: { full_name: string } | null }[])
-        .filter((c) => c.judge_id !== profileId && Date.now() - Date.parse(c.claimed_at) < 600_000)
+        .filter((c) => c.judge_id !== profileId && Date.now() - Date.parse(c.claimed_at) < CLAIM_STALE_MS)
         .map((c) => [c.climber_id, c.judge?.full_name ?? '?']))));
     void load();
     const channel = supabase.channel(`claims:${boulderId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'judge_claims', filter: `boulder_id=eq.${boulderId}` }, () => void load())
       .subscribe();
-    const poll = setInterval(() => void load(), 30_000);
+    const poll = setInterval(() => void load(), CLAIM_BEAT_MS);
     return () => { clearInterval(poll); supabase.removeChannel(channel); };
   }, [boulderId, profileId]);
   return claims;
 }
 
-/** Scoring pad for one boulder: pick a climber, record attempts / zone / top. */
+/**
+ * Judge pad for one boulder or route, like a judge works at the wall: one climber at a time in start
+ * order, with progress, back / next and the full list one tap away. Locking a result ("next · lock")
+ * moves to the next climber still to judge; a climber another judge holds can be skipped.
+ */
 export function JudgeBoulder() {
   const { roundId, boulderId } = useParams();
   const { t, lang } = useI18n();
   const { round, boulders, starters, results, leadResults, loading } = useRoundData(roundId);
-  const [current, setCurrent] = useState<Starter | null>(null);
   const boulder = boulders.find((b) => b.id === boulderId);
   const claims = useBoulderClaims(boulder?.id);
+  const lead = round?.scoring === 'lead';
+  const [index, setIndex] = useState<number | null>(null);
+  const [showList, setShowList] = useState(false);
+  const [toast, setToast] = useState('');
+  const locked = useCallback((s: Starter) => !!boulder && !!(results.get(resultKey(boulder.id, s.climber_id))?.locked
+    || leadResults.get(resultKey(boulder.id, s.climber_id))?.locked), [boulder, results, leadResults]);
+  // The next climber still to judge after `from`: not locked and not held by another judge.
+  const nextFree = useCallback((from: number) => {
+    for (let i = from + 1; i < starters.length; i++) if (!locked(starters[i]) && !claims.has(starters[i].climber_id)) return i;
+    return -1;
+  }, [starters, locked, claims]);
+  // Start with the first climber still to judge.
+  useEffect(() => {
+    if (index === null && starters.length) setIndex(Math.max(0, nextFree(-1)));
+  }, [index, starters, nextFree]);
+  useEffect(() => { if (!toast) return; const h = setTimeout(() => setToast(''), 2500); return () => clearTimeout(h); }, [toast]);
 
   if (loading) return <p className="muted">{t('loading')}</p>;
-  if (!boulder) return <p className="notice">{t('noAccess')}</p>;
+  if (!boulder || !round) return <p className="notice">{t('noAccess')}</p>;
+  const i = Math.min(index ?? 0, Math.max(0, starters.length - 1));
+  const current = starters[i];
+  const done = starters.filter(locked).length;
+  const go = (to: number) => { setIndex(to); setShowList(false); };
+  const afterLock = (bib: number | null) => {
+    const next = nextFree(i);
+    setToast(next >= 0 ? `${t('lockedToast')} #${bib ?? ''}` : `${t('lockedToast')} #${bib ?? ''} · ${t('endOfList')}`);
+    if (next >= 0) go(next);
+  };
 
   return (
-    <section>
-      <h1>{t(round?.scoring === 'lead' ? 'route' : 'boulder')} {boulder.number}</h1>
-      <div className="judge-layout">
+    <section className="judge">
+      <div className="judge-top">
+        <button className="secondary" onClick={() => go(Math.max(0, i - 1))} disabled={i === 0}>{t('prevClimber')}</button>
+        <div className="judge-title">
+          <strong>{t(lead ? 'route' : 'boulder')} {boulder.number}</strong>
+          <span className="muted small">{i + 1} / {starters.length} · {t('lockedCount')} {done}</span>
+        </div>
+        <button className="secondary" onClick={() => setShowList((v) => !v)} aria-expanded={showList}>☰ {t('climberList')}</button>
+      </div>
+      {showList && (
         <ul className="starter-list">
-          {starters.map((s) => {
+          {starters.map((s, k) => {
             const r = results.get(resultKey(boulder.id, s.climber_id));
             const l = leadResults.get(resultKey(boulder.id, s.climber_id));
             return (
               <li key={s.climber_id}>
-                <button className={current?.climber_id === s.climber_id ? 'selected' : ''} onClick={() => setCurrent(s)}>
+                <button className={k === i ? 'selected' : ''} onClick={() => go(k)}>
                   <span className="bib">{s.bib ?? '–'}</span>
                   <span>{localized(lang, s.profile.full_name, s.profile.full_name_he)}</span>
                   <span className="muted small">
-                    {(r?.locked || l?.locked) && <span title={t('resultLocked')}>🔒 </span>}
-                    {claims.has(s.climber_id) && <span title={t('claimedBy')}>✋ {claims.get(s.climber_id)} · </span>}
-                    {l ? formatHeight(l) : r ? `${r.top_attempt ? 'T' + r.top_attempt : ''} ${r.zone_attempt ? 'Z' + r.zone_attempt : ''} · ${r.attempts}` : ''}
+                    {locked(s) && '🔒 '}
+                    {claims.has(s.climber_id) && `✋ ${claims.get(s.climber_id)} · `}
+                    {l ? formatHeight(l) : r ? shorthand(r) : ''}
                   </span>
                 </button>
               </li>
             );
           })}
         </ul>
-        {current && round?.scoring === 'lead' && (
-          <LeadPad
-            key={current.climber_id}
-            roundId={roundId!}
-            routeId={boulder.id}
-            starter={current}
-            initial={leadResults.get(resultKey(boulder.id, current.climber_id))}
-            locked={!!leadResults.get(resultKey(boulder.id, current.climber_id))?.locked}
-          />
-        )}
-        {current && round?.scoring !== 'lead' && (
-          <ScorePad
-            key={current.climber_id}
-            roundId={roundId!}
-            boulderId={boulder.id}
-            starter={current}
-            initial={results.get(resultKey(boulder.id, current.climber_id)) ?? EMPTY_RESULT}
-            locked={!!results.get(resultKey(boulder.id, current.climber_id))?.locked}
-          />
-        )}
-      </div>
+      )}
+      {current && (lead
+        ? <LeadPad key={current.climber_id} roundId={roundId!} routeId={boulder.id} starter={current}
+            initial={leadResults.get(resultKey(boulder.id, current.climber_id))} locked={locked(current)}
+            onLocked={() => afterLock(current.bib)} nextFree={nextFree(i)} onGo={go} />
+        : <ScorePad key={current.climber_id} roundId={roundId!} boulderId={boulder.id} starter={current}
+            initial={results.get(resultKey(boulder.id, current.climber_id)) ?? EMPTY_RESULT} locked={locked(current)}
+            onLocked={() => afterLock(current.bib)} nextFree={nextFree(i)} onGo={go} />)}
+      {toast && <div className="toast" role="status">{toast}</div>}
     </section>
   );
 }
 
-function ScorePad({ roundId, boulderId, starter, initial, locked: initiallyLocked }:
-  { roundId: string; boulderId: string; starter: Starter; initial: BoulderResult; locked: boolean }) {
-  const { t, lang } = useI18n();
-  const { holder, mine, retry } = useClaim(roundId, boulderId, starter.climber_id);
-  const [locked, setLocked] = useState(initiallyLocked);
+const shorthand = (r: BoulderResult) =>
+  [r.top_attempt != null && `T${r.top_attempt}`, r.zone_attempt != null && `Z${r.zone_attempt}`, `· ${r.attempts}`].filter(Boolean).join(' ');
+
+interface PadNav { onLocked: () => void; nextFree: number; onGo: (index: number) => void }
+
+/** Name, club and the state badges of the climber being judged. */
+function PadHeader({ starter, badge }: { starter: Starter; badge: ReactNode }) {
+  const { lang } = useI18n();
+  return (
+    <div className="pad-head">
+      <span className="pad-bib">#{starter.bib ?? '–'}</span>
+      <div>
+        <h2>{localized(lang, starter.profile.full_name, starter.profile.full_name_he)}</h2>
+        <span className="muted small">{[starter.age_class, starter.profile.club].filter(Boolean).join(' · ')}</span>
+      </div>
+      {badge}
+    </div>
+  );
+}
+
+/** Read-only states: locked (next climber), or held by another judge (next free climber). */
+function PadBlocked({ locked, holder, nav }: { locked: boolean; holder: { judge_name: string } | null; nav: PadNav }) {
+  const { t } = useI18n();
+  if (locked) return <p className="notice">🔒 {t('resultLockedHint')}</p>;
+  if (!holder) return null;
+  return (
+    <div className="notice claim-banner">
+      ✋ {t('claimedBy')} {holder.judge_name}. {t('claimedHint')}
+      <button className="primary" disabled={nav.nextFree < 0} onClick={() => nav.onGo(nav.nextFree)}>{t('nextFreeClimber')}</button>
+    </div>
+  );
+}
+
+/** A confirm sheet inside the app (instead of the browser's dialog). */
+function Sheet({ title, children, confirm, onConfirm, onCancel }:
+  { title: string; children: ReactNode; confirm: string; onConfirm: () => void; onCancel: () => void }) {
+  const { t } = useI18n();
+  return (
+    <div className="sheet-backdrop" role="presentation" onClick={onCancel}>
+      <div className="sheet" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <h3>{title}</h3>
+        {children}
+        <div className="sheet-actions">
+          <button className="secondary" onClick={onCancel}>{t('cancel')}</button>
+          <button className="primary" onClick={onConfirm}>{confirm}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScorePad({ roundId, boulderId, starter, initial, locked: initiallyLocked, ...nav }:
+  { roundId: string; boulderId: string; starter: Starter; initial: BoulderResult; locked: boolean } & PadNav) {
+  const { t } = useI18n();
+  const { holder, mine } = useClaim(roundId, boulderId, starter.climber_id, !initiallyLocked);
   const [history, setHistory] = useState<BoulderResult[]>([]);
   const [state, setState] = useState<BoulderResult>({
     attempts: initial.attempts, zone_attempt: initial.zone_attempt, top_attempt: initial.top_attempt,
   });
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [ask, setAsk] = useState<null | 'zone' | 'top' | 'lock'>(null);
+  const [lockedNow, setLockedNow] = useState(false); // before the live update arrives
+  const locked = initiallyLocked || lockedNow;
+  const blocked = locked || !mine;
+  const topped = state.top_attempt != null;
+  const climbed = state.attempts > 0 || state.zone_attempt != null || state.top_attempt != null;
+  const points = useMemo(() => boulderPoints(state), [state]);
 
   async function save(next: BoulderResult, prev: BoulderResult, lock = false) {
     setStatus('saving');
@@ -175,16 +260,20 @@ function ScorePad({ roundId, boulderId, starter, initial, locked: initiallyLocke
       { boulder_id: boulderId, climber_id: starter.climber_id, round_id: roundId, ...next, ...(lock ? { locked: true } : {}) },
       { onConflict: 'boulder_id,climber_id' },
     ).select(RESULT_COLUMNS);
-    if (error) { setState(prev); setStatus('error'); } else { setStatus('saved'); if (lock) setLocked(true); }
+    if (error) { setState(prev); setStatus('error'); return false; }
+    setStatus('saved');
+    return true;
   }
 
   function act(action: JudgeAction) {
     const next = applyAction(state, action);
-    if (next === state) return;
+    if (next === state || next.attempts === state.attempts && next.zone_attempt === state.zone_attempt && next.top_attempt === state.top_attempt) return;
     setHistory((h) => [...h, state]);
     setState(next);
     void save(next, state);
   }
+  // Zone / Top before any attempt was counted: ask first (like the temporary app).
+  const outcome = (kind: 'zone' | 'top') => (state.attempts === 0 ? setAsk(kind) : act(kind));
 
   function undo() {
     const prev = history.at(-1);
@@ -195,42 +284,86 @@ function ScorePad({ roundId, boulderId, starter, initial, locked: initiallyLocke
     void save(prev, before);
   }
 
-  const blocked = locked || !mine;
+  async function lock() {
+    setAsk(null);
+    if (await save(state, state, true)) { setLockedNow(true); nav.onLocked(); }
+  }
+
+  const summary = !climbed ? t('notClimbedYet')
+    : [`${state.attempts} ${t('attemptsWord')}`, state.zone_attempt != null ? `Zone ${state.zone_attempt}` : t('noZone'),
+      state.top_attempt != null ? `Top ${state.top_attempt}` : t('noTop')].join(' · ');
+
   return (
     <div className="pad">
-      <h2>{localized(lang, starter.profile.full_name, starter.profile.full_name_he)}</h2>
-      <PadNotice locked={locked} holder={mine ? null : holder} onRetry={retry} />
-      <div className="pad-readout">
-        <div><span className="muted">{t('attempt')}</span><strong>{state.attempts}</strong></div>
-        <div><span className="muted">{t('zone')}</span><strong>{state.zone_attempt ?? '–'}</strong></div>
-        <div><span className="muted">{t('top')}</span><strong>{state.top_attempt ?? '–'}</strong></div>
+      <PadHeader starter={starter} badge={locked ? <span className="pad-badge">{t('lockedBadge')}</span>
+        : !mine && holder ? <span className="pad-badge busy">{t('busyBadge')}</span> : null} />
+      <PadBlocked locked={locked} holder={mine ? null : holder} nav={nav} />
+
+      <div className="pad-section">{t('attemptsWord')}</div>
+      <div className="stepper">
+        <button className="stepper-btn" aria-label={t('addAttempt')} onClick={() => act('attempt')} disabled={blocked || topped}>+</button>
+        <strong className="stepper-value" aria-live="polite">{state.attempts}</strong>
+        <button className="stepper-btn" aria-label={t('removeAttempt')} onClick={() => act('unattempt')}
+          disabled={blocked || topped || state.attempts <= (state.zone_attempt ?? 0)}>−</button>
       </div>
-      <div className="pad-buttons">
-        <button className="pad-attempt" onClick={() => act('attempt')} disabled={blocked || state.top_attempt != null}>+1 {t('attempt')}</button>
-        <button className="pad-zone" onClick={() => act('zone')} disabled={blocked || state.zone_attempt != null}>{t('zone')}</button>
-        <button className="pad-top" onClick={() => act('top')} disabled={blocked || state.top_attempt != null}>{t('top')}</button>
-        <button className="pad-undo" onClick={undo} disabled={blocked || history.length === 0}>{t('undo')}</button>
+
+      <div className="pad-section">{t('outcome')}</div>
+      <div className="outcomes">
+        <button className={`outcome top${topped ? ' on' : ''}`} onClick={() => outcome('top')} disabled={blocked || topped}>
+          {topped ? `T${state.top_attempt}` : t('top')}
+        </button>
+        <button className={`outcome zone${state.zone_attempt != null ? ' on' : ''}`} onClick={() => outcome('zone')}
+          disabled={blocked || topped || state.zone_attempt != null}>
+          {state.zone_attempt != null ? `Z${state.zone_attempt}` : t('zone')}
+        </button>
       </div>
-      <button className="primary pad-save" disabled={blocked || state.attempts === 0}
-        onClick={() => { if (window.confirm(t('finishConfirm'))) void save(state, state, true); }}>{t('finishClimber')}</button>
+
+      <div className="score-box">
+        <div><span className="muted small">{t('points')}</span><div className="small">{summary}</div></div>
+        <strong>{climbed ? points.toFixed(1) : '—'}</strong>
+      </div>
+
+      {locked
+        ? <button className="primary pad-save" disabled={nav.nextFree < 0} onClick={() => nav.onGo(nav.nextFree)}>{t('nextClimber')}</button>
+        : (
+          <div className="pad-actions">
+            <button className="secondary" onClick={undo} disabled={blocked || history.length === 0}>{t('undo')}</button>
+            <button className="primary" onClick={() => setAsk('lock')} disabled={blocked || !climbed}>{t('lockAndNext')}</button>
+          </div>
+        )}
       <p className={`pad-status ${status}`} aria-live="polite">
         {status === 'saved' ? t('saved') : status === 'error' ? t('saveFailed') : status === 'saving' ? '…' : ''}
       </p>
+
+      {ask === 'lock' && (
+        <Sheet title={t('confirmLockTitle')} confirm={t('yesLock')} onConfirm={() => void lock()} onCancel={() => setAsk(null)}>
+          <p>{t('confirmLockText')}</p>
+          <p className="sheet-result">#{starter.bib ?? '–'} · {summary} · <strong>{points.toFixed(1)}</strong></p>
+        </Sheet>
+      )}
+      {(ask === 'zone' || ask === 'top') && (
+        <Sheet title={t('zeroAttemptsTitle')} confirm={t('yesRecord')} onCancel={() => setAsk(null)}
+          onConfirm={() => { const kind = ask; setAsk(null); act(kind); }}>
+          <p>{t('zeroAttemptsText')} {ask === 'zone' ? 'Zone' : 'Top'}?</p>
+        </Sheet>
+      )}
     </div>
   );
 }
 
-/** Lead pad for one route: the judge records the final height (hold, + or TOP) and saves it. */
-function LeadPad({ roundId, routeId, starter, initial, locked: initiallyLocked }:
-  { roundId: string; routeId: string; starter: Starter; initial: LeadRow | undefined; locked: boolean }) {
-  const { t, lang } = useI18n();
-  const { holder, mine, retry } = useClaim(roundId, routeId, starter.climber_id);
-  const [locked, setLocked] = useState(initiallyLocked);
-  const blocked = locked || !mine;
+/** Lead: the judge records the final height (hold, + or TOP); saving keeps it editable, locking ends it. */
+function LeadPad({ roundId, routeId, starter, initial, locked: initiallyLocked, ...nav }:
+  { roundId: string; routeId: string; starter: Starter; initial: LeadRow | undefined; locked: boolean } & PadNav) {
+  const { t } = useI18n();
+  const { holder, mine } = useClaim(roundId, routeId, starter.climber_id, !initiallyLocked);
   const [hold, setHold] = useState(initial?.hold ?? 0);
   const [plus, setPlus] = useState(initial?.plus ?? false);
   const [top, setTop] = useState(initial?.top ?? false);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [ask, setAsk] = useState(false);
+  const [lockedNow, setLockedNow] = useState(false);
+  const locked = initiallyLocked || lockedNow;
+  const blocked = locked || !mine;
   const changed = () => setStatus('idle');
 
   async function save(lock = false) {
@@ -240,36 +373,41 @@ function LeadPad({ roundId, routeId, starter, initial, locked: initiallyLocked }
       { onConflict: 'boulder_id,climber_id' },
     ).select(LEAD_COLUMNS);
     setStatus(error ? 'error' : 'saved');
-    if (!error && lock) setLocked(true);
+    if (!error && lock) { setLockedNow(true); nav.onLocked(); }
   }
 
   return (
     <div className="pad">
-      <h2>{localized(lang, starter.profile.full_name, starter.profile.full_name_he)}</h2>
-      <PadNotice locked={locked} holder={mine ? null : holder} onRetry={retry} />
-      <div className="pad-readout lead-readout">
-        <div><span className="muted">{t('hold')}</span><strong dir="ltr">{formatHeight({ hold, plus, top })}</strong></div>
+      <PadHeader starter={starter} badge={locked ? <span className="pad-badge">{t('lockedBadge')}</span>
+        : !mine && holder ? <span className="pad-badge busy">{t('busyBadge')}</span> : null} />
+      <PadBlocked locked={locked} holder={mine ? null : holder} nav={nav} />
+      <div className="pad-section">{t('hold')}</div>
+      <div className="stepper">
+        <button className="stepper-btn" onClick={() => { setHold((h) => h + 1); changed(); }} disabled={blocked || top} aria-label={`+1 ${t('hold')}`}>+</button>
+        <strong className="stepper-value" dir="ltr">{formatHeight({ hold, plus, top })}</strong>
+        <button className="stepper-btn" onClick={() => { setHold((h) => Math.max(0, h - 1)); changed(); }} disabled={blocked || top || hold === 0} aria-label={`−1 ${t('hold')}`}>−</button>
       </div>
-      <div className="pad-buttons">
-        <button className="pad-undo" onClick={() => { setHold((h) => Math.max(0, h - 1)); changed(); }} disabled={blocked || top || hold === 0}>−1</button>
-        <button className="pad-attempt" onClick={() => { setHold((h) => h + 1); changed(); }} disabled={blocked || top}>+1 {t('hold')}</button>
-        <button className="pad-zone" aria-pressed={plus} onClick={() => { setPlus((p) => !p); changed(); }} disabled={blocked || top}>{t('plusMove')}</button>
-        <button className="pad-top" aria-pressed={top} onClick={() => { setTop((v) => !v); setPlus(false); changed(); }} disabled={blocked}>TOP</button>
+      <div className="outcomes">
+        <button className={`outcome top${top ? ' on' : ''}`} aria-pressed={top} onClick={() => { setTop((v) => !v); setPlus(false); changed(); }} disabled={blocked}>TOP</button>
+        <button className={`outcome zone${plus ? ' on' : ''}`} aria-pressed={plus} onClick={() => { setPlus((p) => !p); changed(); }} disabled={blocked || top}>{t('plusMove')}</button>
       </div>
-      <button className="primary pad-save" onClick={() => void save()} disabled={blocked || status === 'saving'}>{t('save')}</button>
-      <button className="secondary pad-save" disabled={blocked || status === 'saving'}
-        onClick={() => { if (window.confirm(t('finishConfirm'))) void save(true); }}>{t('finishClimber')}</button>
+      {locked
+        ? <button className="primary pad-save" disabled={nav.nextFree < 0} onClick={() => nav.onGo(nav.nextFree)}>{t('nextClimber')}</button>
+        : (
+          <div className="pad-actions">
+            <button className="secondary" onClick={() => void save()} disabled={blocked || status === 'saving'}>{t('save')}</button>
+            <button className="primary" onClick={() => setAsk(true)} disabled={blocked || status === 'saving'}>{t('lockAndNext')}</button>
+          </div>
+        )}
       <p className={`pad-status ${status}`} aria-live="polite">
         {status === 'saved' ? t('saved') : status === 'error' ? t('saveFailed') : status === 'saving' ? '…' : ''}
       </p>
+      {ask && (
+        <Sheet title={t('confirmLockTitle')} confirm={t('yesLock')} onCancel={() => setAsk(false)} onConfirm={() => { setAsk(false); void save(true); }}>
+          <p>{t('confirmLockText')}</p>
+          <p className="sheet-result" dir="ltr">#{starter.bib ?? '–'} · {formatHeight({ hold, plus, top })}</p>
+        </Sheet>
+      )}
     </div>
   );
-}
-
-/** Why the pad is read-only: the result is final, or another judge is scoring this climber. */
-function PadNotice({ locked, holder, onRetry }: { locked: boolean; holder: { judge_name: string } | null; onRetry: () => void }) {
-  const { t } = useI18n();
-  if (locked) return <p className="notice">🔒 {t('resultLockedHint')}</p>;
-  if (holder) return <p className="notice">✋ {t('claimedBy')} {holder.judge_name} <button className="link" onClick={onRetry}>{t('retry')}</button></p>;
-  return null;
 }
