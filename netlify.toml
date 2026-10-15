@@ -1,6 +1,8 @@
+# Viewer app (public, view-only). The staff app is a second Netlify site with base directory
+# apps/staff (see apps/staff/netlify.toml).
 [build]
-  command = "npm ci && npm run build"
-  publish = "dist"
+  command = "npm ci && npm run build:viewer"
+  publish = "dist/viewer"
 
 [[redirects]]
   from = "/*"

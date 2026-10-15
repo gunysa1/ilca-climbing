@@ -4,6 +4,16 @@ Competition app for the Israeli climbing team: live boulder results, a judge sco
 coach views and a full results history per climber. Hebrew (RTL) by default, English toggle.
 Installable as a PWA; deploys to Netlify; data in Supabase (Postgres + Auth + Realtime).
 
+Two apps from one codebase (`src/` is shared):
+
+| App | Who | Sign-in | Entry | Dev | Build |
+|---|---|---|---|---|---|
+| **Viewer** ("ILCA Live") | public, climbers, families | none, view only (like the IFSC app) | `apps/viewer`, `src/apps/viewer` | `npm run dev` (:5173) | `dist/viewer` |
+| **Staff** ("ILCA Staff") | judges, coaches, admins; a climber's private page | required | `apps/staff`, `src/apps/staff` | `npm run dev:staff` (:5174) | `dist/staff` |
+
+`VITE_STAFF_URL` / `VITE_VIEWER_URL` (optional) link the two headers. Netlify: one site per app
+(`netlify.toml` for the viewer; a second site with base directory `apps/staff`).
+
 ## Roles and isolation
 
 Isolation is enforced **in the database** with row level security (RLS), not in the UI.
@@ -85,11 +95,11 @@ Database:
 
 | Command | What it does |
 |---|---|
-| `npm run dev` | Dev server |
-| `npm run build` | Typecheck + production build to `dist/` |
+| `npm run dev` / `npm run dev:staff` | Dev server: viewer (:5173) / staff (:5174) |
+| `npm run build` | Typecheck + production builds of both apps to `dist/viewer` and `dist/staff` |
 | `npm test` | Unit tests (scoring, judge pad) |
 | `npm run test:db` | Spins up a throwaway Postgres and runs the RLS isolation tests (needs Postgres 16 binaries) |
-| `npm run test:e2e` | Admin UI end to end: throwaway Postgres + PostgREST (Docker) + Playwright Chromium |
+| `npm run test:e2e` | Both apps end to end (staff: admin + judge; viewer: public pages): throwaway Postgres + PostgREST (Docker) + Playwright Chromium |
 
 ## Not built yet
 

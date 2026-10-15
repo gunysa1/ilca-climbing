@@ -1,5 +1,5 @@
 // Minimal offline shell: cache the app shell, always go to network for API calls.
-const CACHE = 'ilca-shell-v1';
+const CACHE = 'ilca-staff-shell-v1';
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['/', '/manifest.webmanifest', '/icon.svg'])));
   self.skipWaiting();

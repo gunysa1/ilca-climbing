@@ -2,7 +2,8 @@
 import { chromium } from 'playwright';
 import { jwt } from './jwt.mjs';
 
-const [base, secret, out] = process.argv.slice(2);
+// base: the staff app (admin, judge); view: the public viewer app.
+const [base, secret, out, view] = process.argv.slice(2);
 const ADMIN = '00000000-0000-0000-0000-0000000000a1';
 const session = {
   access_token: jwt(secret, 'authenticated', ADMIN), refresh_token: 'e2e', token_type: 'bearer',
@@ -108,7 +109,7 @@ await p.getByText('✗ Boulder 1').waitFor();
 await p.screenshot({ path: `${out}/admin-round-en.png`, fullPage: true });
 
 step('public results: corrected score, "–" for not climbed, age-class filter');
-await p.goto(`${base}/round/${roundId}`);
+await p.goto(`${view}/round/${roundId}`);
 await p.locator('tr', { hasText: 'נועה' }).getByText('24.9').waitFor();
 const tamarRow = (await p.locator('tr', { hasText: 'תמר' }).innerText()).replace(/\s+/g, ' ');
 if (!/^– .*–$/.test(tamarRow.trim())) problems.push(`not-climbed row should show – for rank and score: "${tamarRow}"`);
@@ -135,7 +136,7 @@ await appealForm.locator('select[name=boulder]').selectOption({ label: 'Boulder 
 await appealForm.getByPlaceholder('Reason').fill('zone disputed');
 await appealForm.getByRole('button', { name: 'Open appeal' }).click();
 await p.locator('.panel', { hasText: 'Appeals' }).getByText('zone disputed').waitFor();
-await p.goto(`${base}/round/${roundId}`);
+await p.goto(`${view}/round/${roundId}`);
 await p.locator('tr', { hasText: 'מאיה גל' }).locator('.appeal-badge').waitFor();
 await p.getByText(/^Updated /).waitFor();
 await p.getByRole('button', { name: /PDF/ }).waitFor();
@@ -190,10 +191,20 @@ await intlForm.getByLabel('Field size').fill('57');
 await intlForm.getByLabel('Last round').selectOption('final');
 await intlForm.getByRole('button', { name: 'Add' }).click();
 await p.locator('tr', { hasText: 'WC Bern' }).getByText('200').waitFor();
-await p.goto(`${base}/rankings?season=2026-27&c=senior&g=female&d=boulder`);
+await p.goto(`${view}/rankings?season=2026-27&c=senior&g=female&d=boulder`);
 const noa = p.locator('tr', { hasText: 'נועה לוי' });
 await noa.locator('.ranking-part', { hasText: '200' }).waitFor();
 await p.screenshot({ path: `${out}/rankings-en.png`, fullPage: true });
+
+step('two apps: the viewer is view-only, the staff app needs sign-in');
+const anon = await (await browser.newContext()).newPage();
+await anon.goto(`${view}/admin`);
+await anon.locator('h1').first().waitFor();
+if (await anon.getByRole('link', { name: /Sign in|כניסה/ }).count()) problems.push('viewer app shows a sign-in link');
+if (await anon.getByText(/Judges & corrections|New competition|תחרות חדשה/).count()) problems.push('viewer app renders admin pages');
+await anon.goto(`${base}/admin`);
+await anon.waitForURL(/\/login$/);
+await anon.getByRole('button', { name: /Sign in|כניסה/ }).waitFor();
 
 step('Hebrew + 390px screenshots');
 const he = await page('he', { width: 390, height: 844 });

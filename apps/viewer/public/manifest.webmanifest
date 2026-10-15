@@ -1,0 +1,11 @@
+{
+  "name": "ILCA Live",
+  "short_name": "ILCA Live",
+  "start_url": "/",
+  "display": "standalone",
+  "dir": "rtl",
+  "lang": "he",
+  "background_color": "#f0f4f8",
+  "theme_color": "#ffffff",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

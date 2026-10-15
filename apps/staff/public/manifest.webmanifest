@@ -1,11 +1,11 @@
 {
-  "name": "ILCA Climbing",
-  "short_name": "ILCA",
+  "name": "ILCA Staff – judges, coaches, admins",
+  "short_name": "ILCA Staff",
   "start_url": "/",
   "display": "standalone",
   "dir": "rtl",
   "lang": "he",
-  "background_color": "#f0f4f8",
-  "theme_color": "#ffffff",
+  "background_color": "#1c2433",
+  "theme_color": "#1c2433",
   "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
 }

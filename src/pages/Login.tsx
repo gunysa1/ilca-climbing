@@ -13,7 +13,7 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  if (session) return <Navigate to={(location.state as { from?: string } | null)?.from ?? '/me'} replace />;
+  if (session) return <Navigate to={(location.state as { from?: string } | null)?.from ?? '/'} replace />;
 
   async function submit(e: FormEvent) {
     e.preventDefault();

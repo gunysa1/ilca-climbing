@@ -2,7 +2,9 @@
 
 Competition app for the Israeli climbing team (ILCA): live boulder results, judge scoring pad,
 coach views, per-climber history. React + Vite PWA, Supabase backend, Hebrew RTL default + English.
-See README.md for the role/isolation table and scripts.
+See README.md for the role/isolation table and scripts. Two apps share `src/`: the **viewer** (public,
+view only, no sign-in; `src/apps/viewer`) and the **staff** app (sign-in; judge, coach, admin;
+`src/apps/staff`). Never add sign-in, writes or staff pages to the viewer.
 
 ## Ground rules
 - Role isolation lives in Postgres RLS (`supabase/migrations/`). UI gating (`RequireRole`) is cosmetic.
@@ -54,7 +56,7 @@ Open work, in order:
    `npx -y supabase@2.121.0 db push --linked`; `.env.local` uses the publishable key). Remaining: first
    admin account, end-to-end test of all roles on the live project. Run `db advisors --linked` after
    schema changes; remaining SECURITY warnings are the intended RLS helpers and admin RPCs.
-3. Netlify deploy (netlify.toml present).
+3. Netlify deploy: two sites (viewer: `netlify.toml`; staff: base directory `apps/staff`).
 4. LogLig history import **via export** (decided 2026-10-15): the user/ILCA will get a CSV/Excel export
    from LogLig; build an importer into competitions/categories/rounds/results once a sample file exists.
 

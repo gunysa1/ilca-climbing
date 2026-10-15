@@ -275,3 +275,8 @@ details.season[open] > summary::before { transform: rotate(90deg); }
 [dir="rtl"] details.season > summary::before { content: '◂'; }
 [dir="rtl"] details.season[open] > summary::before { transform: rotate(-90deg); }
 .season-title { font-weight: 700; font-size: 1.1rem; color: var(--text-strong); }
+
+/* Staff app: dark header so it never looks like the public app */
+.topbar.staff { background: #1c2433; border-bottom-color: #1c2433; }
+.topbar.staff .brand, .topbar.staff .nav a, .topbar.staff .nav-end, .topbar.staff .nav-end a, .topbar.staff .nav-end .link { color: #e8eef6; }
+.topbar.staff .nav a.active { color: #fff; border-bottom-color: #7fb3e6; }

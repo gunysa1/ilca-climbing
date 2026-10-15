@@ -4,13 +4,17 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -p . && vite build",
-    "preview": "vite preview",
+    "dev": "vite --mode viewer",
+    "build": "tsc -p . && vite build --mode viewer && vite build --mode staff",
+    "preview": "vite preview --mode viewer",
     "typecheck": "tsc -p .",
     "test": "vitest run",
     "test:db": "supabase/tests/run.sh",
-    "test:e2e": "e2e/run.sh"
+    "test:e2e": "e2e/run.sh",
+    "dev:staff": "vite --mode staff",
+    "build:viewer": "tsc -p . && vite build --mode viewer",
+    "build:staff": "tsc -p . && vite build --mode staff",
+    "preview:staff": "vite preview --mode staff"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.117.2",

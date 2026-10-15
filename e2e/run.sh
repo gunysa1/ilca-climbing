@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 
 PGBIN="${PGBIN:-$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1 || true)}"
 [ -x "${PGBIN:-}/initdb" ] || { echo "e2e: Postgres binaries not found; set PGBIN" >&2; exit 1; }
-PGPORT=54339; API=54321; REST=54322; WEB=4180
+PGPORT=54339; API=54321; REST=54322; WEB=4180; VIEW=4181
 DATA="$(mktemp -d)"; OUT="${E2E_OUT:-$(mktemp -d)}"; mkdir -p "$OUT"
 NAME="ilca-e2e-postgrest-$$"
 SECRET="e2e-only-jwt-secret-at-least-32-characters-long"
@@ -14,13 +14,14 @@ cleanup() {
   docker rm -f "$NAME" >/dev/null 2>&1 || true
   [ -n "${PROXY:-}" ] && kill "$PROXY" 2>/dev/null || true
   [ -n "${WEBPID:-}" ] && kill "$WEBPID" 2>/dev/null || true
+  [ -n "${VIEWPID:-}" ] && kill "$VIEWPID" 2>/dev/null || true
   "$PGBIN/pg_ctl" -D "$DATA/pg" -m immediate stop >/dev/null 2>&1 || true
   rm -rf "$DATA"
 }
 trap cleanup EXIT
 
 # A leftover server on one of our ports would make this run test a stale build: refuse instead.
-for port in $PGPORT $API $REST $WEB; do
+for port in $PGPORT $API $REST $WEB $VIEW; do
   if ss -ltn | grep -q ":$port "; then echo "e2e: port $port is already in use (leftover run?)" >&2; exit 1; fi
 done
 
@@ -39,12 +40,16 @@ docker run -d --rm --name "$NAME" --network host \
 node e2e/proxy.mjs "$API" "http://127.0.0.1:$REST" & PROXY=$!
 
 ANON=$(node e2e/jwt.mjs "$SECRET" anon)
-VITE_SUPABASE_URL="http://127.0.0.1:$API" VITE_SUPABASE_ANON_KEY="$ANON" \
-  node node_modules/vite/bin/vite.js build --outDir "$DATA/dist" --emptyOutDir >/dev/null
-node node_modules/vite/bin/vite.js preview --outDir "$DATA/dist" --host 127.0.0.1 --port "$WEB" --strictPort >/dev/null 2>&1 & WEBPID=$!
-ready() { curl -sf "http://127.0.0.1:$REST/" >/dev/null && curl -sf "http://127.0.0.1:$WEB/" >/dev/null; }
+# Both apps: staff (admin, judge) on $WEB, viewer (public pages) on $VIEW.
+for app in staff viewer; do
+  VITE_SUPABASE_URL="http://127.0.0.1:$API" VITE_SUPABASE_ANON_KEY="$ANON" \
+    node node_modules/vite/bin/vite.js build --mode $app --outDir "$DATA/dist-$app" --emptyOutDir >/dev/null
+done
+node node_modules/vite/bin/vite.js preview --mode staff --outDir "$DATA/dist-staff" --host 127.0.0.1 --port "$WEB" --strictPort >/dev/null 2>&1 & WEBPID=$!
+node node_modules/vite/bin/vite.js preview --mode viewer --outDir "$DATA/dist-viewer" --host 127.0.0.1 --port "$VIEW" --strictPort >/dev/null 2>&1 & VIEWPID=$!
+ready() { curl -sf "http://127.0.0.1:$REST/" >/dev/null && curl -sf "http://127.0.0.1:$WEB/" >/dev/null && curl -sf "http://127.0.0.1:$VIEW/" >/dev/null; }
 for _ in $(seq 100); do ready && break; sleep 0.2; done
 ready || { echo "e2e: PostgREST or web server did not start" >&2; docker logs "$NAME" 2>&1 | tail -5 >&2; exit 1; }
 
-node e2e/admin-flow.mjs "http://127.0.0.1:$WEB" "$SECRET" "$OUT"
+node e2e/admin-flow.mjs "http://127.0.0.1:$WEB" "$SECRET" "$OUT" "http://127.0.0.1:$VIEW"
 echo "e2e screenshots: $OUT"
