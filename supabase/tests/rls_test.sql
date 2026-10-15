@@ -769,6 +769,16 @@ select pg_temp.assert(exists (select 1 from profiles where id = 'dddd0000-0000-0
 select pg_temp.assert(not delete_account_profile('00000000-0000-0000-0000-00000000000e'),
   'a profile still linked to a login is kept');
 reset role;
+insert into profiles (id, full_name) values ('dddd0000-0000-0000-0000-000000000003', 'Coach'),
+  ('dddd0000-0000-0000-0000-000000000004', 'Has birth date');
+insert into coach_notes (coach_id, climber_id, body) values
+  ('dddd0000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000001', 'works on heel hooks');
+insert into profile_private (id, birth_date) values ('dddd0000-0000-0000-0000-000000000004', '2010-01-01');
+set role service_role;
+select pg_temp.assert(not delete_account_profile('dddd0000-0000-0000-0000-000000000003'), 'a profile with coach notes is kept');
+select pg_temp.assert(exists (select 1 from coach_notes where coach_id = 'dddd0000-0000-0000-0000-000000000003'), 'the coach notes are still there');
+select pg_temp.assert(not delete_account_profile('dddd0000-0000-0000-0000-000000000004'), 'a profile with private data is kept');
+reset role;
 select pg_temp.login('00000000-0000-0000-0000-00000000000a');
 select pg_temp.denied($$select delete_account_profile('dddd0000-0000-0000-0000-000000000002')$$, 'admin calls delete_account_profile directly');
 reset role;

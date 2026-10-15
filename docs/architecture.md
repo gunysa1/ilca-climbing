@@ -101,7 +101,9 @@ Supabase, never in the apps) and accept calls only from signed-in admins (`_shar
 
 **delete-account** deletes a login (its roles go with it; `profiles.user_id` is set null, so a
 climber's profile and results always stay). It refuses the caller's own account and the last admin,
-and removes the account's own profile only when it has no climbing data. The staff app asks first.
+and removes the account's own profile only when nothing else references it (checked from the
+foreign keys, so new tables count too; a judge's assignments and claims and an empty private row
+don't). The staff app asks first.
 
 **invite-judge** invites a judge:
 `mode: "email"` lets Supabase Auth email the invite (needs SMTP), `mode: "link"` returns a one-time
@@ -143,3 +145,4 @@ judge pad subscribes to `judge_claims` of its boulder. Everything else loads on 
 | 20261015000021 | `admin_accounts()` casts the email (Supabase stores it as varchar) |
 | 20261015000022 | `account_by_email()` for the invite-judge function (service role only) |
 | 20261015000023 | `delete_account_profile()` for the delete-account function (service role only) |
+| 20261015000024 | `delete_account_profile()` keeps a profile that any table references (from the foreign keys) |
