@@ -164,6 +164,7 @@ const dict = {
   },
   intlResults: { he: 'תוצאות בין-לאומיות', en: 'International results' },
   noRankings: { he: 'אין עדיין מדרג לעונה הזו', en: 'No rankings for this season yet' },
+  youthRankingsFrom: { he: 'מדרגי הנוער מוצגים מעונת 2024-25 (לפני כן ליגות הנוער נוהלו במבנה אחר)', en: 'Youth rankings start with 2024-25 (youth leagues were organised differently before)' },
   series: { he: 'סדרה (למדרג)', en: 'Series (rankings)' },
   seriesPremier: { he: 'ליגת העל', en: 'Premier league' },
   seriesPremierU17: { he: 'ליגת העל U17', en: 'Premier league U17' },

@@ -45,6 +45,19 @@ describe('event places', () => {
       ['c', 1, 1], ['e', 2, 1], ['a', 3, 1], ['b', 4, 1], ['d', 5, 1],
     ]);
   });
+  it('an event split into stage categories (LogLig 2024 championship): the later category ranks first', () => {
+    const row = (category_id: string, round: RoundPlacing['round'], climber_id: string, rank: number): RoundPlacing => ({
+      competition_id: 'champ', competition: 'champ', starts_on: '2024-02-22', series: 'israeli_championship', discipline: 'boulder',
+      category_id, category: category_id, gender: 'male', round, climber_id, rank });
+    const rows = [
+      // qualification groups (category "מוקדמות גברים -"): everyone
+      row('q', 'qualification', 'a', 1), row('q', 'qualification', 'b', 1), row('q', 'qualification', 'c', 2), row('q', 'qualification', 'd', 3),
+      // "גברים": the next stage ("מוקדמות לגמר", imported as a qualification) and the final
+      row('m', 'qualification', 'a', 2), row('m', 'qualification', 'b', 1), row('m', 'qualification', 'c', 3),
+      row('m', 'final', 'a', 1), row('m', 'final', 'b', 2),
+    ];
+    expect(eventPlaces(rows).map((p) => [p.climber_id, p.place])).toEqual([['a', 1], ['b', 2], ['c', 3], ['d', 4]]);
+  });
   it('age-class cut: relative places among the class', () => {
     const places = eventPlaces(event('premier_league', { a: 1, y1: 2, b: 3, y2: 3, y3: 5 }));
     expect(cutPlaces(places, (id) => id.startsWith('y')).map((p) => [p.climber_id, p.place, p.tied]))

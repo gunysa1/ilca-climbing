@@ -9,8 +9,10 @@ import {
 import { supabase } from '../lib/supabase';
 import type { Profile } from '../lib/types';
 
-/** Seasons ranked with the 2025 criteria (earlier seasons used other rules). */
-const FIRST_SEASON = '2024-25';
+/** Seasons ranked with these rules: seniors from 2023-24 (ILCA's published 23/24 senior rankings use the
+ * same rules), youth from 2024-25 (earlier youth leagues were organised differently). */
+const FIRST_SEASON = '2023-24';
+const FIRST_YOUTH_SEASON = '2024-25';
 
 interface SeasonData {
   rounds: RoundPlacing[];
@@ -97,6 +99,7 @@ export function Rankings() {
         ))}
       </div>
       {discipline === 'speed' ? <p className="muted">{t('speedSoon')}</p>
+        : youth && season && season < FIRST_YOUTH_SEASON ? <p className="muted">{t('youthRankingsFrom')}</p>
         : !season || (seasons && seasons.length === 0) ? <p className="muted">{t('noRankings')}</p>
         : !data ? <p className="muted">{t('loading')}</p>
         : rows.length === 0 ? <p className="muted">{t('noRankings')}</p>

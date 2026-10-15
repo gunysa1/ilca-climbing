@@ -48,14 +48,29 @@ export interface EventPlace { climber_id: string; place: number; tied: number }
 const DEPTH = { qualification: 0, semifinal: 1, final: 2 } as const;
 
 /**
- * Final places in one event pool: the deepest round a climber reached first, then their rank in it
- * (IFSC overall result). Equal (depth, rank) share the place.
+ * Final places in one event pool: the deepest stage a climber reached first, then their rank in it
+ * (IFSC overall result). Equal (stage, rank) share the place.
+ * LogLig sometimes split one event into categories per stage ("מוקדמות גברים - קבוצה 1/2" then
+ * "גברים"; "גברים" 76 then "בוגרים" 6): a category whose climbers all appear in another category of
+ * the pool is a later stage of it.
  */
 export function eventPlaces(rows: RoundPlacing[]): EventPlace[] {
+  const members = new Map<string, Set<string>>();
+  for (const r of rows) {
+    if (r.rank == null) continue;
+    if (!members.has(r.category_id)) members.set(r.category_id, new Set());
+    members.get(r.category_id)!.add(r.climber_id);
+  }
+  const stage = new Map<string, number>();
+  for (const [cat, set] of members) {
+    let n = 0;
+    for (const [other, o] of members) if (other !== cat && o.size > set.size && [...set].every((c) => o.has(c))) n++;
+    stage.set(cat, n);
+  }
   const best = new Map<string, { depth: number; rank: number }>();
   for (const r of rows) {
     if (r.rank == null) continue;
-    const d = DEPTH[r.round];
+    const d = stage.get(r.category_id)! * 3 + DEPTH[r.round];
     const cur = best.get(r.climber_id);
     if (!cur || d > cur.depth || (d === cur.depth && r.rank < cur.rank)) best.set(r.climber_id, { depth: d, rank: r.rank });
   }
