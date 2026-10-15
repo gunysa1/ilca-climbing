@@ -33,7 +33,8 @@ view only, no sign-in; `src/apps/viewer`) and the **staff** app (sign-in; judge,
 Docs: README.md, docs/architecture.md, docs/scoring-and-rankings.md, docs/operations.md,
 docs/guide-he.md (judges/admins, Hebrew), docs/reference-analysis.md.
 
-Done: viewer + staff apps; IFSC 2025 / classic / lead scoring with tie-breaks (SQL + TS); start
+Done: viewer + staff apps; judge invites (email or share link) and account deletion (edge
+functions); "on the wall" marking; men / women switch; one-request round pages (`round_page`); IFSC 2025 / classic / lead scoring with tie-breaks (SQL + TS); start
 lists, advancement, qualification groups, age classes; judge pad (one climber at a time, claims
 stale after 30 s, locking); appeals; PDF print; admin (competitions, CSV roster, corrections +
 audit, people/roles, rankings inputs); national rankings per the ILCA 2025 criteria (validated
@@ -41,11 +42,14 @@ against ILCA's published 2023-24 / 2024-25 tables); LogLig history 2020-21 to 20
 competitions, 99.6% of ranks identical); live mirror of the temporary app (tools/tempapp).
 
 Live project `tsahkbtxjlgmebfmwkbq` (Frankfurt; moved from Seoul 2026-10-15): all migrations applied with
-`npx -y supabase@2.121.0 db push --linked`; `.env.local` uses the publishable key. Run
+`npx -y supabase@2.121.0 db push --linked`; the committed `.env` has the publishable key. Run
 `db advisors --linked` after schema changes. Live writes (imports, data fixes) only with the
 user's explicit go-ahead. Seasons run September to August.
 
-Hosting: Cloudflare Pages builds both apps on every push to main (settings in the committed `.env`).
+Hosting: Cloudflare Pages builds both apps on every push to main (settings in the committed `.env`):
+https://ilca-climbing.pages.dev (viewer), https://ilca-climbing-staff.pages.dev (staff); both noindex
+until the public launch. Pushing to main publishes. The old Seoul project `rkuuzforzfjbdnybddwb` is a
+backup as of 2026-10-15, to delete later (with the user's OK).
 Open work: first event fully on these apps; offline retry queue for the judge pad; admin
 screen for qualification groups; merging duplicate climber profiles; speed discipline; calendar;
 notifications.

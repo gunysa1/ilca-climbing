@@ -5,6 +5,12 @@ live boulder and lead results, a judge scoring pad, coach views, the full histor
 since 2020-21, and the national rankings. Hebrew (RTL) by default with an English toggle.
 React + Vite PWAs on Cloudflare Pages, data in Supabase (Postgres, Auth, Realtime; Frankfurt).
 
+- Public results: **https://ilca-climbing.pages.dev**
+- Staff (judges, coaches, admins): **https://ilca-climbing-staff.pages.dev**
+
+Both sites are rebuilt from `main` on every push. Neither is indexed by search engines yet
+(`noindex`); see [operations](docs/operations.md#deploying) for the public launch.
+
 ## Two apps, one codebase
 
 | App | For | Sign-in | What it has |
@@ -34,6 +40,9 @@ viewer's bundle doesn't even contain sign-in, judge, coach or admin code.
   appeals, international results and ranking adjustments.
 - **History**: every ILCA competition 2020-21 to 2025-26 recovered from the defunct LogLig system
   (80 competitions, ~1,550 climbers; 99.6% of ranks identical to LogLig).
+- **Fast pages**: a round page is one database request (`round_page`), the other category's round
+  (men / women) is prefetched so the switch is instant, the public app ships without sign-in code,
+  and the database is in Frankfurt (a full live round page loads in under 2 s from Israel).
 - **National rankings** (מדרג לאומי) per the ILCA 2025 criteria: seniors and U21 / U19 / U17, boulder
   and lead, validated against ILCA's published ranking tables.
 
@@ -41,7 +50,8 @@ viewer's bundle doesn't even contain sign-in, judge, coach or admin code.
 
 ```bash
 npm install
-cp .env.example .env.local        # Supabase URL + publishable (anon) key
+# .env (committed) points at the production Supabase project; for another project or local
+# addresses, override in .env.local (see .env.example)
 npm run dev                       # viewer on http://localhost:5173
 npm run dev:staff                 # staff on  http://localhost:5174
 ```

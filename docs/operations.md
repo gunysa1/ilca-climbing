@@ -5,7 +5,8 @@
 | | |
 |---|---|
 | Supabase project | `tsahkbtxjlgmebfmwkbq`, Frankfurt / eu-central-1 (Postgres, Auth, Realtime). Moved from Seoul on 2026-10-15 for latency |
-| Local env | `.env.local` (not in git): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (the publishable key), optional `VITE_VIEWER_URL` / `VITE_STAFF_URL` |
+| Sites | https://ilca-climbing.pages.dev (viewer), https://ilca-climbing-staff.pages.dev (staff); Cloudflare Pages |
+| Settings | `.env` (committed, public values only): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (the publishable key), `VITE_VIEWER_URL` / `VITE_STAFF_URL`. `.env.local` (not in git) overrides them locally |
 | Supabase CLI | `npx -y supabase@2.121.0` (pinned), linked with `supabase link --project-ref …` |
 
 Never put the service-role key in the app or in git; the apps only need the publishable key.
@@ -24,6 +25,14 @@ Root directory: the repository root; Node from `.node-version`. The production s
 committed `.env` (Supabase URL, publishable key, the two site addresses; nothing secret);
 `.env.local` overrides them for local development. `apps/*/public/_headers` set `noindex` and the
 one-year cache for `/assets/*`; Cloudflare serves `index.html` for app routes (single-page app).
+
+- To publish a change: push to `main`. Cloudflare builds both projects (about a minute); the
+  build log is in the Cloudflare dashboard → Workers & Pages → the project → Deployments.
+- When creating a project, choose **Pages** ("Looking to deploy Pages?"), not Workers: a Worker
+  runs `wrangler deploy` and gets a workers.dev address.
+- Public launch of the viewer: remove the `noindex` block in `apps/viewer/public/_headers` and the
+  `Disallow` line in `apps/viewer/public/robots.txt`.
+- History: the apps were on Netlify until 2026-10-15 (free credits ran out; those sites are deleted).
 
 ## Database changes
 
@@ -106,4 +115,24 @@ another round (it keeps one round at a time and clears results between rounds).
 ## Backups
 
 Check what the project's Supabase plan backs up (project settings → Database → Backups). Before
-large imports, export the affected tables (`supabase db dump --linked --data-only -t …`).
+large imports, export the affected tables (`supabase db dump --linked --data-only -t …`). Dumps
+contain personal data (minors' birth dates): keep them out of git and delete them after use.
+
+The previous project in Seoul (`rkuuzforzfjbdnybddwb`) holds a copy as of 2026-10-15; delete it once
+Frankfurt has run without problems for a while.
+
+## Moving the database to another Supabase project
+
+How the move Seoul → Frankfurt was done (2026-10-15), with the CLI only (no database password):
+
+1. Create the new project in the dashboard (its owner keeps the password).
+2. In a separate folder with a copy of `supabase/`: `supabase link --project-ref <new>`,
+   `db push --linked` (all migrations), `functions deploy invite-judge delete-account --use-api`.
+3. From the old project: `db dump --linked --data-only -f data.sql` (includes `auth.users` with
+   password hashes). Drop the `auth.sessions`, `refresh_tokens`, `one_time_tokens` and
+   `mfa_amr_claims` inserts and the psql-only `\restrict` lines; wrap the inserts in one transaction.
+4. Load it as the new folder's `supabase/seed.sql` with `db push --linked --include-seed` (the
+   dump sets `session_replication_role = replica`, so triggers don't fire).
+5. Verify: row counts per table, and hashes of `round_ranks_for(…)` and
+   `season_ranking_rounds(season)` on both sides; then point `.env` at the new project, relink the
+   repo, and redo the dashboard settings (URL configuration, sign-up off, SMTP, email template).

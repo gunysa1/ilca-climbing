@@ -10,8 +10,10 @@ One repository, two Vite builds (`vite --mode viewer|staff`):
 | Sign-in | none; the app has no auth provider at all | everything except `/login` |
 | Routes | `/`, `/competition/:id`, `/round/:id`, `/climber/:id`, `/favorites`, `/search`, `/rankings` | a home with one tile per role, `/judge`, `/coach`, `/admin/*`, plus the results pages |
 | Output | `dist/viewer` | `dist/staff` |
+| Site | https://ilca-climbing.pages.dev | https://ilca-climbing-staff.pages.dev |
 | Dev | `npm run dev` (5173) | `npm run dev:staff` (5174) |
 
+Both are Cloudflare Pages projects built from `main`; the data is in Supabase in Frankfurt.
 Each app has its own manifest and service worker (a minimal offline shell; API calls always go to
 the network). `VITE_STAFF_URL` / `VITE_VIEWER_URL` link the two headers.
 
