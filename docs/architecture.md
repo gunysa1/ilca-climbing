@@ -94,10 +94,16 @@ Further guarantees:
 
 All of this is in `supabase/tests/rls_test.sql`.
 
-## Edge function: invite-judge
+## Edge functions
 
-`supabase/functions/invite-judge` is the only server code. It holds the service-role key (on
-Supabase, never in the apps), accepts calls only from signed-in admins, and invites a judge:
+`supabase/functions/` is the only server code. The functions hold the service-role key (on
+Supabase, never in the apps) and accept calls only from signed-in admins (`_shared/admin.ts`).
+
+**delete-account** deletes a login (its roles go with it; `profiles.user_id` is set null, so a
+climber's profile and results always stay). It refuses the caller's own account and the last admin,
+and removes the account's own profile only when it has no climbing data. The staff app asks first.
+
+**invite-judge** invites a judge:
 `mode: "email"` lets Supabase Auth email the invite (needs SMTP), `mode: "link"` returns a one-time
 link that the staff app wraps in its own `/invite#…` page, so link previews (WhatsApp, mail scanners)
 can't use it up. An existing account just gets the judge role. Invite and reset links land on
@@ -136,3 +142,4 @@ judge pad subscribes to `judge_claims` of its boulder. Everything else loads on 
 | 20261015000020 | on the wall: judges mark the climber climbing now (`set_on_wall`); public `on_wall(round)` |
 | 20261015000021 | `admin_accounts()` casts the email (Supabase stores it as varchar) |
 | 20261015000022 | `account_by_email()` for the invite-judge function (service role only) |
+| 20261015000023 | `delete_account_profile()` for the delete-account function (service role only) |

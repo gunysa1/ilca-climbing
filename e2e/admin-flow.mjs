@@ -222,6 +222,28 @@ await landing.reload(); // same page, only the hash changed
 await landing.getByText(/invalid or has expired/).waitFor();
 await p.unroute('**/functions/v1/invite-judge');
 
+step('delete an account: asks first, never your own (function stubbed)');
+let deleteBody = null;
+await p.route('**/functions/v1/delete-account', (route) => {
+  deleteBody = route.request().postDataJSON();
+  return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ status: 'deleted', profile_removed: false }) });
+});
+await p.goto(`${base}/admin/people`);
+const adminRow = p.locator('.admin-table').first().locator('tr', { hasText: 'admin@ilca.test' });
+await adminRow.waitFor();
+if (await adminRow.getByRole('button', { name: 'Delete' }).count()) problems.push('admin can delete their own account');
+await p.locator('tr', { hasText: 'parent@ilca.test' }).getByRole('button', { name: 'Delete' }).click();
+const del = p.getByRole('dialog', { name: 'Delete this account?' });
+await del.getByText('parent@ilca.test').waitFor();
+await p.screenshot({ path: `${out}/delete-account-en.png` });
+await del.getByRole('button', { name: 'Cancel' }).click();
+if (deleteBody) problems.push('cancel still deleted the account');
+await p.locator('tr', { hasText: 'parent@ilca.test' }).getByRole('button', { name: 'Delete' }).click();
+await p.getByRole('dialog').getByRole('button', { name: 'Delete for good' }).click();
+await p.getByText('Account deleted: parent@ilca.test').waitFor();
+if (!deleteBody?.user_id) problems.push(`delete request: ${JSON.stringify(deleteBody)}`);
+await p.unroute('**/functions/v1/delete-account');
+
 step('people: link parent account, make judge a coach, link athlete');
 await p.goto(`${base}/admin/people`);
 const parentRow = p.locator('tr', { hasText: 'parent@ilca.test' });

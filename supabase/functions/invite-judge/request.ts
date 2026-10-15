@@ -23,9 +23,3 @@ export function parseInvite(body: unknown): InviteRequest | { error: string } {
   } catch { return { error: 'invalid redirect' }; }
   return { email, full_name: fullName, mode, redirect_to: redirect };
 }
-
-/** Bearer token of the caller, or null. */
-export function bearer(header: string | null): string | null {
-  const m = header?.match(/^Bearer\s+(\S+)$/i);
-  return m ? m[1] : null;
-}

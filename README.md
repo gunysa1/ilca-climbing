@@ -28,7 +28,7 @@ viewer's bundle doesn't even contain sign-in, judge, coach or admin code.
   Claims stop two judges scoring the same climber (stale after 30 s); locked results change only
   through an admin.
 - **Judge invites** from the staff app (email or a WhatsApp-safe share link), choose-a-password and
-  forgot-password pages.
+  forgot-password pages; admins delete accounts after a confirmation (climbers' history stays).
 - **Admin**: competitions → categories → rounds → boulders, CSV roster import, start lists with
   advancement quotas and seeds, judge assignments, result corrections with a full audit log,
   appeals, international results and ranking adjustments.
@@ -63,7 +63,7 @@ supabase/tests              RLS and scoring tests (rls_test.sql)
 e2e                         end-to-end test of both apps (Postgres + PostgREST + Playwright)
 tools/loglig                importer for the recovered LogLig archive
 tools/tempapp               live mirror of the temporary scoring app
-supabase/functions          invite-judge edge function (admins invite judges)
+supabase/functions          edge functions for admins: invite-judge, delete-account
 docs                        architecture, scoring and rankings, operations, Hebrew user guide
 ```
 

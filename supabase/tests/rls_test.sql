@@ -751,13 +751,36 @@ select pg_temp.assert(
 reset role;
 update competitions set season = null, series = 'other' where id = '10000000-0000-0000-0000-000000000001';
 
+-- ---------------------------------------------------------------- deleting an account (service role)
+reset role;
+insert into profiles (id, full_name) values ('dddd0000-0000-0000-0000-000000000001', 'Former Judge'), ('dddd0000-0000-0000-0000-000000000002', 'Scorer');
+set session_replication_role = replica; -- skip the stamp trigger: mark X2 as having entered a score
+update boulder_results set updated_by = 'dddd0000-0000-0000-0000-000000000002'
+  where (boulder_id, climber_id) = (select boulder_id, climber_id from boulder_results limit 1);
+set session_replication_role = default;
+set role service_role;
+-- (separate statements: a statement sees the data as it was when it started)
+select pg_temp.assert(delete_account_profile('dddd0000-0000-0000-0000-000000000001'), 'delete_account_profile removes a profile without climbing data');
+select pg_temp.assert(not exists (select 1 from profiles where id = 'dddd0000-0000-0000-0000-000000000001'), 'a deleted account''s empty profile is gone');
+select pg_temp.assert(not delete_account_profile('50000000-0000-0000-0000-000000000001'), 'a profile with registrations is kept');
+select pg_temp.assert(exists (select 1 from profiles where id = '50000000-0000-0000-0000-000000000001'), 'the registered profile is still there');
+select pg_temp.assert(not delete_account_profile('dddd0000-0000-0000-0000-000000000002'), 'a profile that entered scores is kept');
+select pg_temp.assert(exists (select 1 from profiles where id = 'dddd0000-0000-0000-0000-000000000002'), 'the scorer profile is still there');
+select pg_temp.assert(not delete_account_profile('00000000-0000-0000-0000-00000000000e'),
+  'a profile still linked to a login is kept');
+reset role;
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.denied($$select delete_account_profile('dddd0000-0000-0000-0000-000000000002')$$, 'admin calls delete_account_profile directly');
+reset role;
+
 -- ---------------------------------------------------------------- function privileges (Supabase advisors)
 -- Supabase grants EXECUTE on new functions to anon directly; admin-only and trigger functions must not keep it.
 select pg_temp.assert(not has_function_privilege('anon', f, 'execute'), 'anon cannot execute ' || f)
 from unnest(array['public.admin_accounts()', 'public.link_account(uuid,uuid)', 'public.unlink_account(uuid)',
                   'public.import_roster(jsonb,jsonb,jsonb,jsonb)', 'public.generate_start_list(uuid)',
                   'public.previous_round(uuid)', 'public.claim_climber(uuid,uuid,uuid)', 'public.release_claim(uuid,uuid)',
-                  'public.set_on_wall(uuid,uuid,boolean)', 'public.account_by_email(text)']) f;
+                  'public.set_on_wall(uuid,uuid,boolean)', 'public.account_by_email(text)',
+                  'public.delete_account_profile(uuid)']) f;
 select pg_temp.assert(prosecdef and has_function_privilege('anon', 'public.season_age_classes(text)', 'execute'),
   'season_age_classes reads private birth dates for everyone, exposing only the class')
 from pg_proc where oid = 'public.season_age_classes(text)'::regprocedure;

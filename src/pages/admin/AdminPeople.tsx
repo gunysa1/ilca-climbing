@@ -7,6 +7,7 @@ import type { AdminAccount, AppRole, Profile } from '../../lib/types';
 import { AdminNav, ErrorLine } from './AdminHome';
 import { ClimberPicker } from './ClimberPicker';
 import { InviteJudge } from './InviteJudge';
+import { Sheet } from '../../components/Sheet';
 
 const STAFF_ROLES = ['judge', 'coach', 'admin'] as const satisfies readonly AppRole[];
 type ProfileRow = Profile & { user_id: string | null };
@@ -21,6 +22,9 @@ export function AdminPeople() {
   const [coach, setCoach] = useState<string>('');
   const [filter, setFilter] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Deleting an account: asked first in a sheet (no accidents), done by the delete-account function.
+  const [toDelete, setToDelete] = useState<AdminAccount | null>(null);
+  const [deleted, setDeleted] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     let profError: string | null = null;
@@ -36,6 +40,17 @@ export function AdminPeople() {
     setError(acc.error?.message ?? profError ?? cl.error?.message ?? null);
   }, []);
   useEffect(() => { void reload(); }, [reload]);
+
+  async function deleteAccount(a: AdminAccount) {
+    setToDelete(null); setDeleted(null); setError(null);
+    const { error } = await supabase.functions.invoke('delete-account', { body: { user_id: a.user_id } });
+    if (error) {
+      const body = await (error as { context?: Response }).context?.json?.().catch(() => null) as { error?: string } | null;
+      return setError(body?.error ?? error.message);
+    }
+    setDeleted(a.email);
+    await reload();
+  }
 
   const run = async (p: PromiseLike<{ error: { message: string } | null }>) => {
     const { error } = await p;
@@ -68,11 +83,20 @@ export function AdminPeople() {
 
       <InviteJudge onDone={() => void reload()} />
 
+      {deleted && <p className="notice">✓ {t('accountDeleted')}: {deleted}</p>}
+      {toDelete && (
+        <Sheet title={t('deleteAccountTitle')} confirm={t('deleteForever')} danger
+          onConfirm={() => void deleteAccount(toDelete)} onCancel={() => setToDelete(null)}>
+          <p className="sheet-result" dir="ltr">{toDelete.email}</p>
+          <p>{t('deleteAccountText')}</p>
+        </Sheet>
+      )}
+
       <div className="panel">
         <h2>{t('accounts')} ({accounts.length})</h2>
         <div className="table-wrap">
           <table className="admin-table">
-            <thead><tr><th>{t('email')}</th><th>{t('profile')}</th><th>{t('roles')}</th><th>{t('linkProfile')}</th></tr></thead>
+            <thead><tr><th>{t('email')}</th><th>{t('profile')}</th><th>{t('roles')}</th><th>{t('linkProfile')}</th><th /></tr></thead>
             <tbody>
               {accounts.map((a) => (
                 <tr key={a.user_id}>
@@ -93,6 +117,11 @@ export function AdminPeople() {
                       <option value="">{t('linkProfile')}…</option>
                       {unlinked.map((p) => <option key={p.id} value={p.id}>{name(p)}{p.club ? ` · ${p.club}` : ''}</option>)}
                     </select>
+                  </td>
+                  <td>
+                    {a.user_id !== session?.user.id && (
+                      <button className="link danger-text" onClick={() => setToDelete(a)}>{t('deleteAccount')}</button>
+                    )}
                   </td>
                 </tr>
               ))}

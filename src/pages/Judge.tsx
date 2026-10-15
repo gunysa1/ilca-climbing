@@ -1,3 +1,4 @@
+import { Sheet } from '../components/Sheet';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
@@ -239,24 +240,6 @@ function PadBlocked({ locked, holder, nav }: { locked: boolean; holder: { judge_
     <div className="notice claim-banner">
       ✋ {t('claimedBy')} {holder.judge_name}. {t('claimedHint')}
       <button className="primary" disabled={nav.nextFree < 0} onClick={() => nav.onGo(nav.nextFree)}>{t('nextFreeClimber')}</button>
-    </div>
-  );
-}
-
-/** A confirm sheet inside the app (instead of the browser's dialog). */
-function Sheet({ title, children, confirm, onConfirm, onCancel }:
-  { title: string; children: ReactNode; confirm: string; onConfirm: () => void; onCancel: () => void }) {
-  const { t } = useI18n();
-  return (
-    <div className="sheet-backdrop" role="presentation" onClick={onCancel}>
-      <div className="sheet" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
-        <h3>{title}</h3>
-        {children}
-        <div className="sheet-actions">
-          <button className="secondary" onClick={onCancel}>{t('cancel')}</button>
-          <button className="primary" onClick={onConfirm}>{confirm}</button>
-        </div>
-      </div>
     </div>
   );
 }

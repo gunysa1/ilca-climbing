@@ -2,31 +2,15 @@
 // the browser. mode "email": Supabase Auth emails the invite (needs SMTP set up in the project);
 // mode "link": returns a one-time invite link for the admin to share. An existing account (already
 // signed up) just gets the judge role.
-import { createClient } from 'npm:@supabase/supabase-js@2.117.2';
-import { bearer, parseInvite } from './request.ts';
-
-const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
+import { json, cors, requireAdmin, serviceClient } from '../_shared/admin.ts';
+import { parseInvite } from './request.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405);
-
-  const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-    { auth: { persistSession: false, autoRefreshToken: false } });
-
-  // The caller must be a signed-in admin.
-  const token = bearer(req.headers.get('Authorization'));
-  const { data: caller } = token ? await admin.auth.getUser(token) : { data: { user: null } };
-  if (!caller.user) return json({ error: 'not signed in' }, 401);
-  const { data: isAdmin } = await admin.from('user_roles').select('role')
-    .eq('user_id', caller.user.id).eq('role', 'admin').maybeSingle();
-  if (!isAdmin) return json({ error: 'admins only' }, 403);
+  const admin = serviceClient();
+  const caller = await requireAdmin(req, admin);
+  if ('response' in caller) return caller.response;
 
   const input = parseInvite(await req.json().catch(() => null));
   if ('error' in input) return json(input, 400);

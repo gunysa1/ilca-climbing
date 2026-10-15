@@ -45,7 +45,10 @@ Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in both sites' environment,
     the share link.
   - Optional: the invite email template in Hebrew with the ILCA logo (`supabase/templates/invite.html`), and a longer "Email OTP expiration" so links
     stay valid longer (default 1 hour).
-- Deploy the function: `npx -y supabase@2.121.0 functions deploy invite-judge --use-api`.
+- **Removing someone**: untick their roles (access ends immediately), or ניהול → אנשים → "מחיקה" on
+  their account row, confirmed in a sheet. Their login and roles go; climbers' results and history stay.
+  You can't delete your own account or the last admin.
+- Deploy the functions: `npx -y supabase@2.121.0 functions deploy invite-judge delete-account --use-api`.
 - The first admin: `supabase/admin.sql`. After that: staff app → ניהול → אנשים (roles judge /
   coach / admin, linking a login to an existing climber profile, coach ↔ athlete links).
 - Judges score only boulders they are assigned to (round page → judges), only while the round is live.
