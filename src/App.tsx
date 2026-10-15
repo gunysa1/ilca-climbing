@@ -5,6 +5,7 @@ import { AuthProvider } from './lib/auth';
 import { I18nProvider } from './lib/i18n';
 import { Climber } from './pages/Climber';
 import { Coach } from './pages/Coach';
+import { Favorites } from './pages/Favorites';
 import { CompetitionPage } from './pages/CompetitionPage';
 import { JudgeBoulder, JudgeHome } from './pages/Judge';
 import { Live } from './pages/Live';
@@ -28,6 +29,7 @@ export function App() {
               <Route path="competition/:id" element={<CompetitionPage />} />
               <Route path="round/:id" element={<RoundResults />} />
               <Route path="climber/:id" element={<Climber />} />
+              <Route path="favorites" element={<Favorites />} />
               <Route path="login" element={<Login />} />
               {/* signed-in roles */}
               <Route path="me" element={<RequireRole><Me /></RequireRole>} />

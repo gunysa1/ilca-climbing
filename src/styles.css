@@ -216,3 +216,10 @@ label.inline { display: inline-flex; gap: .35rem; align-items: center; font-weig
 .event-title { font-weight: 700; color: var(--text-strong); }
 .event-rounds { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .round-pill { font-size: 12px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--accent); }
+
+/* Favorites */
+.fav-star { background: none; border: 0; padding: 0 .15rem; font-size: 1.2rem; line-height: 1; color: var(--muted); vertical-align: middle; }
+.fav-star.on { color: #f5b301; }
+.results td.name .fav-star { float: inline-end; margin-top: 4px; }
+.results tr.favorite { background: color-mix(in srgb, #f5b301 10%, var(--surface)); }
+h1 .fav-star { font-size: 1.6rem; }

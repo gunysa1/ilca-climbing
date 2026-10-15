@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { DisciplineBar, useDiscipline } from '../components/DisciplineBar';
+import { FavoriteStar } from '../components/FavoriteStar';
 import { History } from '../components/History';
 import { localized, useI18n } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
@@ -24,7 +25,7 @@ export function Climber() {
   if (profile === null || !id) return <p className="muted">{t('empty')}</p>;
   return (
     <section className="with-bottom-bar">
-      <h1>{localized(lang, profile.full_name, profile.full_name_he)}</h1>
+      <h1>{localized(lang, profile.full_name, profile.full_name_he)} <FavoriteStar climberId={profile.id} name={profile.full_name} /></h1>
       {profile.club && <p className="muted climber-club">{profile.club}</p>}
       <History climberId={id} discipline={discipline} />
       <DisciplineBar value={discipline} onChange={setDiscipline} />

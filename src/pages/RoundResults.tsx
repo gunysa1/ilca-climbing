@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { FavoriteStar } from '../components/FavoriteStar';
 import { RoundStatus } from '../components/RoundStatus';
+import { useFavorites } from '../lib/favorites';
 import { localized, useI18n, type Lang } from '../lib/i18n';
 import { formatHeight, leadStandings } from '../lib/lead';
 import { resultKey, toLeadResult, useRoundData, type LeadRow, type ResultRow, type Starter } from '../lib/roundData';
@@ -39,6 +41,8 @@ export function RoundResults() {
   const { t, lang } = useI18n();
   const { round, boulders, starters, results, leadResults, loading } = useRoundData(id);
   const [ageClass, setAgeClass] = useState<string | null>(null);
+  const [onlyFavorites, setOnlyFavorites] = useState(false);
+  const favorites = useFavorites();
   const ageClasses = useMemo(() => [...new Set(starters.map((s) => s.age_class).filter((a): a is string => !!a))].sort(), [starters]);
   // Qualification groups are ranked separately: always show one group at a time.
   const groups = useMemo(() => [...new Set(starters.map((s) => s.group_label).filter((g): g is string => !!g))].sort(), [starters]);
@@ -73,6 +77,8 @@ export function RoundResults() {
   }, [round, shown, boulders, results, leadResults]);
 
   const byId = new Map(starters.map((s) => [s.climber_id, s]));
+  // The favorites filter only hides rows: ranks stay those of the whole round (group / age class).
+  const visible = onlyFavorites ? rows.filter((r) => favorites.has(r.climber_id)) : rows;
 
   if (loading) return <p className="muted">{t('loading')}</p>;
   if (!round) return <p className="muted">{t('empty')}</p>;
@@ -91,6 +97,10 @@ export function RoundResults() {
           ))}
         </div>
       )}
+      <div className="chips">
+        <button className={`chip ${onlyFavorites ? 'selected' : ''}`} aria-pressed={onlyFavorites}
+          onClick={() => setOnlyFavorites((v) => !v)}>★ {t('favorites')}</button>
+      </div>
       {ageClasses.length > 0 && (
         <div className="chips">
           <button className={`chip ${ageClass === null ? 'selected' : ''}`} onClick={() => setAgeClass(null)}>{t('all')}</button>
@@ -109,8 +119,11 @@ export function RoundResults() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <ResultRowView key={row.climber_id} row={row} starter={byId.get(row.climber_id)!} lang={lang}
+            {onlyFavorites && visible.length === 0 && (
+              <tr><td colSpan={3} className="muted">{t('noFavoritesHere')}</td></tr>
+            )}
+            {visible.map((row) => (
+              <ResultRowView key={row.climber_id} row={row} starter={byId.get(row.climber_id)!} lang={lang} favorite={favorites.has(row.climber_id)}
                 boulders={boulders} lead={lead} results={results} leadResults={leadResults} />
             ))}
           </tbody>
@@ -120,14 +133,15 @@ export function RoundResults() {
   );
 }
 
-function ResultRowView({ row, starter: s, lang, boulders, lead, results, leadResults }: {
-  row: Row; starter: Starter; lang: Lang; boulders: Boulder[]; lead: boolean;
+function ResultRowView({ row, starter: s, lang, boulders, lead, results, leadResults, favorite }: {
+  row: Row; starter: Starter; lang: Lang; boulders: Boulder[]; lead: boolean; favorite: boolean;
   results: Map<string, ResultRow>; leadResults: Map<string, LeadRow>;
 }) {
   return (
-    <tr>
+    <tr className={favorite ? 'favorite' : undefined}>
       <td className="rank">{row.rank ?? '–'}</td>
       <td className="name">
+        <FavoriteStar climberId={s.climber_id} name={s.profile.full_name} />
         <Link className="athlete" to={`/climber/${s.climber_id}?d=${lead ? 'lead' : 'boulder'}`}>{localized(lang, s.profile.full_name, s.profile.full_name_he)}</Link>
         <span className="athlete-meta">{[s.bib, s.age_class, s.profile.club].filter(Boolean).join(' • ')}</span>
         <span className="ascents">
