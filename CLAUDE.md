@@ -48,8 +48,7 @@ user's explicit go-ahead. Seasons run September to August.
 Hosting: Cloudflare Pages builds both apps on every push to main (settings in the committed `.env`).
 Open work: first event fully on these apps; offline retry queue for the judge pad; admin
 screen for qualification groups; merging duplicate climber profiles; speed discipline; calendar;
-notifications. Test data to remove when done: draft competition "בדיקת שיפוט"
-(`f0000000-0000-4000-8000-000000000001`) and profiles `f0000000-0000-4000-8000-0000000001xx`.
+notifications.
 
 Decisions: results are public like IFSC; climbers have no sign-in page (view-only app); no IFSC
 data imported (international results are admin-entered); LogLig test entries, simulations and
