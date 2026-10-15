@@ -40,10 +40,15 @@ export function RoundResults() {
   const { round, boulders, starters, results, leadResults, loading } = useRoundData(id);
   const [ageClass, setAgeClass] = useState<string | null>(null);
   const ageClasses = useMemo(() => [...new Set(starters.map((s) => s.age_class).filter((a): a is string => !!a))].sort(), [starters]);
+  // Qualification groups are ranked separately: always show one group at a time.
+  const groups = useMemo(() => [...new Set(starters.map((s) => s.group_label).filter((g): g is string => !!g))].sort(), [starters]);
+  const [groupPick, setGroup] = useState<string | null>(null);
+  const group = groups.length ? (groupPick && groups.includes(groupPick) ? groupPick : groups[0]) : null;
 
   // Within an age-class filter the ranking is recomputed among those climbers (like the
   // temporary app's per-category results inside a combined group).
-  const shown = useMemo(() => starters.filter((s) => !ageClass || s.age_class === ageClass), [starters, ageClass]);
+  const shown = useMemo(() => starters.filter((s) => (!group || s.group_label === group) && (!ageClass || s.age_class === ageClass)),
+    [starters, group, ageClass]);
   const rows = useMemo<Row[]>(() => {
     if (!round) return [];
     if (round.scoring === 'lead') {
@@ -78,6 +83,14 @@ export function RoundResults() {
   return (
     <section>
       <h1>{t(round.kind)} <RoundStatus status={round.status} /></h1>
+      {groups.length > 0 && (
+        <div className="chips" role="tablist">
+          {groups.map((g) => (
+            <button key={g} role="tab" aria-selected={g === group} className={`chip ${g === group ? 'selected' : ''}`}
+              onClick={() => setGroup(g)}>{t('group')} {g}</button>
+          ))}
+        </div>
+      )}
       {ageClasses.length > 0 && (
         <div className="chips">
           <button className={`chip ${ageClass === null ? 'selected' : ''}`} onClick={() => setAgeClass(null)}>{t('all')}</button>

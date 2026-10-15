@@ -12,6 +12,8 @@ export interface Starter {
   start_order: number | null;
   /** Previous-round place (countback seed), stored when the start list was generated. */
   prev_place: number | null;
+  /** Qualification group (A, B, ...): groups are ranked separately. */
+  group_label: string | null;
   profile: Profile;
 }
 export interface ResultRow extends BoulderResult { boulder_id: string; climber_id: string }
@@ -35,7 +37,7 @@ export interface RoundData {
 export async function loadStarters(round: Pick<Round, 'id' | 'category_id'>): Promise<{ starters: Starter[]; error: string | null }> {
   const [{ data: rows, error: e1 }, { data: regs, error: e2 }] = await Promise.all([
     supabase.from('round_starters')
-      .select('climber_id, start_order, prev_place, profile:profiles(id, full_name, full_name_he, club, country)')
+      .select('climber_id, start_order, prev_place, group_label, profile:profiles(id, full_name, full_name_he, club, country)')
       .eq('round_id', round.id),
     supabase.from('registrations').select('climber_id, bib, age_class').eq('category_id', round.category_id),
   ]);

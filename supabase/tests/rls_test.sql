@@ -469,6 +469,43 @@ select pg_temp.denied($$insert into lead_results (boulder_id, climber_id, round_
   values ('40000000-0000-0000-0000-000000000063', '60000000-0000-0000-0000-00000000000d', '30000000-0000-0000-0000-000000000062', 1, true, true)$$,
   'lead TOP with plus rejected');
 
+-- ---------------------------------------------------------------- qualification groups
+-- IFSC-style: two qualification groups ranked separately; advancement takes the top from each group.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into profiles (id, full_name) values
+  ('70000000-0000-0000-0000-000000000001', 'G A1'), ('70000000-0000-0000-0000-000000000002', 'G A2'),
+  ('70000000-0000-0000-0000-000000000003', 'G B1'), ('70000000-0000-0000-0000-000000000004', 'G B2');
+insert into categories (id, competition_id, name, gender) values
+  ('20000000-0000-0000-0000-000000000007', '10000000-0000-0000-0000-000000000001', 'Groups', 'male');
+insert into rounds (id, category_id, kind, status) values
+  ('30000000-0000-0000-0000-000000000071', '20000000-0000-0000-0000-000000000007', 'qualification', 'closed');
+insert into rounds (id, category_id, kind, status, advance_quota) values
+  ('30000000-0000-0000-0000-000000000072', '20000000-0000-0000-0000-000000000007', 'final', 'planned', 2);
+insert into boulders (id, round_id, number) values
+  ('40000000-0000-0000-0000-000000000071', '30000000-0000-0000-0000-000000000071', 1);
+insert into registrations (category_id, climber_id) select '20000000-0000-0000-0000-000000000007', id
+  from profiles where id::text like '70000000-%';
+update round_starters set group_label = case when climber_id::text in ('70000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000002') then 'A' else 'B' end
+  where round_id = '30000000-0000-0000-0000-000000000071';
+-- group A: A1 tops (25), A2 zone (10); group B: B1 zone (10), B2 zone on 2 (9.9)
+insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt) values
+  ('40000000-0000-0000-0000-000000000071', '70000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000071', 1, 1, 1),
+  ('40000000-0000-0000-0000-000000000071', '70000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000071', 1, 1, null),
+  ('40000000-0000-0000-0000-000000000071', '70000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000071', 1, 1, null),
+  ('40000000-0000-0000-0000-000000000071', '70000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000071', 2, 2, null);
+select set_config('request.jwt.claim.sub', '', false);
+select pg_temp.assert(
+  (select array_agg(right(climber_id::text, 1) || ':' || rank order by climber_id) from round_scores
+    where round_id = '30000000-0000-0000-0000-000000000071') = '{1:1,2:2,3:1,4:2}',
+  'qualification groups are ranked separately');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select generate_start_list('30000000-0000-0000-0000-000000000072');
+select pg_temp.assert(
+  (select array_agg(right(climber_id::text, 1) || ':' || prev_place order by climber_id) from round_starters
+    where round_id = '30000000-0000-0000-0000-000000000072') = '{1:1,3:1}',
+  'advancement from groups takes the top of each group (quota split evenly)');
+reset role;
+
 -- ---------------------------------------------------------------- function privileges (Supabase advisors)
 -- Supabase grants EXECUTE on new functions to anon directly; admin-only and trigger functions must not keep it.
 select pg_temp.assert(not has_function_privilege('anon', f, 'execute'), 'anon cannot execute ' || f)
