@@ -598,6 +598,14 @@ select pg_temp.assert(
   (select array_agg(right(climber_id::text, 2) || ':' || age_class order by climber_id) from season_age_classes('2026-27'))
     = '{0a:U19}',
   'age classes: only the class, only climbers with a public result that season');
+reset role;
+update competitions set series = 'other' where id = '10000000-0000-0000-0000-000000000001';
+select pg_temp.login(null);
+select pg_temp.assert(not exists (select 1 from season_age_classes('2026-27')),
+  'age classes: nothing for climbers who only competed in unranked events');
+reset role;
+update competitions set series = 'premier_league' where id = '10000000-0000-0000-0000-000000000001';
+select pg_temp.login(null);
 select pg_temp.denied($$select birth_date from profile_private$$, 'anon reads birth dates');
 select pg_temp.denied($$insert into international_results (climber_id, season, discipline, event_type, event_name, starts_on, place, field_size)
   values ('60000000-0000-0000-0000-00000000000a', '2026-27', 'lead', 'world_cup', 'WC', '2026-06-01', 1, 50)$$, 'anon adds international results');

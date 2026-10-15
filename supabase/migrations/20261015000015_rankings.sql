@@ -3,7 +3,8 @@
 --  * ranking_rounds: every ranked round result with its competition's season/series and discipline.
 --  * season_age_classes(): U21/U19/U17 per climber for a season, from the private birth date. Only
 --    the class is exposed (the same information as the public youth categories), never the date,
---    and only for climbers with a public result that season.
+--    and only for climbers with a public result in a ranked competition (series) that season -
+--    exactly the climbers the published youth rankings place in a class.
 --  * international_results: Israeli climbers' results abroad, entered by admins (no IFSC import).
 --  * ranking_adjustments: disciplinary deductions and other published corrections.
 
@@ -36,12 +37,13 @@ returns table (climber_id uuid, age_class text)
   from profile_private p
   where p_season ~ '^\d{4}-\d{2}$' and p.birth_date is not null
     and (left(p_season, 4)::int + 1) - extract(year from p.birth_date)::int between 15 and 20
-    -- only climbers with a public result that season
+    -- only climbers with a public result in a ranked competition that season
     and exists (select 1 from round_starters s
                  join rounds r on r.id = s.round_id
                  join categories c on c.id = r.category_id
                  join competitions co on co.id = c.competition_id
-                 where s.climber_id = p.id and co.season = p_season and public.round_is_public(r.id));
+                 where s.climber_id = p.id and co.season = p_season and co.series <> 'other'
+                   and public.round_is_public(r.id));
 $$;
 revoke execute on function public.season_age_classes(text) from public;
 grant execute on function public.season_age_classes(text) to anon, authenticated;
