@@ -627,6 +627,23 @@ insert into international_results (climber_id, season, discipline, event_type, e
   values ('60000000-0000-0000-0000-00000000000a', '2026-27', 'lead', 'european_youth_cup', 'EYC Imst', '2026-06-01', 3, 40, 'final');
 select pg_temp.login(null);
 select pg_temp.assert((select count(*) from international_results) = 1, 'admin adds international results; public reads them');
+select pg_temp.assert(
+  (select count(*) from (select * from season_ranking_rounds('2026-27')
+                         except all select * from ranking_rounds where season = '2026-27') d) = 0
+  and (select count(*) from season_ranking_rounds('2026-27')) = (select count(*) from ranking_rounds where season = '2026-27')
+  and (select count(*) from season_ranking_rounds('2026-27')) > 0,
+  'season_ranking_rounds() returns exactly the season''s ranking_rounds rows');
+select pg_temp.assert(
+  (select count(*) from (select * from round_ranks_for(array(select id from rounds)) except all select * from round_ranks) d) = 0
+  and (select count(*) from round_ranks_for(array(select id from rounds))) = (select count(*) from round_ranks),
+  'round_ranks_for() returns exactly round_ranks for the given rounds');
+select pg_temp.assert(
+  (select count(*) from (select * from climber_history_for(array(select id from profiles))
+                         except all select * from climber_history) d) = 0
+  and (select count(*) from climber_history_for(array['60000000-0000-0000-0000-00000000000a'::uuid]))
+    = (select count(*) from climber_history where climber_id = '60000000-0000-0000-0000-00000000000a')
+  and (select count(*) from climber_history where climber_id = '60000000-0000-0000-0000-00000000000a') > 0,
+  'climber_history_for() returns exactly the climbers'' climber_history rows');
 reset role;
 update competitions set season = null, series = 'other' where id = '10000000-0000-0000-0000-000000000001';
 

@@ -45,20 +45,21 @@ export function Rankings() {
     if (!season) return;
     setData(null);
     (async () => {
-      const [{ data: rounds }, { data: ages }, { data: intl }, { data: adjustments }] = await Promise.all([
-        supabase.from('ranking_rounds').select('*').eq('season', season),
+      const [rounds, { data: ages }, { data: intl }, { data: adjustments }] = await Promise.all([
+        // season_ranking_rounds() ranks only the season's rounds (the ranking_rounds view ranks every round)
+        allRows<RoundPlacing>((from, to) => supabase.rpc('season_ranking_rounds', { p_season: season }).range(from, to)),
         supabase.rpc('season_age_classes', { p_season: season }),
         supabase.from('international_results').select('*').eq('season', season),
         supabase.from('ranking_adjustments').select('*').eq('season', season),
       ]);
       const ids = [...new Set([...(rounds ?? []), ...(intl ?? [])].map((r) => r.climber_id as string))];
       const profiles = new Map<string, Profile & { gender: Gender | null }>();
-      for (let i = 0; i < ids.length; i += 300) {
-        const { data: ps } = await supabase.from('profiles').select('id, full_name, full_name_he, club, country, gender').in('id', ids.slice(i, i + 300));
+      for (let i = 0; i < ids.length; i += 150) {
+        const { data: ps } = await supabase.from('profiles').select('id, full_name, full_name_he, club, country, gender').in('id', ids.slice(i, i + 150));
         for (const p of (ps ?? []) as (Profile & { gender: Gender | null })[]) profiles.set(p.id, p);
       }
       setData({
-        rounds: (rounds ?? []) as RoundPlacing[],
+        rounds,
         ageClass: new Map(((ages ?? []) as { climber_id: string; age_class: RankClass }[]).map((a) => [a.climber_id, a.age_class])),
         intl: (intl ?? []).map((r) => ({ ...r, points: r.points == null ? null : Number(r.points) })) as IntlResult[],
         adjustments: (adjustments ?? []).map((a) => ({ ...a, points: Number(a.points) })) as SeasonData['adjustments'],
@@ -122,7 +123,7 @@ export function Rankings() {
                         <span className="ranking-parts">
                           {r.events.map((e) => (
                             <span key={e.competition_id} className={`ranking-part${e.counted ? '' : ' dropped'}`} title={e.label}>
-                              {e.kind === 'intl' ? '🌍 ' : ''}{e.place}<small> · {fmt(e.points)}</small>
+                              {e.kind === 'intl' ? '🌍 ' : ''}{e.place ? <>{e.place}<small> · {fmt(e.points)}</small></> : fmt(e.points)}
                             </span>
                           ))}
                           {r.championship && (
@@ -146,6 +147,17 @@ export function Rankings() {
       <DisciplineBar value={discipline} onChange={setDiscipline} />
     </section>
   );
+}
+
+/** Every row of a query: the API returns at most 1000 rows per request (a season has more). */
+async function allRows<T>(page: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await page(from, from + 999);
+    if (error) throw new Error(error.message);
+    out.push(...((data ?? []) as T[]));
+    if (!data || data.length < 1000) return out;
+  }
 }
 
 const fmt = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(2).replace(/0$/, ''));

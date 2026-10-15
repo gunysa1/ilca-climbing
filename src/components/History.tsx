@@ -15,8 +15,9 @@ export function useClimberHistory(climberId: string | undefined): HistoryRow[] |
   useEffect(() => {
     if (!climberId) return;
     setRows(null);
-    supabase.from('climber_history').select('*').eq('climber_id', climberId).neq('round_status', 'planned')
-      .then(({ data }) => setRows((data as HistoryRow[]) ?? []));
+    // climber_history_for() computes only this climber's rounds (the climber_history view ranks every round)
+    supabase.rpc('climber_history_for', { p_climbers: [climberId] })
+      .then(({ data }) => setRows(((data as HistoryRow[]) ?? []).filter((r) => r.round_status !== 'planned')));
   }, [climberId]);
   return rows;
 }

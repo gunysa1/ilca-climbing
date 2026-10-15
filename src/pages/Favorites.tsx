@@ -20,8 +20,8 @@ export function Favorites() {
     if (ids.length === 0) { setProfiles([]); return; }
     supabase.from('profiles').select('id, full_name, full_name_he, club, country').in('id', ids)
       .then(({ data }) => setProfiles((data as Profile[]) ?? []));
-    supabase.from('climber_history').select('*').in('climber_id', ids).neq('round_status', 'planned')
-      .then(({ data }) => setHistory((data as HistoryRow[]) ?? []));
+    supabase.rpc('climber_history_for', { p_climbers: ids })
+      .then(({ data }) => setHistory(((data as HistoryRow[]) ?? []).filter((r) => r.round_status !== 'planned')));
   }, [ids.join(',')]);
 
   const latest = useMemo(() => {
