@@ -46,6 +46,16 @@ export function RoundResults() {
   const [onlyFavorites, setOnlyFavorites] = useState(false);
   const [context, setContext] = useState<{ category: string; category_he: string | null;
     competition: { id: string; name: string; name_he: string | null } } | null>(null);
+  // Other rounds of the category (Q / S / F chips, like IFSC) and the Result / Start list tab.
+  const [siblings, setSiblings] = useState<{ id: string; kind: 'qualification' | 'semifinal' | 'final'; status: string }[]>([]);
+  const [tab, setTab] = useState<'result' | 'startlist'>('result');
+  useEffect(() => {
+    if (!round) return;
+    setTab('result');
+    supabase.from('rounds').select('id, kind, status').eq('category_id', round.category_id)
+      .then(({ data }) => setSiblings(((data ?? []) as typeof siblings)
+        .sort((a, b) => ['qualification', 'semifinal', 'final'].indexOf(a.kind) - ['qualification', 'semifinal', 'final'].indexOf(b.kind))));
+  }, [round?.id]);
   useEffect(() => {
     if (!round) return;
     supabase.from('categories').select('name, name_he, competition:competitions(id, name, name_he)').eq('id', round.category_id).single()
@@ -110,6 +120,19 @@ export function RoundResults() {
         </p>
       )}
       <h1>{t(round.kind)} <RoundStatus status={round.status} /></h1>
+      {siblings.length > 1 && (
+        <nav className="round-nav" aria-label={t('rounds')}>
+          {siblings.map((r) => r.status === 'planned'
+            ? <span key={r.id} className="round-chip planned">{t(r.kind)}</span>
+            : <Link key={r.id} to={`/round/${r.id}`} className={`round-chip${r.id === round.id ? ' current' : ''}`}
+                aria-current={r.id === round.id ? 'page' : undefined}>{t(r.kind)}</Link>)}
+        </nav>
+      )}
+      <div className="tabs" role="tablist">
+        <button role="tab" aria-selected={tab === 'result'} className={tab === 'result' ? 'active' : ''} onClick={() => setTab('result')}>{t('resultTab')}</button>
+        <button role="tab" aria-selected={tab === 'startlist'} className={tab === 'startlist' ? 'active' : ''} onClick={() => setTab('startlist')}>{t('startList')}</button>
+      </div>
+      {tab === 'startlist' ? <StartList starters={groups.length ? starters.filter((s) => s.group_label === group) : starters} groups={groups} group={group} onGroup={setGroup} /> : <>
       {groups.length > 0 && (
         <div className="chips" role="tablist">
           {groups.map((g) => (
@@ -150,7 +173,46 @@ export function RoundResults() {
           </tbody>
         </table>
       </div>
+      </>}
     </section>
+  );
+}
+
+/** Start list: order, bib, name, club, group and the seed (previous-round place). */
+function StartList({ starters, groups, group, onGroup }: {
+  starters: Starter[]; groups: string[]; group: string | null; onGroup: (g: string) => void;
+}) {
+  const { t, lang } = useI18n();
+  return (
+    <>
+      {groups.length > 0 && (
+        <div className="chips" role="tablist">
+          {groups.map((g) => (
+            <button key={g} role="tab" aria-selected={g === group} className={`chip ${g === group ? 'selected' : ''}`}
+              onClick={() => onGroup(g)}>{t('group')} {g}</button>
+          ))}
+        </div>
+      )}
+      <div className="table-wrap">
+        <table className="results startlist">
+          <thead>
+            <tr><th className="rank">#</th><th className="name">{t('athlete')}</th><th className="score">{t('seed')}</th></tr>
+          </thead>
+          <tbody>
+            {starters.map((s, i) => (
+              <tr key={s.climber_id}>
+                <td className="rank">{s.start_order ?? i + 1}</td>
+                <td className="name">
+                  <Link className="athlete" to={`/climber/${s.climber_id}`}>{localized(lang, s.profile.full_name, s.profile.full_name_he)}</Link>
+                  <span className="athlete-meta">{[s.bib, s.age_class, s.profile.club].filter(Boolean).join(' • ')}</span>
+                </td>
+                <td className="score">{s.prev_place ?? ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 

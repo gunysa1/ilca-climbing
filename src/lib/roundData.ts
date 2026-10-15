@@ -57,6 +57,8 @@ export function useRoundData(roundId: string | undefined): RoundData {
   useEffect(() => {
     if (!roundId) return;
     let cancelled = false;
+    // A different round: never show the previous round's data while this one loads.
+    setState({ round: null, boulders: [], starters: [], results: new Map(), leadResults: new Map(), loading: true });
 
     (async () => {
       const { data: round } = await supabase.from('rounds').select('*').eq('id', roundId).single();
