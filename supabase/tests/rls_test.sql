@@ -303,6 +303,12 @@ reset role;
 
 select pg_temp.login('00000000-0000-0000-0000-000000000001');
 select pg_temp.denied($$select * from admin_accounts()$$, 'climber lists accounts');
+select pg_temp.denied($$select * from account_by_email('noa@test')$$, 'climber looks up an account by email');
+reset role;
+set role service_role;
+select pg_temp.assert((select count(*) from account_by_email(' NOA@test ')) = 1, 'invite-judge (service role) finds an account by email');
+reset role;
+select pg_temp.login('00000000-0000-0000-0000-000000000001');
 select pg_temp.denied($$select link_account('50000000-0000-0000-0000-000000000001', auth.uid())$$,
   'climber links themselves to another profile');
 select pg_temp.denied($$update profiles set user_id = null where id = auth.uid()$$, 'climber unlinks own profile');
@@ -750,7 +756,8 @@ update competitions set season = null, series = 'other' where id = '10000000-000
 select pg_temp.assert(not has_function_privilege('anon', f, 'execute'), 'anon cannot execute ' || f)
 from unnest(array['public.admin_accounts()', 'public.link_account(uuid,uuid)', 'public.unlink_account(uuid)',
                   'public.import_roster(jsonb,jsonb,jsonb,jsonb)', 'public.generate_start_list(uuid)',
-                  'public.previous_round(uuid)', 'public.claim_climber(uuid,uuid,uuid)', 'public.release_claim(uuid,uuid)']) f;
+                  'public.previous_round(uuid)', 'public.claim_climber(uuid,uuid,uuid)', 'public.release_claim(uuid,uuid)',
+                  'public.set_on_wall(uuid,uuid,boolean)', 'public.account_by_email(text)']) f;
 select pg_temp.assert(prosecdef and has_function_privilege('anon', 'public.season_age_classes(text)', 'execute'),
   'season_age_classes reads private birth dates for everyone, exposing only the class')
 from pg_proc where oid = 'public.season_age_classes(text)'::regprocedure;

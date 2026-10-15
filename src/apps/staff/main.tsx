@@ -1,3 +1,4 @@
+import './authLink'; // first: before the router reads the URL
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { StaffApp } from './StaffApp';

@@ -94,6 +94,15 @@ Further guarantees:
 
 All of this is in `supabase/tests/rls_test.sql`.
 
+## Edge function: invite-judge
+
+`supabase/functions/invite-judge` is the only server code. It holds the service-role key (on
+Supabase, never in the apps), accepts calls only from signed-in admins, and invites a judge:
+`mode: "email"` lets Supabase Auth email the invite (needs SMTP), `mode: "link"` returns a one-time
+link that the staff app wraps in its own `/invite#…` page, so link previews (WhatsApp, mail scanners)
+can't use it up. An existing account just gets the judge role. Invite and reset links land on
+`/set-password`. Request validation is in `request.ts` (unit-tested).
+
 ## Realtime
 
 The results page subscribes to `boulder_results`, `lead_results` and `appeals` of its round, and
@@ -126,3 +135,4 @@ judge pad subscribes to `judge_claims` of its boulder. Everything else loads on 
 | 20261015000019 | claims stale after 30 s |
 | 20261015000020 | on the wall: judges mark the climber climbing now (`set_on_wall`); public `on_wall(round)` |
 | 20261015000021 | `admin_accounts()` casts the email (Supabase stores it as varchar) |
+| 20261015000022 | `account_by_email()` for the invite-judge function (service role only) |

@@ -25,7 +25,8 @@ async function page(lang, viewport = { width: 1280, height: 900 }, as = session)
   }, [as, lang]);
   const p = await ctx.newPage();
   p.on('dialog', (d) => d.accept());
-  p.on('console', (m) => { if (m.type() === 'error' && !/realtime|websocket/i.test(m.text())) problems.push(`console: ${m.text()}`); });
+  // 502: the stubbed invite email failure (invite step)
+  p.on('console', (m) => { if (m.type() === 'error' && !/realtime|websocket|status of 502/i.test(m.text())) problems.push(`console: ${m.text()}`); });
   p.on('response', (r) => { if (r.url().includes('/rest/v1') && r.status() >= 400) problems.push(`${r.status()} ${r.request().method()} ${r.url()}`); });
   return p;
 }
@@ -183,6 +184,42 @@ await quota.press('Tab');
 await p.waitForTimeout(500);
 await finalRow.getByRole('button', { name: 'Generate start list' }).click();
 await finalRow.getByText('Starters: 1').waitFor();
+
+step('invite a judge: share link (WhatsApp-safe landing page), email failure explained');
+// The edge function isn't in the e2e stack: stub it and check what the app sends.
+let inviteBody = null;
+let fnOrigin = '';
+await p.route('**/functions/v1/invite-judge', async (route) => {
+  inviteBody = route.request().postDataJSON();
+  fnOrigin = new URL(route.request().url()).origin;
+  if (inviteBody.mode === 'email') return route.fulfill({ status: 502, contentType: 'application/json',
+    body: JSON.stringify({ error: 'email_failed', message: 'Error sending invite email' }) });
+  return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ status: 'link',
+    link: `${fnOrigin}/auth/v1/verify?token=abc&type=invite&redirect_to=${encodeURIComponent(inviteBody.redirect_to)}` }) });
+});
+await p.goto(`${base}/admin/people`);
+const invite = p.locator('.panel', { hasText: 'Invite a judge' });
+await invite.getByPlaceholder('Full name').fill('Dana Judge');
+await invite.getByPlaceholder('Email').fill('dana@ilca.test');
+await invite.getByRole('button', { name: /Send by email/ }).click();
+await invite.getByText(/Sending the email failed/).waitFor();
+await invite.getByRole('button', { name: /Share link/ }).click();
+await invite.getByText(/Invite link for dana@ilca.test/).waitFor();
+if (inviteBody.full_name !== 'Dana Judge' || inviteBody.email !== 'dana@ilca.test' || !inviteBody.redirect_to.endsWith('/set-password'))
+  problems.push(`invite request: ${JSON.stringify(inviteBody)}`);
+const shared = await invite.locator('.invite-link input').inputValue();
+if (!shared.startsWith(`${base}/invite#`)) problems.push(`shared link is not the landing page: ${shared}`);
+await invite.getByRole('link', { name: 'WhatsApp' }).waitFor();
+await p.screenshot({ path: `${out}/invite-judge-en.png`, fullPage: true });
+const landing = await page('en', { width: 390, height: 800 }, null);
+await landing.goto(shared);
+const cont = landing.getByRole('link', { name: 'Continue to choose a password' });
+await cont.waitFor();
+if (!(await cont.getAttribute('href')).startsWith(`${fnOrigin}/auth/v1/verify?token=abc`)) problems.push('invite landing does not continue to Supabase');
+await landing.goto(`${base}/invite#https://evil.example/auth/v1/verify?token=x`);
+await landing.reload(); // same page, only the hash changed
+await landing.getByText(/invalid or has expired/).waitFor();
+await p.unroute('**/functions/v1/invite-judge');
 
 step('people: link parent account, make judge a coach, link athlete');
 await p.goto(`${base}/admin/people`);

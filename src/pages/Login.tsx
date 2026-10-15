@@ -12,6 +12,7 @@ export function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   if (session) return <Navigate to={(location.state as { from?: string } | null)?.from ?? '/'} replace />;
 
@@ -22,6 +23,15 @@ export function Login() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) setError(error.message);
     setBusy(false);
+  }
+
+  // Forgot password: Supabase emails a reset link to the choose-a-password page.
+  async function reset() {
+    if (!email) return setError(t('enterEmailFirst'));
+    setBusy(true); setError(null);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/set-password` });
+    setBusy(false);
+    if (error) setError(error.message); else setResetSent(true);
   }
 
   return (
@@ -35,6 +45,8 @@ export function Login() {
       </label>
       {error && <p className="error">{error}</p>}
       <button className="primary" disabled={busy}>{t('login')}</button>
+      {resetSent ? <p className="notice">{t('resetSent')}</p>
+        : <button type="button" className="link" onClick={() => void reset()} disabled={busy}>{t('forgotPassword')}</button>}
     </form>
   );
 }

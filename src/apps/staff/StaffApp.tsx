@@ -7,7 +7,9 @@ import { Climber } from '../../pages/Climber';
 import { Coach } from '../../pages/Coach';
 import { CompetitionPage } from '../../pages/CompetitionPage';
 import { JudgeBoulder, JudgeHome } from '../../pages/Judge';
+import { AcceptInvite } from '../../pages/AcceptInvite';
 import { Login } from '../../pages/Login';
+import { SetPassword } from '../../pages/SetPassword';
 import { Rankings } from '../../pages/Rankings';
 import { RoundResults } from '../../pages/RoundResults';
 import { Search } from '../../pages/Search';
@@ -26,6 +28,8 @@ export function StaffApp() {
           <Routes>
             <Route element={<StaffLayout />}>
               <Route path="login" element={<Login />} />
+              <Route path="set-password" element={<SetPassword />} />
+              <Route path="invite" element={<AcceptInvite />} />
               <Route element={<RequireRole><Outlet /></RequireRole>}>
                 <Route index element={<StaffHome />} />
                 <Route path="coach" element={<RequireRole role="coach"><Coach /></RequireRole>} />

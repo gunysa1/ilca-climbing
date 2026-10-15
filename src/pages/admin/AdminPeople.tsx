@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabase';
 import type { AdminAccount, AppRole, Profile } from '../../lib/types';
 import { AdminNav, ErrorLine } from './AdminHome';
 import { ClimberPicker } from './ClimberPicker';
+import { InviteJudge } from './InviteJudge';
 
 const STAFF_ROLES = ['judge', 'coach', 'admin'] as const satisfies readonly AppRole[];
 type ProfileRow = Profile & { user_id: string | null };
@@ -64,6 +65,8 @@ export function AdminPeople() {
       <h1>{t('people')}</h1>
       <AdminNav />
       <ErrorLine error={error} />
+
+      <InviteJudge onDone={() => void reload()} />
 
       <div className="panel">
         <h2>{t('accounts')} ({accounts.length})</h2>

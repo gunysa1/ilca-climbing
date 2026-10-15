@@ -33,9 +33,19 @@ Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in both sites' environment,
 
 ## Accounts and roles
 
-- Users are created in Supabase (Authentication → Add user). A new user gets a profile and the
-  `climber` role. To add a judge: create their account, then staff app → ניהול → אנשים → judge; only
-  then do they appear in a round's judge list.
+- **Judges are invited in the staff app**: ניהול → אנשים → "הזמנת שופט/ת" (name + email), then
+  "שליחה במייל" or "קישור לשיתוף" (WhatsApp / copy). The judge chooses a password and lands in the
+  judge screen with the judge role; then assign them on the round page. Other accounts can still be
+  created in Supabase (Authentication → Add user); a new user gets a profile and the `climber` role.
+- One-time Supabase setup for invites and "forgot password":
+  - Authentication → URL Configuration: Site URL = the staff site; add `<staff site>/**` to the
+    redirect URLs.
+  - Email delivery: Supabase's built-in email only reaches the project's team members. Connect SMTP
+    (Authentication → Emails → SMTP settings), e.g. Gmail with an app password. Without it, use
+    the share link.
+  - Optional: the invite email template in Hebrew, and a longer "Email OTP expiration" so links
+    stay valid longer (default 1 hour).
+- Deploy the function: `npx -y supabase@2.121.0 functions deploy invite-judge --use-api`.
 - The first admin: `supabase/admin.sql`. After that: staff app → ניהול → אנשים (roles judge /
   coach / admin, linking a login to an existing climber profile, coach ↔ athlete links).
 - Judges score only boulders they are assigned to (round page → judges), only while the round is live.
