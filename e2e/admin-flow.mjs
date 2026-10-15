@@ -217,6 +217,11 @@ const cont = landing.getByRole('link', { name: 'Continue to choose a password' }
 await cont.waitFor();
 await landing.screenshot({ path: `${out}/invite-landing-en.png`, fullPage: true });
 if (!(await cont.getAttribute('href')).startsWith(`${fnOrigin}/auth/v1/verify?token=abc`)) problems.push('invite landing does not continue to Supabase');
+// The email template puts the link in raw (not encoded): the page must stay on /invite.
+await landing.goto(`${base}/invite#${fnOrigin}/auth/v1/verify?token=raw1&type=invite&redirect_to=x`);
+await landing.reload();
+await landing.getByRole('link', { name: 'Continue to choose a password' }).waitFor();
+if (!landing.url().includes('/invite#')) problems.push(`raw invite link left /invite: ${landing.url()}`);
 await landing.goto(`${base}/invite#https://evil.example/auth/v1/verify?token=x`);
 await landing.reload(); // same page, only the hash changed
 await landing.getByText(/invalid or has expired/).waitFor();
