@@ -193,3 +193,12 @@ label.inline { display: inline-flex; gap: .35rem; align-items: center; font-weig
   .stats { grid-template-columns: repeat(3, 1fr); }
   .stat-value { font-size: 1.25rem; }
 }
+
+/* Bottom discipline bar (IFSC app style) */
+.with-bottom-bar { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)); }
+.discipline-bar { position: fixed; inset-inline: 0; bottom: 0; z-index: 20; display: grid; grid-template-columns: repeat(3, 1fr);
+  background: var(--surface); border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.discipline-bar button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: .55rem 0 .5rem;
+  background: none; border: 0; border-top: 3px solid transparent; color: var(--muted); font-weight: 500; }
+.discipline-bar button.active { color: var(--accent); border-top-color: var(--accent); }
+.discipline-icon { font-size: 1.15rem; line-height: 1; }
