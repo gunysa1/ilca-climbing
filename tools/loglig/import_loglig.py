@@ -112,7 +112,50 @@ def parse_competition(archive: Path, season: str, cid: str) -> dict:
         rounds = [r for r in rounds if any(c['rank'] is not None for c in r['climbers'])]
         if rounds:
             comp['categories'].append({'id': did, 'name': cname, 'discipline': discipline, 'rounds': rounds})
+    comp['categories'] = merge_split_categories(cid, comp['categories'])
     return comp
+
+
+NEXT_KIND = {'qualification': 'semifinal', 'semifinal': 'final', 'final': 'final'}
+
+
+def merge_split_categories(cid: str, cats: list[dict]) -> list[dict]:
+    """LogLig championships split one category into several: qualification groups ("X קבוצה א'"),
+    a later round as its own category ("X חצי גמר", "סיבוב שני X"). Fold them back into X with
+    proper rounds; group climbers keep their group label (groups are ranked separately)."""
+    def split(name: str) -> tuple[str, str, str | None] | None:
+        if m := re.match(r"^(.+?)\s*קבוצה\s*(\S+?)'?$", name):
+            return (m[1].strip(), 'group', m[2])
+        if m := re.match(r'^(.+?)\s*חצי גמר$', name):
+            return (m[1].strip(), 'later', None)
+        if m := re.match(r'^סיבוב שני\s+(.+)$', name):
+            return (m[1].strip(), 'later', None)
+        return None
+
+    parts = {c['id']: split(c['name']) for c in cats}
+    bases = {(p[0], c['discipline']) for c in cats if (p := parts[c['id']])}
+    if not bases:
+        return cats
+    out = [c for c in cats if not parts[c['id']] and (c['name'], c['discipline']) not in bases]
+    for base, discipline in sorted(bases):
+        own = next((c for c in cats if not parts[c['id']] and c['name'] == base and c['discipline'] == discipline), None)
+        rounds: dict[str, list[dict]] = {}
+        for r in (own['rounds'] if own else []):
+            rounds.setdefault(r['kind'], []).extend(r['climbers'])
+        for c in cats:
+            p = parts[c['id']]
+            if not p or p[0] != base or c['discipline'] != discipline:
+                continue
+            for r in c['rounds']:
+                if p[1] == 'group':
+                    rounds.setdefault(r['kind'], []).extend({**x, 'group': p[2]} for x in r['climbers'])
+                else:
+                    # LogLig ranked these as a standalone category (no countback to the previous round):
+                    # no seeds, so ties resolve like the published results.
+                    rounds.setdefault(NEXT_KIND[r['kind']], []).extend({**x, 'unseeded': True} for x in r['climbers'])
+        out.append({'id': own['id'] if own else f'{cid}-{base}', 'name': base, 'discipline': discipline,
+                    'rounds': [{'kind': k, 'climbers': rounds[k]} for k in ('qualification', 'semifinal', 'final') if k in rounds]})
+    return out
 
 
 def iso_date(dob: str) -> str | None:
@@ -167,7 +210,8 @@ def to_rows(comps: list[dict]) -> dict:
                         registered.add(pid)
                         t['registrations'].append({'category_id': cat_id, 'climber_id': pid})
                     t['round_starters'].append({'round_id': round_id, 'climber_id': pid, 'start_order': order,
-                                                'prev_place': prev_rank.get(pid)})
+                                                'prev_place': None if c.get('unseeded') else prev_rank.get(pid),
+                                                'group_label': c.get('group')})
                     if c['rank'] is not None:
                         ranks[pid] = c['rank']
                     for n, top, zone in c.get('boulders', []):
@@ -205,12 +249,13 @@ def sql(comps: list[dict]) -> str:
         'profiles': 'id, full_name, full_name_he, club, gender',
         'profile_private': 'id, birth_date',
         'registrations': 'category_id, climber_id',
-        'round_starters': 'round_id, climber_id, start_order, prev_place',
+        'round_starters': 'round_id, climber_id, start_order, prev_place, group_label',
         'boulder_results': 'boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt',
         'lead_results': 'boulder_id, climber_id, round_id, hold, plus, top, time_ms',
     }
     conflict = {'profiles': ' on conflict (id) do nothing', 'profile_private': ' on conflict (id) do nothing',
-                'round_starters': ' on conflict (round_id, climber_id) do update set start_order = excluded.start_order, prev_place = excluded.prev_place'}
+                'round_starters': ' on conflict (round_id, climber_id) do update set start_order = excluded.start_order,'
+                                  ' prev_place = excluded.prev_place, group_label = excluded.group_label'}
     for table, c in cols.items():
         lines.append(f"insert into public.{table} ({c}) select {c} from _loglig, "
                      f"jsonb_populate_recordset(null::public.{table}, d->'{table}'){conflict.get(table, '')};")
