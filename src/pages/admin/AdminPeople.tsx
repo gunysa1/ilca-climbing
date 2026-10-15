@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../lib/auth';
 import { localized, useI18n } from '../../lib/i18n';
+import { allRows } from '../../lib/allRows';
 import { supabase } from '../../lib/supabase';
 import type { AdminAccount, AppRole, Profile } from '../../lib/types';
 import { AdminNav, ErrorLine } from './AdminHome';
@@ -21,15 +22,17 @@ export function AdminPeople() {
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
+    let profError: string | null = null;
     const [acc, prof, cl] = await Promise.all([
       supabase.rpc('admin_accounts'),
-      supabase.from('profiles').select('id, full_name, full_name_he, club, country, gender, user_id').order('full_name'),
+      allRows<ProfileRow>((from, to) => supabase.from('profiles').select('id, full_name, full_name_he, club, country, gender, user_id')
+        .order('full_name').order('id').range(from, to)).catch((e: Error) => { profError = e.message; return []; }),
       supabase.from('coach_athletes').select('coach_id, climber_id'),
     ]);
     setAccounts((acc.data as AdminAccount[]) ?? []);
-    setProfiles((prof.data as ProfileRow[]) ?? []);
+    setProfiles(prof);
     setLinks((cl.data as CoachLink[]) ?? []);
-    setError(acc.error?.message ?? prof.error?.message ?? cl.error?.message ?? null);
+    setError(acc.error?.message ?? profError ?? cl.error?.message ?? null);
   }, []);
   useEffect(() => { void reload(); }, [reload]);
 

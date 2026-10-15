@@ -6,6 +6,7 @@ import { localized, useI18n, type MsgKey } from '../lib/i18n';
 import {
   computeRanking, RANK_CLASSES, type Adjustment, type Gender, type IntlResult, type RankClass, type RoundPlacing,
 } from '../lib/rankings';
+import { allRows } from '../lib/allRows';
 import { supabase } from '../lib/supabase';
 import type { Profile } from '../lib/types';
 
@@ -150,14 +151,4 @@ export function Rankings() {
 }
 
 /** Every row of a query: the API returns at most 1000 rows per request (a season has more). */
-async function allRows<T>(page: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>): Promise<T[]> {
-  const out: T[] = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await page(from, from + 999);
-    if (error) throw new Error(error.message);
-    out.push(...((data ?? []) as T[]));
-    if (!data || data.length < 1000) return out;
-  }
-}
-
 const fmt = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(2).replace(/0$/, ''));

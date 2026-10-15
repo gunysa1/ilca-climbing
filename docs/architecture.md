@@ -125,3 +125,4 @@ judge pad subscribes to `judge_claims` of its boulder. Everything else loads on 
 | 20261015000018 | judge claims, locked results, appeals |
 | 20261015000019 | claims stale after 30 s |
 | 20261015000020 | on the wall: judges mark the climber climbing now (`set_on_wall`); public `on_wall(round)` |
+| 20261015000021 | `admin_accounts()` casts the email (Supabase stores it as varchar) |

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useI18n } from '../../lib/i18n';
 import { parseRoster, planImport, type ImportPlan, type RosterError } from '../../lib/roster';
+import { allRows } from '../../lib/allRows';
 import { supabase } from '../../lib/supabase';
 import type { CategoryRow } from './AdminCompetition';
 import { ErrorLine } from './AdminHome';
@@ -21,11 +22,14 @@ export function RosterImport({ competitionId, categories, onDone }: {
     setDone(false); setError(null);
     const { rows, errors } = parseRoster(await file.text());
     setRowErrors(errors);
-    const { data: profiles, error } = await supabase.from('profiles').select('id, full_name, full_name_he, club');
-    if (error) return setError(error.message);
+    // All profiles (over 1000): a climber missing here would be created twice.
+    let profiles: { id: string; full_name: string; full_name_he: string | null; club: string | null }[];
+    try {
+      profiles = await allRows((from, to) => supabase.from('profiles').select('id, full_name, full_name_he, club').order('id').range(from, to));
+    } catch (e) { return setError((e as Error).message); }
     setPlan(planImport(rows, {
       categories,
-      profiles: profiles ?? [],
+      profiles,
       registrations: categories.flatMap((c) => c.registrations.map((r) => ({ category_id: c.id, climber_id: r.climber_id }))),
     }));
   }

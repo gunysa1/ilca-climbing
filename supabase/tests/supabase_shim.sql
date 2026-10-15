@@ -7,7 +7,7 @@ create role service_role nologin bypassrls;
 create schema auth;
 create table auth.users (
   id uuid primary key default gen_random_uuid(),
-  email text,
+  email varchar(255),  -- as in Supabase
   raw_user_meta_data jsonb default '{}'::jsonb
 );
 
