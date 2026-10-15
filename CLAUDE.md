@@ -33,6 +33,14 @@ climbers who haven't climbed.
 Local toolchain: REA needs Node 24 (`~/.nvm/versions/node/v24.22.0`), default Node is 25. Postgres 16
 under /usr/lib/postgresql/16, Java 21, Playwright Chromium in ~/.cache/ms-playwright.
 
+Live data (2026-10-15): the 2025-26 season imported from the recovered LogLig archive
+(~/ilca-loglig-archive, private, not in git) with tools/loglig/import_loglig.py: 16 competitions
+(8 boulder, 8 lead), 624 climbers; 97.9% of ranks identical to LogLig (rest: 0-point ties LogLig
+ordered by unpublished data, one LogLig-internal inconsistency). Not importable from LogLig:
+national-league boulder events (only "0T 0Z 0 0" placeholders) and classic-total-only boulder
+results (no per-boulder detail). Other seasons: archive crawl in progress; import per season after
+the same dry-run + rank comparison.
+
 Open work, in order:
 1. Parity gaps from the reference analysis: appeals, judge claim/lock, favorites, PDF/Excel export,
    notifications. Live project is at migration 20261015000006 (all applied).

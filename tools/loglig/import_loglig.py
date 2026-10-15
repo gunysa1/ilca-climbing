@@ -79,7 +79,9 @@ def parse_competition(archive: Path, season: str, cid: str) -> dict:
         if not plain_path.exists():
             continue
         plain = plain_path.read_text(encoding='utf-8')
-        discipline = 'boulder' if 'value="Bouldering"' in plain else 'lead'
+        discipline = detect_discipline(plain)
+        if discipline is None:
+            continue  # only classic totals or 0T 0Z placeholders: nothing faithful to import
         dob = {}  # name -> birth date (plain pages only)
         rounds = []
         if discipline == 'boulder':
@@ -156,6 +158,18 @@ def merge_split_categories(cid: str, cats: list[dict]) -> list[dict]:
         out.append({'id': own['id'] if own else f'{cid}-{base}', 'name': base, 'discipline': discipline,
                     'rounds': [{'kind': k, 'climbers': rounds[k]} for k in ('qualification', 'semifinal', 'final') if k in rounds]})
     return out
+
+
+def detect_discipline(plain: str) -> str | None:
+    """'boulder' when per-boulder detail ("1 2:1 2 0:3 ...") is present, 'lead' when results are lead
+    rank points (e.g. 2.121; heights are on the LS page), else None: LogLig's classic boulder totals
+    ("5T 7Z 9 12") have no per-boulder detail and national-league pages only hold "0T 0Z 0 0"."""
+    rows = [r for _, rows in sections(plain) for r in rows if parse_rank(r[0]) is not None]
+    if any(re.search(r'\d+ \d+:\d+', r[1]) for r in rows):
+        return 'boulder'
+    if any(re.fullmatch(r'\d+\.\d+', r[-1]) for r in rows):
+        return 'lead'
+    return None
 
 
 def iso_date(dob: str) -> str | None:
