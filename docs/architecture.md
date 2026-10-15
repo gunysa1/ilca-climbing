@@ -69,6 +69,12 @@ the rounds they need, tested to return exactly the views' rows:
 The API returns at most 1000 rows per request; the rankings page pages through
 `season_ranking_rounds`.
 
+A round page (results and judge pad) loads with one call, `round_page(round)`: the round, its
+category and competition, the competition's categories with their rounds (men / women switch),
+boulders, the start list, results and appeals (security invoker: the same RLS as separate
+queries). Built files are cached for a year (`/assets/*`, content-hashed names), and the page
+opens its connection to Supabase while the app downloads (preconnect).
+
 ## Security
 
 Isolation is enforced in Postgres with row level security. The staff app hiding a menu is cosmetic;
@@ -146,3 +152,4 @@ judge pad subscribes to `judge_claims` of its boulder. Everything else loads on 
 | 20261015000022 | `account_by_email()` for the invite-judge function (service role only) |
 | 20261015000023 | `delete_account_profile()` for the delete-account function (service role only) |
 | 20261015000024 | `delete_account_profile()` keeps a profile that any table references (from the foreign keys) |
+| 20261015000025 | `round_page(round)`: a round page in one request (round, categories, start list, results) |

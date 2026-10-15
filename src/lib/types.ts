@@ -85,7 +85,8 @@ export interface HistoryRow {
   round_id: string;
 }
 
-/** Columns of boulder_results readable by clients (updated_by is admin-only). */
+/** Columns of boulder_results readable by clients (updated_by is admin-only). round_page() (SQL) returns
+ *  the same columns for results, totals and lead results: keep them in sync. */
 export const RESULT_COLUMNS = 'boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt, locked, updated_at';
 /** Totals-only boulder rounds (older LogLig history): per-round T/Z totals, no per-boulder detail. */
 export const TOTALS_COLUMNS = 'round_id, climber_id, tops, zones, top_attempts, zone_attempts';

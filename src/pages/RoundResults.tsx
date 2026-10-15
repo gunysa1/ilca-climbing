@@ -6,7 +6,6 @@ import { useFavorites } from '../lib/favorites';
 import { onWallByClimber, onWallList, useOnWall } from '../lib/onWall';
 import { switchTarget } from '../lib/categorySwitch';
 import { saveLastViewed } from '../lib/lastViewed';
-import { supabase } from '../lib/supabase';
 import { localized, useI18n, type Lang } from '../lib/i18n';
 import { formatHeight, leadStandings } from '../lib/lead';
 import { resultKey, toLeadResult, useRoundData, type LeadRow, type ResultRow, type Starter } from '../lib/roundData';
@@ -43,38 +42,22 @@ interface Row { climber_id: string; rank: number | null; score: string }
 export function RoundResults() {
   const { id } = useParams();
   const { t, lang } = useI18n();
-  const { round, boulders, starters, results, leadResults, totals: storedTotals, appeals, loading } = useRoundData(id);
+  const { round, category, categories, boulders, starters, results, leadResults, totals: storedTotals, appeals, loading } = useRoundData(id);
   const [ageClass, setAgeClass] = useState<string | null>(null);
   const [onlyFavorites, setOnlyFavorites] = useState(false);
-  const [context, setContext] = useState<{ category: string; category_he: string | null;
-    competition: { id: string; name: string; name_he: string | null } } | null>(null);
-  // Other rounds of the category (Q / S / F chips, like IFSC) and the Result / Start list tab.
-  const [siblings, setSiblings] = useState<{ id: string; kind: 'qualification' | 'semifinal' | 'final'; status: string }[]>([]);
   const [tab, setTab] = useState<'result' | 'startlist'>('result');
-  // The competition's categories (men / women, ...), to switch to the same round in another one.
-  const [categories, setCategories] = useState<{ id: string; name: string; name_he: string | null;
-    rounds: { id: string; kind: 'qualification' | 'semifinal' | 'final'; status: 'planned' | 'live' | 'closed' }[] }[]>([]);
+  // Breadcrumbs, the Q / S / F chips (like IFSC) and the men / women switch all come with the
+  // round (round_page), so they show with the results instead of after more requests.
+  const context = category ? { category: category.name, category_he: category.name_he, competition: category.competition } : null;
+  const siblings = useMemo(() => [...(categories.find((c) => c.id === round?.category_id)?.rounds ?? [])]
+    .sort((a, b) => ['qualification', 'semifinal', 'final'].indexOf(a.kind) - ['qualification', 'semifinal', 'final'].indexOf(b.kind)),
+  [categories, round?.category_id]);
   useEffect(() => {
-    if (!round) return;
+    if (!round || !category) return;
     setTab('result');
-    supabase.from('rounds').select('id, kind, status').eq('category_id', round.category_id)
-      .then(({ data }) => setSiblings(((data ?? []) as typeof siblings)
-        .sort((a, b) => ['qualification', 'semifinal', 'final'].indexOf(a.kind) - ['qualification', 'semifinal', 'final'].indexOf(b.kind))));
-  }, [round?.id]);
-  useEffect(() => {
-    if (!round) return;
-    setContext(null); // no stale category name while switching men ↔ women
-    supabase.from('categories').select('name, name_he, competition:competitions(id, name, name_he)').eq('id', round.category_id).single()
-      .then(({ data }) => {
-        const d = data as unknown as { name: string; name_he: string | null; competition: { id: string; name: string; name_he: string | null } } | null;
-        const c = d ? { category: d.name, category_he: d.name_he, competition: d.competition } : null;
-        setContext(c);
-        if (c) supabase.from('categories').select('id, name, name_he, rounds(id, kind, status)').eq('competition_id', c.competition.id).order('name')
-          .then(({ data: cs }) => setCategories((cs ?? []) as typeof categories));
-        if (c) saveLastViewed({ competition_id: c.competition.id, competition: c.competition.name, competition_he: c.competition.name_he,
-          round_id: round.id, round_kind: round.kind, category: c.category, category_he: c.category_he });
-      });
-  }, [round?.id]);
+    saveLastViewed({ competition_id: category.competition.id, competition: category.competition.name, competition_he: category.competition.name_he,
+      round_id: round.id, round_kind: round.kind, category: category.name, category_he: category.name_he });
+  }, [round?.id, category?.id]);
   const favorites = useFavorites();
   // Who is climbing now (live rounds): highlighted like the IFSC app's "climbing now".
   const wallRows = useOnWall(round?.id, round?.status === 'live');

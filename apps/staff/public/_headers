@@ -1,2 +1,6 @@
 /*
   X-Robots-Tag: noindex
+
+# Built files have content hashes in their names: cache them for good.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

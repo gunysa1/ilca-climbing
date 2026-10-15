@@ -751,6 +751,29 @@ select pg_temp.assert(
 reset role;
 update competitions set season = null, series = 'other' where id = '10000000-0000-0000-0000-000000000001';
 
+-- ---------------------------------------------------------------- round_page(): one call per round page
+select pg_temp.login(null);
+select pg_temp.assert(
+  jsonb_array_length(round_page('30000000-0000-0000-0000-000000000001') -> 'results')
+    = (select count(*) from boulder_results where round_id = '30000000-0000-0000-0000-000000000001')
+  and jsonb_array_length(round_page('30000000-0000-0000-0000-000000000001') -> 'starters')
+    = (select count(*) from round_starters where round_id = '30000000-0000-0000-0000-000000000001')
+  and jsonb_array_length(round_page('30000000-0000-0000-0000-000000000001') -> 'boulders')
+    = (select count(*) from boulders where round_id = '30000000-0000-0000-0000-000000000001'),
+  'round_page returns the same rows as the separate queries');
+select pg_temp.assert(not exists (select 1 from jsonb_array_elements(round_page('30000000-0000-0000-0000-000000000001') -> 'results') e
+  where e ? 'updated_by'), 'round_page never returns who entered a score');
+select pg_temp.assert(jsonb_array_length(round_page('30000000-0000-0000-0000-000000000002') -> 'results') = 0,
+  'round_page: no results of a planned round');
+reset role;
+insert into rounds (id, category_id, kind, status) values
+  ('3d000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002', 'qualification', 'live');
+select pg_temp.login(null);
+select pg_temp.assert(round_page('3d000000-0000-0000-0000-000000000001') is null, 'round_page: nothing of a draft competition');
+select pg_temp.assert(jsonb_array_length(round_page('30000000-0000-0000-0000-000000000001') -> 'categories') >= 1,
+  'round_page lists the competition''s categories');
+reset role;
+
 -- ---------------------------------------------------------------- deleting an account (service role)
 reset role;
 insert into profiles (id, full_name) values ('dddd0000-0000-0000-0000-000000000001', 'Former Judge'), ('dddd0000-0000-0000-0000-000000000002', 'Scorer');
