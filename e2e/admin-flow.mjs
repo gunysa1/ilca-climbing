@@ -215,6 +215,7 @@ const landing = await page('en', { width: 390, height: 800 }, null);
 await landing.goto(shared);
 const cont = landing.getByRole('link', { name: 'Continue to choose a password' });
 await cont.waitFor();
+await landing.screenshot({ path: `${out}/invite-landing-en.png`, fullPage: true });
 if (!(await cont.getAttribute('href')).startsWith(`${fnOrigin}/auth/v1/verify?token=abc`)) problems.push('invite landing does not continue to Supabase');
 await landing.goto(`${base}/invite#https://evil.example/auth/v1/verify?token=x`);
 await landing.reload(); // same page, only the hash changed

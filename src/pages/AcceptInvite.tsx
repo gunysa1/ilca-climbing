@@ -20,12 +20,18 @@ export function inviteTarget(hash: string, supabaseUrl: string, appOrigin: strin
   } catch { return null; }
 }
 
+/** ILCA's logo (white, from ilca.org.il) on the staff header's navy: invite and password pages. */
+export function IlcaBanner() {
+  return <div className="ilca-banner"><img src="/ilca-logo.png" alt="התאחדות הטיפוס בישראל" width={208} height={90} /></div>;
+}
+
 /** Landing page of a shared invite: one tap continues to Supabase, which returns to /set-password. */
 export function AcceptInvite() {
   const { t } = useI18n();
   const target = inviteTarget(window.location.hash, import.meta.env.VITE_SUPABASE_URL as string, window.location.origin);
   return (
     <div className="panel form narrow">
+      <IlcaBanner />
       <h1>{t('inviteWelcome')}</h1>
       {target
         ? <><p>{t('inviteContinueHint')}</p><a className="button primary" href={target}>{t('inviteContinue')}</a></>

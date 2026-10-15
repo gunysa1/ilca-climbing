@@ -43,7 +43,7 @@ Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in both sites' environment,
   - Email delivery: Supabase's built-in email only reaches the project's team members. Connect SMTP
     (Authentication → Emails → SMTP settings), e.g. Gmail with an app password. Without it, use
     the share link.
-  - Optional: the invite email template in Hebrew, and a longer "Email OTP expiration" so links
+  - Optional: the invite email template in Hebrew with the ILCA logo (`supabase/templates/invite.html`), and a longer "Email OTP expiration" so links
     stay valid longer (default 1 hour).
 - Deploy the function: `npx -y supabase@2.121.0 functions deploy invite-judge --use-api`.
 - The first admin: `supabase/admin.sql`. After that: staff app → ניהול → אנשים (roles judge /

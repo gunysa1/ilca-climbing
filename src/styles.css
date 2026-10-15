@@ -353,3 +353,5 @@ details.season[open] > summary::before { transform: rotate(90deg); }
 /* Invite a judge: the share link, and the invite landing page */
 .invite-link input { width: 100%; margin: .4rem 0; font-size: .85rem; direction: ltr; }
 a.button.primary { display: inline-block; text-align: center; color: #fff; padding: .6rem 1rem; border-radius: 8px; }
+.ilca-banner { background: #0b1f3a; border-radius: 10px; padding: 14px; display: flex; justify-content: center; }
+.ilca-banner img { width: 208px; height: auto; display: block; }

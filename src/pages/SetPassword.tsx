@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
+import { IlcaBanner } from './AcceptInvite';
 import { useI18n } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
 
@@ -35,6 +36,7 @@ export function SetPassword() {
     if (!linkError && !waited) return <p className="muted">{t('loading')}</p>;
     return (
       <div className="panel form narrow">
+        <IlcaBanner />
         <h1>{t('setPassword')}</h1>
         <p className="error">{t('linkInvalid')}</p>
         <Link to="/login">{t('login')}</Link>
@@ -43,6 +45,7 @@ export function SetPassword() {
   }
   return (
     <form className="panel form narrow" onSubmit={submit}>
+      <IlcaBanner />
       <h1>{t('setPassword')}</h1>
       <p className="muted small">{session.user.email}</p>
       <label>{t('newPassword')}
