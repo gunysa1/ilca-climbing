@@ -39,7 +39,7 @@ export function Coach() {
         <>
           <h2>{localized(lang, selected.full_name, selected.full_name_he)}</h2>
           <History climberId={selected.id} />
-          <CoachNotes climberId={selected.id} canWrite />
+          <CoachNotes climberId={selected.id} />
         </>
       )}
     </section>

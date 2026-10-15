@@ -8,7 +8,6 @@ import { Coach } from '../../pages/Coach';
 import { CompetitionPage } from '../../pages/CompetitionPage';
 import { JudgeBoulder, JudgeHome } from '../../pages/Judge';
 import { Login } from '../../pages/Login';
-import { Me } from '../../pages/Me';
 import { Rankings } from '../../pages/Rankings';
 import { RoundResults } from '../../pages/RoundResults';
 import { Search } from '../../pages/Search';
@@ -18,7 +17,7 @@ import { AdminPeople } from '../../pages/admin/AdminPeople';
 import { AdminRankings } from '../../pages/admin/AdminRankings';
 import { AdminRound } from '../../pages/admin/AdminRound';
 
-/** The staff app: judges, coaches and admins (and a climber's private page). Sign-in first. */
+/** The staff app: judges, coaches and admins. Sign-in first. */
 export function StaffApp() {
   return (
     <I18nProvider>
@@ -29,7 +28,6 @@ export function StaffApp() {
               <Route path="login" element={<Login />} />
               <Route element={<RequireRole><Outlet /></RequireRole>}>
                 <Route index element={<StaffHome />} />
-                <Route path="me" element={<Me />} />
                 <Route path="coach" element={<RequireRole role="coach"><Coach /></RequireRole>} />
                 <Route path="judge" element={<RequireRole role="judge"><JudgeHome /></RequireRole>} />
                 <Route path="judge/:roundId/:boulderId" element={<RequireRole role="judge"><JudgeBoulder /></RequireRole>} />
@@ -90,12 +88,11 @@ function StaffLayout() {
 /** One tile per role the signed-in user has. */
 function StaffHome() {
   const { t } = useI18n();
-  const { hasRole, profileId } = useAuth();
+  const { hasRole } = useAuth();
   const tiles = [
     hasRole('judge') && { to: '/judge', title: t('judge'), text: t('staffJudgeText') },
     hasRole('coach') && { to: '/coach', title: t('coach'), text: t('staffCoachText') },
     hasRole('admin') && { to: '/admin', title: t('admin'), text: t('staffAdminText') },
-    profileId && { to: '/me', title: t('myHistory'), text: t('staffMeText') },
   ].filter((x): x is { to: string; title: string; text: string } => !!x);
   return (
     <section>

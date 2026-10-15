@@ -9,7 +9,7 @@ Two apps from one codebase (`src/` is shared):
 | App | Who | Sign-in | Entry | Dev | Build |
 |---|---|---|---|---|---|
 | **Viewer** ("ILCA Live") | public, climbers, families | none, view only (like the IFSC app) | `apps/viewer`, `src/apps/viewer` | `npm run dev` (:5173) | `dist/viewer` |
-| **Staff** ("ILCA Staff") | judges, coaches, admins; a climber's private page | required | `apps/staff`, `src/apps/staff` | `npm run dev:staff` (:5174) | `dist/staff` |
+| **Staff** ("ILCA Staff") | judges, coaches, admins | required | `apps/staff`, `src/apps/staff` | `npm run dev:staff` (:5174) | `dist/staff` |
 
 `VITE_STAFF_URL` / `VITE_VIEWER_URL` (optional) link the two headers. Netlify: one site per app
 (`netlify.toml` for the viewer; a second site with base directory `apps/staff`).
@@ -22,7 +22,7 @@ Hiding a menu item is cosmetic; a user who calls the API directly still gets onl
 | Role | Can read | Can write |
 |---|---|---|
 | Public (no login) | Published competitions, live/closed results | – |
-| Climber | Own private profile, own history, coach notes **shared** with them | Own profile |
+| Climber | Public results like everyone (the viewer app); no sign-in page of their own | — |
 | Coach | Private profile + history of **linked** athletes only | Notes on linked athletes |
 | Judge | Results of boulders they are assigned to | Results **only** for assigned boulders, **only** while the round is live |
 | Admin | Everything, incl. the score audit log | Competitions, rounds, roles, judge/coach assignments |
@@ -55,7 +55,7 @@ Verified against official IFSC 2026 results and the temporary ILCA app's scoring
 ## Climber history
 
 `climber_history` (SQL view) lists every round a climber competed in: competition, date,
-category, round, tops, zones, points, rank and field size. Shown on **My history** for climbers
+category, round, tops, zones, points, rank and field size. Shown on every climber's public page (viewer app)
 and per athlete on the **Coach** page.
 
 ## Getting started
