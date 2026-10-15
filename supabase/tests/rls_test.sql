@@ -555,12 +555,72 @@ select pg_temp.denied($$update round_totals set tops = 5 where climber_id = '600
   'climber edits totals');
 reset role;
 
+-- classic: countback breaks a full tie only in a final (same case as scoring.test.ts)
+reset role;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into categories (id, competition_id, name, gender) values
+  ('20000000-0000-0000-0000-0000000000c1', '10000000-0000-0000-0000-000000000001', 'Classic', 'mixed');
+insert into rounds (id, category_id, kind, status, scoring) values
+  ('30000000-0000-0000-0000-000000000082', '20000000-0000-0000-0000-0000000000c1', 'semifinal', 'closed', 'classic'),
+  ('30000000-0000-0000-0000-000000000083', '20000000-0000-0000-0000-0000000000c1', 'final', 'closed', 'classic');
+insert into round_starters (round_id, climber_id, start_order, prev_place)
+select r, c, o, p from (values
+  ('30000000-0000-0000-0000-000000000082'::uuid, '60000000-0000-0000-0000-00000000000a'::uuid, 1, 4),
+  ('30000000-0000-0000-0000-000000000082', '60000000-0000-0000-0000-00000000000b', 2, 2),
+  ('30000000-0000-0000-0000-000000000083', '60000000-0000-0000-0000-00000000000a', 1, 4),
+  ('30000000-0000-0000-0000-000000000083', '60000000-0000-0000-0000-00000000000b', 2, 2)) v(r, c, o, p)
+on conflict (round_id, climber_id) do update set prev_place = excluded.prev_place;
+insert into round_totals
+select r, c, 1, 2, 3, 5 from unnest(array['30000000-0000-0000-0000-000000000082', '30000000-0000-0000-0000-000000000083']::uuid[]) r,
+  unnest(array['60000000-0000-0000-0000-00000000000a', '60000000-0000-0000-0000-00000000000b']::uuid[]) c;
+select set_config('request.jwt.claim.sub', '', false);
+select pg_temp.assert((select array_agg(rank order by climber_id) from round_scores
+  where round_id = '30000000-0000-0000-0000-000000000082') = '{1,1}', 'classic semifinal: a full tie stands');
+select pg_temp.assert((select array_agg(right(climber_id::text, 1) || rank order by rank) from round_scores
+  where round_id = '30000000-0000-0000-0000-000000000083') = '{b1,a2}', 'classic final: countback breaks a full tie');
+
+-- ---------------------------------------------------------------- national rankings
+reset role;
+update competitions set season = '2026-27', series = 'premier_league' where id = '10000000-0000-0000-0000-000000000001';
+insert into profile_private (id, birth_date) values
+  ('60000000-0000-0000-0000-00000000000a', '2009-05-01'),  -- U19 in 2026-27 (age 18)
+  ('60000000-0000-0000-0000-00000000000b', '1990-01-01')   -- senior
+  on conflict (id) do update set birth_date = excluded.birth_date;
+insert into profiles (id, full_name) values ('60000000-0000-0000-0000-0000000000e1', 'No Results');
+insert into profile_private (id, birth_date) values ('60000000-0000-0000-0000-0000000000e1', '2010-01-01')
+  on conflict (id) do update set birth_date = excluded.birth_date;
+select pg_temp.login(null);
+select pg_temp.assert(
+  (select count(*) from ranking_rounds where competition_id = '10000000-0000-0000-0000-000000000001' and rank is not null) > 0
+  and not exists (select 1 from ranking_rounds where season is null),
+  'public reads ranking rounds of seasonal competitions');
+select pg_temp.assert(
+  (select array_agg(right(climber_id::text, 2) || ':' || age_class order by climber_id) from season_age_classes('2026-27'))
+    = '{0a:U19}',
+  'age classes: only the class, only climbers with a public result that season');
+select pg_temp.denied($$select birth_date from profile_private$$, 'anon reads birth dates');
+select pg_temp.denied($$insert into international_results (climber_id, season, discipline, event_type, event_name, starts_on, place, field_size)
+  values ('60000000-0000-0000-0000-00000000000a', '2026-27', 'lead', 'world_cup', 'WC', '2026-06-01', 1, 50)$$, 'anon adds international results');
+select pg_temp.login('00000000-0000-0000-0000-000000000002');
+select pg_temp.denied($$insert into ranking_adjustments (climber_id, season, discipline, points, note)
+  values ('00000000-0000-0000-0000-000000000002', '2026-27', 'lead', 500, 'me')$$, 'climber adjusts own ranking');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+insert into international_results (climber_id, season, discipline, event_type, event_name, starts_on, place, field_size, reached)
+  values ('60000000-0000-0000-0000-00000000000a', '2026-27', 'lead', 'european_youth_cup', 'EYC Imst', '2026-06-01', 3, 40, 'final');
+select pg_temp.login(null);
+select pg_temp.assert((select count(*) from international_results) = 1, 'admin adds international results; public reads them');
+reset role;
+update competitions set season = null, series = 'other' where id = '10000000-0000-0000-0000-000000000001';
+
 -- ---------------------------------------------------------------- function privileges (Supabase advisors)
 -- Supabase grants EXECUTE on new functions to anon directly; admin-only and trigger functions must not keep it.
 select pg_temp.assert(not has_function_privilege('anon', f, 'execute'), 'anon cannot execute ' || f)
 from unnest(array['public.admin_accounts()', 'public.link_account(uuid,uuid)', 'public.unlink_account(uuid)',
                   'public.import_roster(jsonb,jsonb,jsonb,jsonb)', 'public.generate_start_list(uuid)',
                   'public.previous_round(uuid)']) f;
+select pg_temp.assert(prosecdef and has_function_privilege('anon', 'public.season_age_classes(text)', 'execute'),
+  'season_age_classes reads private birth dates for everyone, exposing only the class')
+from pg_proc where oid = 'public.season_age_classes(text)'::regprocedure;
 select pg_temp.assert(not prosecdef, 'previous_round runs with the caller''s rights')
 from pg_proc where oid = 'public.previous_round(uuid)'::regprocedure;
 select pg_temp.assert(not has_function_privilege(r, f, 'execute'), r || ' cannot execute trigger ' || f)

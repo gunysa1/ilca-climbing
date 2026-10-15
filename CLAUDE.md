@@ -8,10 +8,16 @@ See README.md for the role/isolation table and scripts.
 - Role isolation lives in Postgres RLS (`supabase/migrations/`). UI gating (`RequireRole`) is cosmetic.
   Any change to tables/policies must keep `npm run test:db` green and add assertions to
   `supabase/tests/rls_test.sql` for new access paths.
-- Scoring logic exists twice: `src/lib/scoring.ts` and SQL `boulder_points` / `round_scores` (latest
-  definition in `20261015000005_start_lists.sql`; countback reads the stored seed `round_starters.prev_place`). Change both together; tests on both sides use
-  the same cases (top on 3rd attempt = 24.8; tie-breaks: points, previous-round rank, top attempts,
-  zone attempts).
+- Scoring logic exists twice: `src/lib/scoring.ts` / `src/lib/lead.ts` and SQL `boulder_points` /
+  `round_scores` / `lead_scores` (latest definitions: `20261015000014_classic_final_countback.sql`,
+  `20261015000012_lead_time_final_only.sql`; countback reads the stored seed `round_starters.prev_place`).
+  Change both together; tests on both sides use the same cases (top on 3rd attempt = 24.8; tie-breaks:
+  points, previous-round rank, top attempts, zone attempts; classic: T, Z, attempts, countback in finals;
+  lead: time only in finals). Totals-only rounds (older LogLig history) read `round_totals`.
+- National rankings (ILCA criteria 2025) are computed only in `src/lib/rankings.ts` from the
+  `ranking_rounds` view, `season_age_classes()`, `international_results` and `ranking_adjustments`
+  (admin-entered). Tests: the criteria document's worked examples; validated against ILCA's published
+  2024-25 youth bouldering ranking.
 - Identity: profiles exist without accounts. `profiles.user_id` links a login (only via `link_account()`);
   policies use `my_profile_id()`, never `auth.uid()` = profile id. Client code uses `useAuth().profileId`.
 - Who climbs a round = `round_starters` (first rounds follow registrations by trigger; later rounds via

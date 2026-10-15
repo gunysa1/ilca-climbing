@@ -13,6 +13,7 @@ export function Layout() {
           <NavLink to="/" className="brand">{t('appName')}</NavLink>
           <nav className="nav">
             <NavLink to="/" end>{t('live')}</NavLink>
+            <NavLink to="/rankings">{t('rankings')}</NavLink>
             <NavLink to="/favorites" aria-label={t('favorites')}>★ {t('favorites')}</NavLink>
             <NavLink to="/search" aria-label={t('search')}>🔍</NavLink>
             {session && <NavLink to="/me">{t('myHistory')}</NavLink>}

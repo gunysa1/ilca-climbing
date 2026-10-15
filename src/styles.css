@@ -241,3 +241,11 @@ h1 .fav-star { font-size: 1.6rem; }
 .tabs button.active { color: var(--text); border-bottom-color: var(--text); }
 
 .search-input { width: 100%; font-size: 1.05rem; padding: .7rem .9rem; margin-bottom: 1rem; }
+
+/* National rankings: per-event places and points under the name; dropped results greyed out. */
+.ranking-parts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.ranking-part { font-size: 12px; padding: 1px 7px; border: 1px solid var(--border); border-radius: 999px; color: var(--text); }
+.ranking-part small { color: var(--muted); }
+.ranking-part.dropped { opacity: .45; text-decoration: line-through; }
+.ranking-part.champ { border-color: var(--accent); }
+.ranking-part.adjust { border-style: dashed; }

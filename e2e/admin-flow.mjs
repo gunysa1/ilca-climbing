@@ -141,6 +141,31 @@ await coachPanel.locator('.picker-hits').getByRole('button', { name: 'Add' }).cl
 await coachPanel.locator('.admin-row', { hasText: 'תמר כהן' }).waitFor();
 await p.screenshot({ path: `${out}/admin-people-en.png`, fullPage: true });
 
+step('rankings: season + series, international result, public table');
+await p.goto(compUrl);
+await p.getByLabel('Season').fill('2026-27');
+await p.getByLabel('Series (rankings)').selectOption('premier_league');
+await p.getByRole('button', { name: 'Save' }).first().click();
+await p.waitForTimeout(500);
+await p.goto(`${base}/admin/rankings`);
+await p.getByLabel('Season').fill('2026-27');
+const intlForm = p.locator('form', { hasText: 'Event type' });
+await intlForm.getByPlaceholder(/Search/).fill('נועה');
+await intlForm.locator('.picker-hits').getByRole('button', { name: 'Select climber' }).click();
+await intlForm.getByText('נועה לוי').first().waitFor();
+await intlForm.getByLabel('Event type').selectOption('world_cup');
+await intlForm.getByLabel('Event name').fill('WC Bern');
+await intlForm.getByLabel('Starts').fill('2026-06-20');
+await intlForm.getByLabel('Place').fill('5');
+await intlForm.getByLabel('Field size').fill('57');
+await intlForm.getByLabel('Last round').selectOption('final');
+await intlForm.getByRole('button', { name: 'Add' }).click();
+await p.locator('tr', { hasText: 'WC Bern' }).getByText('200').waitFor();
+await p.goto(`${base}/rankings?season=2026-27&c=senior&g=female&d=boulder`);
+const noa = p.locator('tr', { hasText: 'נועה לוי' });
+await noa.locator('.ranking-part', { hasText: '200' }).waitFor();
+await p.screenshot({ path: `${out}/rankings-en.png`, fullPage: true });
+
 step('Hebrew + 390px screenshots');
 const he = await page('he', { width: 390, height: 844 });
 await he.goto(compUrl);

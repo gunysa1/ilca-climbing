@@ -14,9 +14,11 @@ import { Me } from './pages/Me';
 import { AdminCompetition } from './pages/admin/AdminCompetition';
 import { AdminHome } from './pages/admin/AdminHome';
 import { AdminPeople } from './pages/admin/AdminPeople';
+import { AdminRankings } from './pages/admin/AdminRankings';
 import { AdminRound } from './pages/admin/AdminRound';
 import { RoundResults } from './pages/RoundResults';
 import { Search } from './pages/Search';
+import { Rankings } from './pages/Rankings';
 
 export function App() {
   return (
@@ -32,6 +34,7 @@ export function App() {
               <Route path="climber/:id" element={<Climber />} />
               <Route path="favorites" element={<Favorites />} />
               <Route path="search" element={<Search />} />
+              <Route path="rankings" element={<Rankings />} />
               <Route path="login" element={<Login />} />
               {/* signed-in roles */}
               <Route path="me" element={<RequireRole><Me /></RequireRole>} />
@@ -42,6 +45,7 @@ export function App() {
               <Route path="admin/competition/:id" element={<RequireRole role="admin"><AdminCompetition /></RequireRole>} />
               <Route path="admin/round/:id" element={<RequireRole role="admin"><AdminRound /></RequireRole>} />
               <Route path="admin/people" element={<RequireRole role="admin"><AdminPeople /></RequireRole>} />
+              <Route path="admin/rankings" element={<RequireRole role="admin"><AdminRankings /></RequireRole>} />
               <Route path="*" element={<Live />} />
             </Route>
           </Routes>

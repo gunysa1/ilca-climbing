@@ -10,6 +10,7 @@ export function AdminNav() {
     <nav className="chips">
       <NavLink to="/admin" end className="chip">{t('competitions')}</NavLink>
       <NavLink to="/admin/people" className="chip">{t('people')}</NavLink>
+      <NavLink to="/admin/rankings" className="chip">{t('rankings')}</NavLink>
     </nav>
   );
 }

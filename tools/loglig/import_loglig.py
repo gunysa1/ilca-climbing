@@ -28,6 +28,28 @@ from pathlib import Path
 NS = uuid.UUID('6b7f4a52-2c1e-4f4e-9a3b-1c0de1ca0001')  # ILCA LogLig import namespace
 # LogLig test entries, not ILCA competitions: "אליפות פקטיבית לבדיקת מערכת", "בדיקה", "ניסוי".
 TEST_COMPETITIONS = {'4768', '12829', '15209'}
+
+
+def season_of(date: str | None) -> str | None:
+    """Ranking season from the event date. LogLig's season folders don't match ILCA's ranking seasons
+    (e.g. the August 2025 league event sits in LogLig's 2024-25); an ILCA season runs June to May."""
+    if not date:
+        return None
+    y, m = int(date[:4]), int(date[5:7])
+    start = y if m >= 6 else y - 1
+    return f'{start}-{(start + 1) % 100:02d}'
+
+
+def series_of(title: str) -> str:
+    """Which national ranking an event feeds (ILCA criteria 2025). Older youth leagues ("לנוער A+J")
+    and kids / para championships feed none."""
+    if 'ליגת העל' in title:
+        if 'U17' in title and not re.search(r'בוגרים\s*\+\s*U17', title):  # "בוגרים + U17" is a joint open event
+            return 'premier_league_u17'
+        return 'other' if 'לנוער' in title else 'premier_league'
+    if 'אליפות ישראל' in title and not re.search(r'לילדים|פארא|נכים', title):
+        return 'youth_championship' if 'לנוער' in title else 'israeli_championship'
+    return 'other'
 ROUND_KINDS = {'מוקדמות': 'qualification', 'מוקדמות לגמר': 'qualification', 'חצי גמר': 'semifinal', 'גמר': 'final'}
 
 
@@ -211,7 +233,8 @@ def to_rows(comps: list[dict]) -> dict:
     for comp in comps:
         comp_id = uid('competition', comp['id'])
         t['competitions'].append({'id': comp_id, 'name': comp['title'], 'name_he': comp['title'],
-                                  'starts_on': comp['date'], 'ends_on': comp['date'], 'status': 'finished'})
+                                  'starts_on': comp['date'], 'ends_on': comp['date'], 'status': 'finished',
+                                  'season': season_of(comp['date']), 'series': series_of(comp['title'])})
         for cat in comp['categories']:
             cat_id = uid('category', cat['id'])
             t['categories'].append({'id': cat_id, 'competition_id': comp_id, 'name': cat['name'], 'name_he': cat['name'],
@@ -276,7 +299,7 @@ def sql(comps: list[dict]) -> str:
              f'delete from public.competitions where id in ({comp_ids});',  # cascades to categories/rounds/results
              f"create temp table _loglig on commit drop as select $loglig${payload}$loglig$::jsonb as d;"]
     cols = {
-        'competitions': 'id, name, name_he, starts_on, ends_on, status',
+        'competitions': 'id, name, name_he, starts_on, ends_on, status, season, series',
         'categories': 'id, competition_id, name, name_he, gender',
         'rounds': 'id, category_id, kind, status, scoring',
         'boulders': 'id, round_id, number',

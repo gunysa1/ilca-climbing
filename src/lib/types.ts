@@ -32,6 +32,9 @@ export interface Competition {
   starts_on: string;
   ends_on: string;
   status: 'draft' | 'published' | 'finished';
+  /** Ranking season ('2025-26') and which national ranking the event feeds. */
+  season: string | null;
+  series: 'premier_league' | 'premier_league_u17' | 'israeli_championship' | 'youth_championship' | 'other';
 }
 
 export interface Category {

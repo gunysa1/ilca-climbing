@@ -9,6 +9,9 @@ import { ClimberPicker } from './ClimberPicker';
 import { RosterImport } from './RosterImport';
 
 const KINDS: Round['kind'][] = ['qualification', 'semifinal', 'final'];
+const SERIES: Competition['series'][] = ['premier_league', 'premier_league_u17', 'israeli_championship', 'youth_championship', 'other'];
+const SERIES_KEY = { premier_league: 'seriesPremier', premier_league_u17: 'seriesPremierU17', israeli_championship: 'seriesChamp',
+  youth_championship: 'seriesYouthChamp', other: 'seriesOther' } as const;
 type RoundRow = Round & { advance_quota: number | null; boulders: { id: string; number: number }[]; round_starters: { count: number }[] };
 interface Registration { category_id: string; climber_id: string; bib: number | null; age_class: string | null; profile: Profile }
 export type CategoryRow = Category & { rounds: RoundRow[]; registrations: Registration[] };
@@ -52,6 +55,7 @@ export function AdminCompetition() {
     await run(supabase.from('competitions').update({
       name: v('name'), name_he: v('name_he') || null, venue: v('venue') || null,
       starts_on: v('starts_on'), ends_on: v('ends_on') || v('starts_on'), status: v('status'),
+      season: v('season') || null, series: v('series'),
     }).eq('id', comp!.id));
   }
 
@@ -84,6 +88,12 @@ export function AdminCompetition() {
         <label>{t('status')}
           <select name="status" defaultValue={comp.status}>
             {(['draft', 'published', 'finished'] as const).map((s) => <option key={s} value={s}>{t(s)}</option>)}
+          </select>
+        </label>
+        <label>{t('season')}<input name="season" placeholder="2025-26" pattern="\d{4}-\d{2}" defaultValue={comp.season ?? ''} /></label>
+        <label>{t('series')}
+          <select name="series" defaultValue={comp.series}>
+            {SERIES.map((s) => <option key={s} value={s}>{t(SERIES_KEY[s])}</option>)}
           </select>
         </label>
         <div className="form-actions">
