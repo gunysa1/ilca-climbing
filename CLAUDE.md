@@ -29,37 +29,31 @@ view only, no sign-in; `src/apps/viewer`) and the **staff** app (sign-in; judge,
 - Before claiming done: `npm run typecheck && npm test && npm run build && npm run test:db`; for UI/admin
   changes also `npm run test:e2e` (Docker + Playwright Chromium; screenshots in `$E2E_OUT`).
 
-## Status (2026-10-15, local session)
-Done: schema + RLS + scoring tests (80 DB assertions, 23 unit tests, admin E2E flow), app pages (live
-results, competition, round results with Realtime, login, judge home + scoring pad, coach, my history),
-PWA shell, reference analysis (`docs/reference-analysis.md`, IFSC style + tie-breaks), profiles without
-accounts, admin UI (competitions/categories/rounds/boulders, registrations + CSV roster import, judge
-assignments, result corrections + audit, accounts/roles/linking, coach links), per-round start lists
-with advancement quota and seeds, age classes inside combined categories (results filter), "–" for
-climbers who haven't climbed.
+## Status (2026-10-15)
+Docs: README.md, docs/architecture.md, docs/scoring-and-rankings.md, docs/operations.md,
+docs/guide-he.md (judges/admins, Hebrew), docs/reference-analysis.md.
 
-Local toolchain: REA needs Node 24 (`~/.nvm/versions/node/v24.22.0`), default Node is 25. Postgres 16
-under /usr/lib/postgresql/16, Java 21, Playwright Chromium in ~/.cache/ms-playwright.
+Done: viewer + staff apps; IFSC 2025 / classic / lead scoring with tie-breaks (SQL + TS); start
+lists, advancement, qualification groups, age classes; judge pad (one climber at a time, claims
+stale after 30 s, locking); appeals; PDF print; admin (competitions, CSV roster, corrections +
+audit, people/roles, rankings inputs); national rankings per the ILCA 2025 criteria (validated
+against ILCA's published 2023-24 / 2024-25 tables); LogLig history 2020-21 to 2025-26 (80
+competitions, 99.6% of ranks identical); live mirror of the temporary app (tools/tempapp).
 
-Live data (2026-10-15): the 2025-26 season imported from the recovered LogLig archive
-(~/ilca-loglig-archive, private, not in git) with tools/loglig/import_loglig.py: 16 competitions
-(8 boulder, 8 lead), 624 climbers; 97.9% of ranks identical to LogLig (rest: 0-point ties LogLig
-ordered by unpublished data, one LogLig-internal inconsistency). Not importable from LogLig:
-national-league boulder events (only "0T 0Z 0 0" placeholders) and classic-total-only boulder
-results (no per-boulder detail). Other seasons: archive crawl in progress; import per season after
-the same dry-run + rank comparison.
+Live project `rkuuzforzfjbdnybddwb`: all migrations applied (through 20261015000019) with
+`npx -y supabase@2.121.0 db push --linked`; `.env.local` uses the publishable key. Run
+`db advisors --linked` after schema changes. Live writes (imports, data fixes) only with the
+user's explicit go-ahead. Seasons run September to August.
 
-Open work, in order:
-1. Parity gaps from the reference analysis: appeals, judge claim/lock, favorites, PDF/Excel export,
-   notifications. Live project is at migration 20261015000006 (all applied).
-2. Real Supabase project `rkuuzforzfjbdnybddwb` (linked 2026-10-15, all migrations applied with
-   `npx -y supabase@2.121.0 db push --linked`; `.env.local` uses the publishable key). Remaining: first
-   admin account, end-to-end test of all roles on the live project. Run `db advisors --linked` after
-   schema changes; remaining SECURITY warnings are the intended RLS helpers and admin RPCs.
-3. Netlify deploy: two sites (viewer: `netlify.toml`; staff: base directory `apps/staff`).
-4. LogLig history import **via export** (decided 2026-10-15): the user/ILCA will get a CSV/Excel export
-   from LogLig; build an importer into competitions/categories/rounds/results once a sample file exists.
+Open work: Netlify deploy (needs `netlify login`); first event fully on these apps; offline retry
+queue for the judge pad; judge invites instead of creating users in the Supabase dashboard; admin
+screen for qualification groups; merging duplicate climber profiles; speed discipline; calendar;
+notifications. Test data to remove when done: draft competition "בדיקת שיפוט"
+(`f0000000-0000-4000-8000-000000000001`) and profiles `f0000000-0000-4000-8000-0000000001xx`.
 
-Decisions (2026-10-15): climber results stay **public** like IFSC (published competitions and their
-results readable without login; private profile data stays RLS-protected). History comes from a
-LogLig export, not its API.
+Decisions: results are public like IFSC; climbers have no sign-in page (view-only app); no IFSC
+data imported (international results are admin-entered); LogLig test entries, simulations and
+training camps are not imported.
+
+Local toolchain: Node 25 (REA needs Node 24 at `~/.nvm/versions/node/v24.22.0`), Postgres 16 under
+/usr/lib/postgresql/16, Java 21, Playwright Chromium in ~/.cache/ms-playwright.

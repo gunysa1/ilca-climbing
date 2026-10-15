@@ -1,108 +1,84 @@
 # ILCA Climbing
 
-Competition app for the Israeli climbing team: live boulder results, a judge scoring pad,
-coach views and a full results history per climber. Hebrew (RTL) by default, English toggle.
-Installable as a PWA; deploys to Netlify; data in Supabase (Postgres + Auth + Realtime).
+Results, judging and rankings for the Israel Climbing Association (ILCA, התאחדות הטיפוס בישראל):
+live boulder and lead results, a judge scoring pad, coach views, the full history of every climber
+since 2020-21, and the national rankings. Hebrew (RTL) by default with an English toggle.
+React + Vite PWAs on Netlify, data in Supabase (Postgres, Auth, Realtime).
 
-Two apps from one codebase (`src/` is shared):
+## Two apps, one codebase
 
-| App | Who | Sign-in | Entry | Dev | Build |
-|---|---|---|---|---|---|
-| **Viewer** ("ILCA Live") | public, climbers, families | none, view only (like the IFSC app) | `apps/viewer`, `src/apps/viewer` | `npm run dev` (:5173) | `dist/viewer` |
-| **Staff** ("ILCA Staff") | judges, coaches, admins | required | `apps/staff`, `src/apps/staff` | `npm run dev:staff` (:5174) | `dist/staff` |
+| App | For | Sign-in | What it has |
+|---|---|---|---|
+| **ILCA Live** (viewer) | the public, climbers, families | none, view only (like the IFSC app) | live results by season, competitions, rounds (results + start list), climber pages, favorites, search, national rankings, PDF print |
+| **ILCA Staff** | judges, coaches, admins | required | judge pad, coach view and notes, admin (competitions, rosters, start lists, corrections, appeals, rankings inputs), plus the results pages |
 
-`VITE_STAFF_URL` / `VITE_VIEWER_URL` (optional) link the two headers. Netlify: one site per app
-(`netlify.toml` for the viewer; a second site with base directory `apps/staff`).
+Both read the same database. Who may do what is enforced in Postgres with row level security; the
+viewer's bundle doesn't even contain sign-in, judge, coach or admin code.
 
-## Roles and isolation
+## Features
 
-Isolation is enforced **in the database** with row level security (RLS), not in the UI.
-Hiding a menu item is cosmetic; a user who calls the API directly still gets only what RLS allows.
+- **Live results** in IFSC style (IFSC 2025 boulder points with countback, lead geometric-mean
+  ranking, classic T/Z for older rounds), updating in real time, with start lists, qualification
+  groups, age-class filters inside combined categories, favorites, open-appeal badges, the time of
+  the last update and a print/PDF view.
+- **Judge pad**: one climber at a time in start order, large + / − attempt stepper, Top / Zone,
+  live points, confirmations before locking, auto-advance to the next climber still to judge.
+  Claims stop two judges scoring the same climber (stale after 30 s); locked results change only
+  through an admin.
+- **Admin**: competitions → categories → rounds → boulders, CSV roster import, start lists with
+  advancement quotas and seeds, judge assignments, result corrections with a full audit log,
+  appeals, international results and ranking adjustments.
+- **History**: every ILCA competition 2020-21 to 2025-26 recovered from the defunct LogLig system
+  (80 competitions, ~1,550 climbers; 99.6% of ranks identical to LogLig).
+- **National rankings** (מדרג לאומי) per the ILCA 2025 criteria: seniors and U21 / U19 / U17, boulder
+  and lead, validated against ILCA's published ranking tables.
 
-| Role | Can read | Can write |
-|---|---|---|
-| Public (no login) | Published competitions, live/closed results | – |
-| Climber | Public results like everyone (the viewer app); no sign-in page of their own | — |
-| Coach | Private profile + history of **linked** athletes only | Notes on linked athletes |
-| Judge | Results of boulders they are assigned to | Results **only** for assigned boulders, **only** while the round is live |
-| Admin | Everything, incl. the score audit log | Competitions, rounds, roles, judge/coach assignments |
-
-Extra guarantees:
-- Who entered a score (`updated_by`) is hidden from everyone but admins (column privileges).
-- Every score change is appended to `score_events` (judge, time, values) for disputes.
-- Climbers can only be scored in categories they are registered in.
-- A top always implies a zone on the same or an earlier attempt (DB check constraint).
-
-Climbers don't need a login. Admins create or import climber profiles; `profiles.user_id` optionally
-links a login account, set only through the admin-only `link_account()` function (clients can't write
-that column). Every "is this me" check uses `my_profile_id()`.
-
-All of this is covered by `supabase/tests/rls_test.sql` (80 assertions, incl. scoring tie-breaks,
-profiles without accounts, start lists/advancement and the roster import).
-
-## Scoring
-
-Default format is **IFSC 2025** boulder scoring: top = 25 points, zone = 10 points, minus 0.1 for
-each failed attempt before the highest hold reached (never below 0); rank by total points. Equal
-points are broken by countback to the previous round's rank, then fewer attempts on tops, then
-fewer attempts on zones; remaining ties share a rank. A `classic` format
-(tops, zones, top attempts, zone attempts) is available per round. Logic lives in
-`src/lib/scoring.ts` and is mirrored in SQL (`boulder_points`, `round_scores`).
-
-Verified against official IFSC 2026 results and the temporary ILCA app's scoring code
-(see `docs/reference-analysis.md`).
-
-## Climber history
-
-`climber_history` (SQL view) lists every round a climber competed in: competition, date,
-category, round, tops, zones, points, rank and field size. Shown on every climber's public page (viewer app)
-and per athlete on the **Coach** page.
-
-## Getting started
+## Quick start
 
 ```bash
 npm install
-cp .env.example .env.local      # fill in your Supabase URL + anon key
-npm run dev
+cp .env.example .env.local        # Supabase URL + publishable (anon) key
+npm run dev                       # viewer on http://localhost:5173
+npm run dev:staff                 # staff on  http://localhost:5174
 ```
 
-Database:
-1. Create a Supabase project.
-2. Apply `supabase/migrations/*.sql`: `npx supabase login`, `npx supabase link --project-ref <ref>`,
-   `npx supabase db push --linked`. Then check `npx supabase db advisors --linked`.
-3. Create users (Authentication → Users). Each new user automatically gets a profile and the
-   `climber` role. Make the first admin with the snippet in `supabase/admin.sql`; after that use the
-   **Admin** pages in the app.
+Database: create a Supabase project, then `npx supabase login`, `npx supabase link --project-ref <ref>`
+and `npx supabase db push --linked` to apply `supabase/migrations/`. Make the first admin with
+`supabase/admin.sql`; everything after that is done in the staff app. Details:
+[docs/operations.md](docs/operations.md).
 
-## Admin
+## Repository
 
-`/admin` (admin role only):
-- **Competitions**: create/edit competitions (draft → published → finished), categories, rounds
-  (scoring format, planned → live → closed), number of boulders.
-- **Registrations**: search or create climbers, bibs, and **CSV roster import** (same Hebrew/English
-  headers as the temporary app; ID numbers are ignored; preview first, then one all-or-nothing import).
-- **Rounds**: first rounds take everyone registered; later rounds get a start list generated from the
-  previous round (top N via "advance from previous round", ties at the cutoff advance, worst-ranked
-  starts first, previous places kept for countback).
-- **Age classes**: climbers of several age classes can compete in one category (like the temporary
-  app's category groups); results can be filtered and re-ranked per age class. CSV: a "קבוצה"/group
-  column becomes the category and the row's category the age class.
-- **Round**: assign judges (whole round or one boulder), correct results after the round, audit log.
-- **People**: accounts with roles (judge/coach/admin), link a login to an imported climber, coach ↔
-  athlete links.
+```
+apps/viewer, apps/staff     page shell, manifest and service worker of each app
+src/apps/{viewer,staff}     the two apps' routes and layouts
+src/pages, src/components   screens (shared; each app mounts the ones it needs)
+src/lib                     scoring, lead, rankings, seasons, data loading, i18n
+supabase/migrations         schema, row level security, scoring views (SQL)
+supabase/tests              RLS and scoring tests (rls_test.sql)
+e2e                         end-to-end test of both apps (Postgres + PostgREST + Playwright)
+tools/loglig                importer for the recovered LogLig archive
+tools/tempapp               live mirror of the temporary scoring app
+docs                        architecture, scoring and rankings, operations, Hebrew user guide
+```
 
-## Scripts
+## Testing
 
-| Command | What it does |
+| Command | What it checks |
 |---|---|
-| `npm run dev` / `npm run dev:staff` | Dev server: viewer (:5173) / staff (:5174) |
-| `npm run build` | Typecheck + production builds of both apps to `dist/viewer` and `dist/staff` |
-| `npm test` | Unit tests (scoring, judge pad) |
-| `npm run test:db` | Spins up a throwaway Postgres and runs the RLS isolation tests (needs Postgres 16 binaries) |
-| `npm run test:e2e` | Both apps end to end (staff: admin + judge; viewer: public pages): throwaway Postgres + PostgREST (Docker) + Playwright Chromium |
+| `npm run typecheck` | TypeScript |
+| `npm test` | unit tests: scoring and tie-breaks, lead, judge pad, rankings (the criteria document's worked examples), seasons, favorites, search |
+| `npm run test:db` | a throwaway Postgres with all migrations: ~120 assertions on row level security, scoring views, start lists, claims, locks, appeals, rankings functions |
+| `npm run test:e2e` | both apps end to end: admin builds a competition, imports a roster, corrects results, a judge scores and locks, an appeal shows publicly, rankings, the viewer stays view-only |
+| `npm run build` | production builds to `dist/viewer` and `dist/staff` |
 
-## Not built yet
+Run all of them before merging; scoring lives in both TypeScript and SQL and the tests on both
+sides use the same cases.
 
-- Parity gaps from `docs/reference-analysis.md`: category groups, advancement quota, appeals,
-  judge locking, exports, notifications
-- Import of history from the current LogLig app
+## Documentation
+
+- [Architecture](docs/architecture.md): apps, data model, security, performance
+- [Scoring and rankings](docs/scoring-and-rankings.md): every rule, where it comes from, how it was checked
+- [Operations](docs/operations.md): running an event, imports, deploying, maintenance
+- [מדריך לשופטים ולמנהלים](docs/guide-he.md): the Hebrew guide for judges and admins
+- [Reference analysis](docs/reference-analysis.md): the IFSC, LogLig and temporary-app study behind the design

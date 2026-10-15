@@ -1,0 +1,98 @@
+# Operations
+
+## Environments
+
+| | |
+|---|---|
+| Supabase project | `rkuuzforzfjbdnybddwb` (Postgres, Auth, Realtime) |
+| Local env | `.env.local` (not in git): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (the publishable key), optional `VITE_VIEWER_URL` / `VITE_STAFF_URL` |
+| Supabase CLI | `npx -y supabase@2.121.0` (pinned), linked with `supabase link --project-ref …` |
+
+Never put the service-role key in the app or in git; the apps only need the publishable key.
+
+## Deploying
+
+Two Netlify sites from this repository:
+
+| Site | Base directory | Build | Publish |
+|---|---|---|---|
+| viewer | (repo root) `netlify.toml` | `npm ci && npm run build:viewer` | `dist/viewer` |
+| staff | `apps/staff` (its own `netlify.toml`) | `cd ../.. && npm ci && npm run build:staff` | `../../dist/staff` |
+
+Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in both sites' environment, and
+`VITE_STAFF_URL` / `VITE_VIEWER_URL` to link them. The staff site sends `X-Robots-Tag: noindex`.
+
+## Database changes
+
+1. Add a migration in `supabase/migrations/` (next number); add assertions for every new access
+   path to `supabase/tests/rls_test.sql`.
+2. `npm run test:db` and the other checks (see the README).
+3. Preview: `npx -y supabase@2.121.0 db push --linked --dry-run`; apply: `… db push --linked --yes`.
+4. `npx -y supabase@2.121.0 db advisors --linked`: the remaining warnings are the intended RLS
+   helpers and admin RPCs.
+
+## Accounts and roles
+
+- Users are created in Supabase (Authentication → Add user). A new user gets a profile and the
+  `climber` role.
+- The first admin: `supabase/admin.sql`. After that: staff app → ניהול → אנשים (roles judge /
+  coach / admin, linking a login to an existing climber profile, coach ↔ athlete links).
+- Judges score only boulders they are assigned to (round page → judges), only while the round is live.
+
+## Running a competition
+
+1. **Competition**: ניהול → new competition (draft; the public doesn't see drafts). Set its season
+   and series if it counts for the national rankings.
+2. **Categories** (one per group; age classes inside a group are fine) and **registrations**:
+   search/create climbers, or import the roster CSV (same Hebrew/English headers as the temporary
+   app; a "קבוצה" column becomes the category and the row's category the age class).
+3. **Rounds**: qualification with its number of boulders (lead: routes). Later rounds: set
+   "advance from previous round" and generate the start list (ties at the cutoff advance; seeds are
+   kept for countback). Qualification groups have no admin screen yet: set `round_starters.group_label`
+   in the database (each group is ranked separately).
+4. **Judges**: assign each judge to the whole round or one boulder.
+5. **Publish** the competition and set the round **live**. Judges work in the staff app; the public
+   follows in the viewer.
+6. **During the round**: corrections and unlocks on the round page (every change is in the audit
+   log); appeals are opened and resolved there and show as "ערעור" on the public results.
+7. **Close** the round, generate the next start list, repeat; mark the competition finished.
+
+## Imports
+
+### LogLig history (`tools/loglig/import_loglig.py`)
+
+LogLig, ILCA's previous system, is defunct. Its public pages were archived to a private directory
+outside git (it contains minors' personal data; never commit it). The importer turns one
+competition into one SQL transaction:
+
+```bash
+python3 tools/loglig/import_loglig.py ARCHIVE SEASON_ID:COMP_ID [...] > import.sql   # SQL
+python3 tools/loglig/import_loglig.py --check ARCHIVE SEASON_ID:COMP_ID [...]        # LogLig ranks as JSON
+```
+
+- Ids are uuid5 of LogLig ids, so re-importing replaces a competition in place; a climber (name +
+  birth date) maps to one profile across competitions. Birth dates go to `profile_private` only.
+- It merges LogLig's split categories, skips LogLig test entries, club simulations and training
+  camps, and sets each competition's season (by date) and series (by title).
+- Workflow per season: import into a throwaway Postgres, compare ranks with `--check`, explain
+  every difference, then import live. Delete local SQL files afterwards (personal data).
+- Imported so far: 2020-21 to 2025-26, 80 competitions, 99.6% of ranks identical to LogLig.
+
+### Temporary scoring app (`tools/tempapp/mirror.py`)
+
+While events still run on the temporary app (ilca-boulder-score.netlify.app), its current round can
+be mirrored read-only into this app: the script reads the app's public event data and prints one
+idempotent SQL sync (competition, groups with age classes, the round with seeds, results upserted
+only when changed). Run it every minute during the round and stop when the temporary app moves to
+another round (it keeps one round at a time and clears results between rounds).
+
+## Test data
+
+The draft competition "בדיקת שיפוט" (id `f0000000-0000-4000-8000-000000000001`) with six test
+climbers (`f0000000-0000-4000-8000-0000000001xx`) is for trying the judge pad. Delete the
+competition and those profiles when it's no longer needed.
+
+## Backups
+
+Check what the project's Supabase plan backs up (project settings → Database → Backups). Before
+large imports, export the affected tables (`supabase db dump --linked --data-only -t …`).
