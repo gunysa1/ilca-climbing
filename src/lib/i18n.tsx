@@ -116,6 +116,8 @@ const dict = {
   time: { he: 'זמן', en: 'Time' },
   birthDate: { he: 'תאריך לידה', en: 'Birth date' },
   all: { he: 'הכל', en: 'All' },
+  finals: { he: 'גמרים', en: 'Finals' },
+  podiums: { he: 'פודיומים', en: 'Podiums' },
   discipline: { he: 'מקצה', en: 'Discipline' },
   discBoulder: { he: 'בולדר', en: 'Boulder' },
   discLead: { he: 'הובלה', en: 'Lead' },

@@ -66,13 +66,18 @@ export interface HistoryRow {
   category_he: string | null;
   round: Round['kind'];
   round_status: Round['status'];
-  tops: number;
-  zones: number;
-  top_attempts: number;
-  zone_attempts: number;
-  points: number;
-  rank: number;
+  /** Boulder rounds only (null for lead). */
+  tops: number | null;
+  zones: number | null;
+  top_attempts: number | null;
+  zone_attempts: number | null;
+  points: number | null;
+  /** Null when the climber didn't climb in that round. */
+  rank: number | null;
   starters: number;
+  /** Scoring format of the round: 'ifsc2025' | 'classic' | 'lead'. */
+  discipline: RoundFormat;
+  round_id: string;
 }
 
 /** Columns of boulder_results readable by clients (updated_by is admin-only). */

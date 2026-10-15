@@ -108,7 +108,10 @@ def parse_competition(archive: Path, season: str, cid: str) -> dict:
                     climbers.append({'name': r[1], 'dob': dob.get(r[1], ''), 'club': r[2], 'rank': parse_rank(r[0]),
                                      'routes': routes, 'total': r[-1]})
                 rounds.append({'kind': ROUND_KINDS[heading], 'climbers': climbers})
-        comp['categories'].append({'id': did, 'name': cname, 'discipline': discipline, 'rounds': rounds})
+        # LogLig keeps empty shells (rounds nobody climbed, registration-only categories): skip them.
+        rounds = [r for r in rounds if any(c['rank'] is not None for c in r['climbers'])]
+        if rounds:
+            comp['categories'].append({'id': did, 'name': cname, 'discipline': discipline, 'rounds': rounds})
     return comp
 
 

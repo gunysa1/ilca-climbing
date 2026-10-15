@@ -3,6 +3,7 @@ import { Layout } from './components/Layout';
 import { RequireRole } from './components/RequireRole';
 import { AuthProvider } from './lib/auth';
 import { I18nProvider } from './lib/i18n';
+import { Climber } from './pages/Climber';
 import { Coach } from './pages/Coach';
 import { CompetitionPage } from './pages/CompetitionPage';
 import { JudgeBoulder, JudgeHome } from './pages/Judge';
@@ -26,6 +27,7 @@ export function App() {
               <Route index element={<Live />} />
               <Route path="competition/:id" element={<CompetitionPage />} />
               <Route path="round/:id" element={<RoundResults />} />
+              <Route path="climber/:id" element={<Climber />} />
               <Route path="login" element={<Login />} />
               {/* signed-in roles */}
               <Route path="me" element={<RequireRole><Me /></RequireRole>} />

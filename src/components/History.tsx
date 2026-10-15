@@ -1,66 +1,89 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { climberEvents, climberStats, type ClimberEvent } from '../lib/climberStats';
+import { DISCIPLINES, type Discipline } from '../lib/discipline';
 import { localized, useI18n } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
 import type { HistoryRow } from '../lib/types';
 
-const ROUND_ORDER = { qualification: 0, semifinal: 1, final: 2 } as const;
+const DISC_KEY = { boulder: 'discBoulder', lead: 'discLead', speed: 'discSpeed' } as const;
+const MEDAL: Record<number, string> = { 1: '🥇', 2: '🥈', 3: '🥉' };
 
-/** A climber's results across competitions, newest first. */
-export function History({ climberId }: { climberId: string }) {
-  const { t, lang } = useI18n();
+/** A climber's history rows (all disciplines; RLS returns only public/allowed rounds). */
+export function useClimberHistory(climberId: string | undefined): HistoryRow[] | null {
   const [rows, setRows] = useState<HistoryRow[] | null>(null);
-
   useEffect(() => {
+    if (!climberId) return;
     setRows(null);
     supabase.from('climber_history').select('*').eq('climber_id', climberId).neq('round_status', 'planned')
-      .order('starts_on', { ascending: false })
-      .then(({ data }) => setRows(((data as HistoryRow[]) ?? [])
-        .sort((a, b) => b.starts_on.localeCompare(a.starts_on) || ROUND_ORDER[b.round] - ROUND_ORDER[a.round])));
+      .then(({ data }) => setRows((data as HistoryRow[]) ?? []));
   }, [climberId]);
+  return rows;
+}
+
+/**
+ * A climber's results for ONE discipline: stats (events, medals, best, finals) and one line per
+ * event with the placing and links to each round. Disciplines are never mixed.
+ * Without a `discipline` prop it shows its own tabs (my history, coach view); the public climber
+ * page passes the bottom-bar choice instead.
+ */
+export function History({ climberId, discipline }: { climberId: string; discipline?: Discipline }) {
+  const { t } = useI18n();
+  const rows = useClimberHistory(climberId);
+  const events = useMemo(() => climberEvents(rows ?? []), [rows]);
+  const available = DISCIPLINES.filter((d) => events.some((e) => e.discipline === d));
+  const [tab, setTab] = useState<Discipline | null>(null);
+  const current = discipline ?? tab ?? available[0] ?? 'boulder';
 
   if (rows === null) return <p className="muted">{t('loading')}</p>;
-  if (rows.length === 0) return <p className="muted">{t('empty')}</p>;
-
-  const competitions = new Set(rows.map((r) => r.competition_id)).size;
-  const best = Math.min(...rows.map((r) => r.rank));
-
   return (
     <>
-      <div className="stats">
-        <div className="stat"><span className="stat-value">{competitions}</span><span className="muted">{t('competitions')}</span></div>
-        <div className="stat"><span className="stat-value">{rows.length}</span><span className="muted">{t('rounds')}</span></div>
-        <div className="stat"><span className="stat-value">{best}</span><span className="muted">{t('bestRank')}</span></div>
+      {!discipline && available.length > 1 && (
+        <div className="chips" role="tablist">
+          {available.map((d) => (
+            <button key={d} role="tab" aria-selected={d === current} className={`chip ${d === current ? 'selected' : ''}`}
+              onClick={() => setTab(d)}>{t(DISC_KEY[d])}</button>
+          ))}
+        </div>
+      )}
+      <DisciplineResults events={events.filter((e) => e.discipline === current)} />
+    </>
+  );
+}
+
+function DisciplineResults({ events }: { events: ClimberEvent[] }) {
+  const { t, lang } = useI18n();
+  if (events.length === 0) return <p className="muted">{t('empty')}</p>;
+  const s = climberStats(events);
+  return (
+    <>
+      <div className="stats climber-stats">
+        <div className="stat"><span className="stat-value">{s.events}</span><span className="muted">{t('competitions')}</span></div>
+        <div className="stat"><span className="stat-value">{s.best ?? '–'}</span><span className="muted">{t('bestRank')}</span></div>
+        <div className="stat"><span className="stat-value">{s.finals}</span><span className="muted">{t('finals')}</span></div>
+        <div className="stat medals"><span className="stat-value">🥇{s.gold} 🥈{s.silver} 🥉{s.bronze}</span><span className="muted">{t('podiums')}</span></div>
       </div>
-      <div className="table-wrap">
-        <table className="results">
-          <thead>
-            <tr>
-              <th>{t('date')}</th>
-              <th className="name">{t('competition')}</th>
-              <th>{t('category')}</th>
-              <th>{t('round')}</th>
-              <th>{t('rank')}</th>
-              <th>{t('tops')}</th>
-              <th>{t('zones')}</th>
-              <th>{t('points')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={`${r.competition_id}:${r.category}:${r.round}`}>
-                <td>{new Date(r.starts_on).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-GB')}</td>
-                <td className="name">{localized(lang, r.competition, r.competition_he)}</td>
-                <td>{localized(lang, r.category, r.category_he)}</td>
-                <td>{t(r.round)}</td>
-                <td className="rank">{r.rank}<span className="muted small">/{r.starters}</span></td>
-                <td>{r.tops}</td>
-                <td>{r.zones}</td>
-                <td className="score">{Number(r.points).toFixed(1)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ul className="event-list">
+        {events.map((e) => (
+          <li key={e.key} className="event">
+            <span className="event-place">{e.placing != null ? (MEDAL[e.placing] ?? e.placing) : '–'}</span>
+            <span className="event-main">
+              <span className="event-title">{localized(lang, e.competition, e.competition_he)}</span>
+              <span className="muted small">
+                {new Date(e.starts_on).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-GB')} · {localized(lang, e.category, e.category_he)}
+                {e.placing != null && e.field ? ` · ${e.placing}/${e.field}` : ''}
+              </span>
+              <span className="event-rounds">
+                {e.rounds.map((r) => (
+                  <Link key={r.round_id} to={`/round/${r.round_id}`} className="round-pill">
+                    {t(r.round)} {r.rank ?? '–'}
+                  </Link>
+                ))}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
     </>
   );
 }

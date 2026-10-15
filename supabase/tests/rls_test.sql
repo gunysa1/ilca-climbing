@@ -453,6 +453,10 @@ select pg_temp.assert(
   (select array_agg(right(climber_id::text, 1) || rank order by rank) from lead_scores
     where round_id = '30000000-0000-0000-0000-000000000063') = '{b1,a2}',
   'lead single route: faster time breaks a tie after countback');
+select pg_temp.assert(
+  (select count(*) from climber_history where climber_id = '60000000-0000-0000-0000-00000000000c'
+     and discipline = 'lead' and round_id is not null) = 2,
+  'public climber page: lead history rows with round links');
 reset role;
 
 select pg_temp.login('00000000-0000-0000-0000-000000000001');

@@ -115,7 +115,7 @@ function ResultRowView({ row, starter: s, lang, boulders, lead, results, leadRes
     <tr>
       <td className="rank">{row.rank ?? '–'}</td>
       <td className="name">
-        <Link className="athlete" to={`/climber/${s.climber_id}`}>{localized(lang, s.profile.full_name, s.profile.full_name_he)}</Link>
+        <Link className="athlete" to={`/climber/${s.climber_id}?d=${lead ? 'lead' : 'boulder'}`}>{localized(lang, s.profile.full_name, s.profile.full_name_he)}</Link>
         <span className="athlete-meta">{[s.bib, s.age_class, s.profile.club].filter(Boolean).join(' • ')}</span>
         <span className="ascents">
           {boulders.map((b) => lead
