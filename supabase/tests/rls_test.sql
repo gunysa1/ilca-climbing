@@ -589,6 +589,69 @@ select pg_temp.assert((select array_agg(rank order by climber_id) from round_sco
 select pg_temp.assert((select array_agg(right(climber_id::text, 1) || rank order by rank) from round_scores
   where round_id = '30000000-0000-0000-0000-000000000083') = '{b1,a2}', 'classic final: countback breaks a full tie');
 
+-- ---------------------------------------------------------------- claims, locked results, appeals
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('00000000-0000-0000-0000-0000000000b2', 'judge2@test', '{"full_name":"Judge Two"}');
+insert into user_roles values ('00000000-0000-0000-0000-0000000000b2', 'judge');
+insert into judge_assignments (round_id, boulder_id, judge_id) values
+  ('30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000b2');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select pg_temp.assert((select judge_name from claim_climber('30000000-0000-0000-0000-000000000001',
+  '40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')) = 'Judge', 'judge claims a climber');
+select pg_temp.login('00000000-0000-0000-0000-0000000000b2');
+select pg_temp.assert((select judge_name from claim_climber('30000000-0000-0000-0000-000000000001',
+  '40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')) = 'Judge',
+  'a second judge sees the climber is held by the first');
+select pg_temp.assert((select count(*) from judge_claims) = 1, 'judges of the boulder see its claims');
+reset role;
+update judge_claims set claimed_at = now() - interval '11 minutes';
+select pg_temp.login('00000000-0000-0000-0000-0000000000b2');
+select pg_temp.assert((select judge_name from claim_climber('30000000-0000-0000-0000-000000000001',
+  '40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')) = 'Judge Two',
+  'a stale claim (10+ minutes) can be taken over');
+select release_claim('40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002');
+select pg_temp.assert(not exists (select 1 from judge_claims), 'judge releases own claim');
+select pg_temp.denied($$select claim_climber('30000000-0000-0000-0000-000000000001',
+  '40000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000002')$$, 'judge claims on an unassigned boulder');
+select pg_temp.login(null);
+select pg_temp.denied($$select claim_climber('30000000-0000-0000-0000-000000000001',
+  '40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')$$, 'anon claims a climber');
+
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+update boulder_results set locked = true
+  where boulder_id = '40000000-0000-0000-0000-000000000001' and climber_id = '00000000-0000-0000-0000-000000000002';
+select pg_temp.denied($$update boulder_results set attempts = attempts + 1
+  where boulder_id = '40000000-0000-0000-0000-000000000001' and climber_id = '00000000-0000-0000-0000-000000000002'$$,
+  'judge changes a locked result');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+update boulder_results set attempts = attempts + 1, locked = false
+  where boulder_id = '40000000-0000-0000-0000-000000000001' and climber_id = '00000000-0000-0000-0000-000000000002';
+select pg_temp.assert((select not locked from boulder_results
+  where boulder_id = '40000000-0000-0000-0000-000000000001' and climber_id = '00000000-0000-0000-0000-000000000002'),
+  'admin corrects and unlocks a locked result');
+select pg_temp.login(null);
+select pg_temp.assert((select count(*) from boulder_results where locked is not null) > 0, 'public reads whether a result is final');
+
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+insert into appeals (id, round_id, boulder_id, climber_id) values ('a0000000-0000-0000-0000-000000000001',
+  '30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002');
+insert into appeal_details (appeal_id, reason, created_by)
+  values ('a0000000-0000-0000-0000-000000000001', 'zone was held', '00000000-0000-0000-0000-00000000000a');
+select pg_temp.login(null);
+select pg_temp.assert((select status::text from appeals where id = 'a0000000-0000-0000-0000-000000000001') = 'open',
+  'public sees an open appeal');
+select pg_temp.denied($$select reason from appeal_details$$, 'public reads appeal reasons');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select pg_temp.denied($$insert into appeals (round_id, climber_id)
+  values ('30000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001')$$, 'judge opens an appeal');
+select pg_temp.assert(not exists (select 1 from appeal_details), 'judge does not read appeal reasons');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+update appeals set status = 'upheld', resolved_at = now() where id = 'a0000000-0000-0000-0000-000000000001';
+select pg_temp.assert((select status::text from appeals where id = 'a0000000-0000-0000-0000-000000000001') = 'upheld',
+  'admin resolves an appeal');
+reset role;
+
 -- ---------------------------------------------------------------- national rankings
 reset role;
 update competitions set season = '2026-27', series = 'premier_league' where id = '10000000-0000-0000-0000-000000000001';
@@ -652,7 +715,7 @@ update competitions set season = null, series = 'other' where id = '10000000-000
 select pg_temp.assert(not has_function_privilege('anon', f, 'execute'), 'anon cannot execute ' || f)
 from unnest(array['public.admin_accounts()', 'public.link_account(uuid,uuid)', 'public.unlink_account(uuid)',
                   'public.import_roster(jsonb,jsonb,jsonb,jsonb)', 'public.generate_start_list(uuid)',
-                  'public.previous_round(uuid)']) f;
+                  'public.previous_round(uuid)', 'public.claim_climber(uuid,uuid,uuid)', 'public.release_claim(uuid,uuid)']) f;
 select pg_temp.assert(prosecdef and has_function_privilege('anon', 'public.season_age_classes(text)', 'execute'),
   'season_age_classes reads private birth dates for everyone, exposing only the class')
 from pg_proc where oid = 'public.season_age_classes(text)'::regprocedure;

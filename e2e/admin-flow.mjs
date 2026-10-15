@@ -10,14 +10,18 @@ const session = {
   user: { id: ADMIN, aud: 'authenticated', role: 'authenticated', email: 'admin@ilca.test' },
 };
 
+const JUDGE = '00000000-0000-0000-0000-0000000000a2';
+const judgeSession = { ...session, access_token: jwt(secret, 'authenticated', JUDGE),
+  user: { id: JUDGE, aud: 'authenticated', role: 'authenticated', email: 'judge@ilca.test' } };
+
 const browser = await chromium.launch();
 const problems = [];
-async function page(lang, viewport = { width: 1280, height: 900 }) {
+async function page(lang, viewport = { width: 1280, height: 900 }, as = session) {
   const ctx = await browser.newContext({ viewport, deviceScaleFactor: 1 });
   await ctx.addInitScript(([s, l]) => {
     localStorage.setItem('sb-127-auth-token', JSON.stringify(s));
     localStorage.setItem('lang', l);
-  }, [session, lang]);
+  }, [as, lang]);
   const p = await ctx.newPage();
   p.on('dialog', (d) => d.accept());
   p.on('console', (m) => { if (m.type() === 'error' && !/realtime|websocket/i.test(m.text())) problems.push(`console: ${m.text()}`); });
@@ -111,6 +115,31 @@ if (!/^– .*–$/.test(tamarRow.trim())) problems.push(`not-climbed row should 
 await p.getByRole('button', { name: 'בנות U19' }).click();
 if ((await p.locator('tbody tr').count()) !== 1) problems.push('age-class filter should show one climber');
 await p.screenshot({ path: `${out}/results-filter-en.png`, fullPage: true });
+
+step('judge pad: claim, score, lock; admin sees the lock, opens an appeal; public sees it');
+const jp = await page('en', { width: 1280, height: 900 }, judgeSession);
+await jp.goto(`${base}/judge`);
+await jp.getByRole('link', { name: 'Boulder 2' }).click();
+await jp.getByRole('button', { name: /מאיה גל/ }).click();
+await jp.getByRole('button', { name: /\+1/ }).click();
+await jp.locator('.pad-buttons').getByRole('button', { name: 'Zone' }).click();
+await jp.locator('.pad-status').getByText('Saved').waitFor();
+await jp.getByRole('button', { name: /Finish/ }).click();
+await jp.getByText('This result is locked').waitFor();
+await jp.screenshot({ path: `${out}/judge-locked-en.png` });
+await p.goto(`${base}/admin/round/${roundId}`);
+await p.locator('tr', { hasText: 'מאיה גל' }).getByText(/🔒1\/1/).waitFor();
+const appealForm = p.locator('.panel', { hasText: 'Appeals' }).locator('form');
+await appealForm.locator('select[name=climber]').selectOption({ label: '201 · מאיה גל' });
+await appealForm.locator('select[name=boulder]').selectOption({ label: 'Boulder 2' });
+await appealForm.getByPlaceholder('Reason').fill('zone disputed');
+await appealForm.getByRole('button', { name: 'Open appeal' }).click();
+await p.locator('.panel', { hasText: 'Appeals' }).getByText('zone disputed').waitFor();
+await p.goto(`${base}/round/${roundId}`);
+await p.locator('tr', { hasText: 'מאיה גל' }).locator('.appeal-badge').waitFor();
+await p.getByText(/^Updated /).waitFor();
+await p.getByRole('button', { name: /PDF/ }).waitFor();
+await p.screenshot({ path: `${out}/results-appeal-en.png`, fullPage: true });
 
 step('final: quota 1, generated start list has only the leader');
 await p.goto(compUrl);

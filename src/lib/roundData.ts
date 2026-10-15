@@ -16,10 +16,12 @@ export interface Starter {
   group_label: string | null;
   profile: Profile;
 }
-export interface ResultRow extends BoulderResult { boulder_id: string; climber_id: string }
+export interface ResultRow extends BoulderResult { boulder_id: string; climber_id: string; locked?: boolean; updated_at?: string }
 /** Stored round totals (totals-only rounds imported from LogLig). */
 export interface TotalsRow { climber_id: string; tops: number; zones: number; top_attempts: number; zone_attempts: number }
-export interface LeadRow { boulder_id: string; climber_id: string; hold: number; plus: boolean; top: boolean; time_ms: number | null }
+export interface LeadRow { boulder_id: string; climber_id: string; hold: number; plus: boolean; top: boolean; time_ms: number | null; locked?: boolean; updated_at?: string }
+/** An appeal on a climber's result in this round (boulder_id null: the whole round). */
+export interface Appeal { id: string; boulder_id: string | null; climber_id: string; status: 'open' | 'upheld' | 'rejected' }
 
 /** lead.ts works on route_id; routes are rows of `boulders`. */
 export const toLeadResult = (r: LeadRow): LeadResult => ({ climber_id: r.climber_id, route_id: r.boulder_id, hold: r.hold, plus: r.plus, top: r.top, time_ms: r.time_ms });
@@ -34,6 +36,7 @@ export interface RoundData {
   leadResults: Map<string, LeadRow>;
   /** Totals-only rounds: stored totals per climber id. */
   totals: Map<string, TotalsRow>;
+  appeals: Appeal[];
   loading: boolean;
 }
 
@@ -56,24 +59,25 @@ export const resultKey = (boulderId: string, climberId: string) => `${boulderId}
 
 /** Loads a round with its boulders, starters and results, and keeps results live via Realtime. */
 export function useRoundData(roundId: string | undefined): RoundData {
-  const [state, setState] = useState<RoundData>({ round: null, boulders: [], starters: [], results: new Map(), leadResults: new Map(), totals: new Map(), loading: true });
+  const [state, setState] = useState<RoundData>({ round: null, boulders: [], starters: [], results: new Map(), leadResults: new Map(), totals: new Map(), appeals: [], loading: true });
 
   useEffect(() => {
     if (!roundId) return;
     let cancelled = false;
     // A different round: never show the previous round's data while this one loads.
-    setState({ round: null, boulders: [], starters: [], results: new Map(), leadResults: new Map(), totals: new Map(), loading: true });
+    setState({ round: null, boulders: [], starters: [], results: new Map(), leadResults: new Map(), totals: new Map(), appeals: [], loading: true });
 
     (async () => {
       const { data: round } = await supabase.from('rounds').select('*').eq('id', roundId).single();
       if (!round || cancelled) { setState((s) => ({ ...s, loading: false })); return; }
       const lead = (round as Round).scoring === 'lead';
-      const [{ data: boulders }, { starters }, { data: results }, { data: leadRows }, { data: totalRows }] = await Promise.all([
+      const [{ data: boulders }, { starters }, { data: results }, { data: leadRows }, { data: totalRows }, { data: appeals }] = await Promise.all([
         supabase.from('boulders').select('*').eq('round_id', roundId).order('number'),
         loadStarters(round as Round),
         lead ? Promise.resolve({ data: [] }) : supabase.from('boulder_results').select(RESULT_COLUMNS).eq('round_id', roundId),
         lead ? supabase.from('lead_results').select(LEAD_COLUMNS).eq('round_id', roundId) : Promise.resolve({ data: [] }),
         (round as Round).scoring === 'classic' ? supabase.from('round_totals').select(TOTALS_COLUMNS).eq('round_id', roundId) : Promise.resolve({ data: [] }),
+        supabase.from('appeals').select('id, boulder_id, climber_id, status').eq('round_id', roundId),
       ]);
       if (cancelled) return;
       setState({
@@ -83,6 +87,7 @@ export function useRoundData(roundId: string | undefined): RoundData {
         results: new Map(((results as ResultRow[]) ?? []).map((r) => [resultKey(r.boulder_id, r.climber_id), r])),
         leadResults: new Map(((leadRows as LeadRow[]) ?? []).map((r) => [resultKey(r.boulder_id, r.climber_id), r])),
         totals: new Map(((totalRows as TotalsRow[]) ?? []).map((r) => [r.climber_id, r])),
+        appeals: (appeals as Appeal[]) ?? [],
         loading: false,
       });
     })();
@@ -109,6 +114,15 @@ export function useRoundData(roundId: string | undefined): RoundData {
             leadResults.set(resultKey(row.boulder_id, row.climber_id), row);
             return { ...s, leadResults };
           });
+        })
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'appeals', filter: `round_id=eq.${roundId}` },
+        (payload) => {
+          const row = (payload.new ?? payload.old) as Appeal;
+          if (!row?.id) return;
+          setState((s) => ({ ...s, appeals: payload.eventType === 'DELETE'
+            ? s.appeals.filter((a) => a.id !== row.id)
+            : [...s.appeals.filter((a) => a.id !== row.id), payload.new as Appeal] }));
         })
       .subscribe();
 

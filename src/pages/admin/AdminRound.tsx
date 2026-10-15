@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { RoundStatus } from '../../components/RoundStatus';
+import { useAuth } from '../../lib/auth';
 import { localized, useI18n } from '../../lib/i18n';
 import { formatHeight } from '../../lib/lead';
 import { loadStarters, resultKey, type LeadRow, type ResultRow, type Starter } from '../../lib/roundData';
@@ -18,6 +19,10 @@ interface ScoreEvent {
   attempts?: number; zone_attempt?: number | null; top_attempt?: number | null;
   hold?: number; plus?: boolean; top?: boolean;
 }
+interface AppealRow {
+  id: string; boulder_id: string | null; climber_id: string; status: 'open' | 'upheld' | 'rejected'; created_at: string;
+  details: { reason: string; decision: string | null } | null;
+}
 const eventText = (e: ScoreEvent) => e.hold != null ? formatHeight({ hold: e.hold, plus: !!e.plus, top: !!e.top })
   : `${e.attempts}/${e.zone_attempt ?? '-'}/${e.top_attempt ?? '-'}`;
 
@@ -34,6 +39,8 @@ export function AdminRound() {
   const [events, setEvents] = useState<ScoreEvent[]>([]);
   const [names, setNames] = useState<Map<string, string>>(new Map());
   const [editing, setEditing] = useState<string | null>(null);
+  const [appeals, setAppeals] = useState<AppealRow[]>([]);
+  const { profileId } = useAuth();
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -42,14 +49,17 @@ export function AdminRound() {
       .select('*, category:categories(name, name_he, competition_id)').eq('id', id).single();
     if (error || !r) return setError(error?.message ?? null);
     const lead = r.scoring === 'lead';
-    const [b, regs, res, asg, acc, ev] = await Promise.all([
+    const [b, regs, res, asg, acc, ev, ap] = await Promise.all([
       supabase.from('boulders').select('*').eq('round_id', id).order('number'),
       loadStarters(r),
       supabase.from(lead ? 'lead_results' : 'boulder_results').select(lead ? LEAD_COLUMNS : RESULT_COLUMNS).eq('round_id', id),
       supabase.from('judge_assignments').select('id, boulder_id, judge:profiles(id, full_name, full_name_he)').eq('round_id', id),
       supabase.rpc('admin_accounts'),
       supabase.from(lead ? 'lead_events' : 'score_events').select('*').eq('round_id', id).order('created_at', { ascending: false }).limit(200),
+      supabase.from('appeals').select('id, boulder_id, climber_id, status, created_at, details:appeal_details(reason, decision)')
+        .eq('round_id', id).order('created_at'),
     ]);
+    setAppeals((ap.data as unknown as AppealRow[]) ?? []);
     setRound(r as RoundInfo);
     setBoulders((b.data as Boulder[]) ?? []);
     const st: Starter[] = regs.starters;
@@ -143,15 +153,72 @@ export function AdminRound() {
                       return <td key={b.id} className="mono" dir="ltr">{l ? formatHeight(l) : ''}</td>;
                     }
                     const r = results.get(resultKey(b.id, s.climber_id));
-                    return <td key={b.id} className="mono">{r ? `${r.attempts}/${r.zone_attempt ?? '-'}/${r.top_attempt ?? '-'}` : ''}</td>;
+                    return <td key={b.id} className="mono">{r ? `${r.locked ? '🔒' : ''}${r.attempts}/${r.zone_attempt ?? '-'}/${r.top_attempt ?? '-'}` : ''}</td>;
                   })}
-                  <td><button className="link" onClick={() => setEditing(s.climber_id)}>✎</button></td>
+                  <td>
+                    <button className="link" onClick={() => setEditing(s.climber_id)}>✎</button>
+                    {[...(lead ? leadResults : results).values()].some((r) => r.climber_id === s.climber_id && r.locked) && (
+                      <button className="link" title={t('unlock')} onClick={() => void run(supabase.from(lead ? 'lead_results' : 'boulder_results')
+                        .update({ locked: false }).eq('round_id', round.id).eq('climber_id', s.climber_id))}>🔓</button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
         {!lead && <p className="muted small">{t('attempts')} / {t('zone')} / {t('top')}</p>}
+      </div>
+
+      <div className="panel">
+        <h2>{t('appeals')}</h2>
+        {appeals.length === 0 && <p className="muted">{t('empty')}</p>}
+        <ul className="admin-rows">
+          {appeals.map((a) => (
+            <li key={a.id} className="admin-row">
+              <strong>{names.get(a.climber_id) ?? a.climber_id.slice(0, 8)}</strong>
+              <span>{a.boulder_id ? `${t(lead ? 'route' : 'boulder')} ${boulderNo.get(a.boulder_id)}` : t('wholeRound')}</span>
+              <span className="muted">{a.details?.reason}</span>
+              {a.status === 'open' ? <>
+                <span className="appeal-badge">{t('appealOpen')}</span>
+                {(['upheld', 'rejected'] as const).map((st) => (
+                  <button key={st} className="link" onClick={() => {
+                    const decision = window.prompt(t('appealDecision')) ?? '';
+                    void run((async () => {
+                      const { error } = await supabase.from('appeals').update({ status: st, resolved_at: new Date().toISOString() }).eq('id', a.id);
+                      if (error) return { error };
+                      return supabase.from('appeal_details').update({ decision: decision || null, resolved_by: profileId }).eq('appeal_id', a.id);
+                    })());
+                  }}>{t(st === 'upheld' ? 'appealUpheld' : 'appealRejected')}</button>
+                ))}
+              </> : <span>{t(a.status === 'upheld' ? 'appealUpheld' : 'appealRejected')}{a.details?.decision ? ` · ${a.details.decision}` : ''}</span>}
+            </li>
+          ))}
+        </ul>
+        <form className="inline-form" onSubmit={(e) => {
+          e.preventDefault();
+          const form = e.currentTarget;
+          const f = new FormData(form);
+          const boulder = String(f.get('boulder'));
+          const appealId = crypto.randomUUID();
+          void run((async () => {
+            const { error } = await supabase.from('appeals').insert({ id: appealId, round_id: round.id,
+              boulder_id: boulder === 'all' ? null : boulder, climber_id: String(f.get('climber')) });
+            if (error) return { error };
+            form.reset();
+            return supabase.from('appeal_details').insert({ appeal_id: appealId, reason: String(f.get('reason')).trim(), created_by: profileId });
+          })());
+        }}>
+          <select name="climber" required aria-label={t('athlete')}>
+            {starters.map((s) => <option key={s.climber_id} value={s.climber_id}>{s.bib ? `${s.bib} · ` : ''}{localized(lang, s.profile.full_name, s.profile.full_name_he)}</option>)}
+          </select>
+          <select name="boulder" aria-label={t(lead ? 'route' : 'boulder')}>
+            <option value="all">{t('wholeRound')}</option>
+            {boulders.map((b) => <option key={b.id} value={b.id}>{t(lead ? 'route' : 'boulder')} {b.number}</option>)}
+          </select>
+          <input name="reason" required placeholder={t('appealReason')} />
+          <button className="secondary">{t('openAppeal')}</button>
+        </form>
       </div>
 
       <div className="panel">

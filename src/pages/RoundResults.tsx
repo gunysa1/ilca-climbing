@@ -12,11 +12,11 @@ import { boulderPoints, EMPTY_RESULT, standings, totals, type ScoringFormat } fr
 import type { Boulder } from '../lib/types';
 
 /** IFSC-style tile: top half filled on a top, bottom half on a zone, slash when attempted without zone. */
-function Cell({ r, number }: { r: ResultRow | undefined; number: number }) {
+function Cell({ r, number, appeal }: { r: ResultRow | undefined; number: number; appeal?: boolean }) {
   const attempted = !!r && r.attempts > 0;
   const cls = !attempted ? 'asc-empty' : r.zone_attempt == null ? 'asc-none' : '';
   return (
-    <span className="asc" title={attempted ? `${boulderPoints(r)}` : undefined}>
+    <span className={`asc${appeal ? ' appealed' : ''}`} title={attempted ? `${boulderPoints(r)}` : undefined}>
       <span className={`asc-cell ${cls}`}>
         <span className={`asc-top${r?.top_attempt != null ? ' on' : ''}`}>{r?.top_attempt ?? ''}</span>
         <span className={`asc-zone${r?.zone_attempt != null ? ' on' : ''}`}>{r?.zone_attempt ?? ''}</span>
@@ -41,7 +41,7 @@ interface Row { climber_id: string; rank: number | null; score: string }
 export function RoundResults() {
   const { id } = useParams();
   const { t, lang } = useI18n();
-  const { round, boulders, starters, results, leadResults, totals: storedTotals, loading } = useRoundData(id);
+  const { round, boulders, starters, results, leadResults, totals: storedTotals, appeals, loading } = useRoundData(id);
   const [ageClass, setAgeClass] = useState<string | null>(null);
   const [onlyFavorites, setOnlyFavorites] = useState(false);
   const [context, setContext] = useState<{ category: string; category_he: string | null;
@@ -107,6 +107,17 @@ export function RoundResults() {
   }, [round, shown, boulders, results, leadResults, storedTotals]);
 
   const byId = new Map(starters.map((s) => [s.climber_id, s]));
+  // Open appeals per climber (boulder ids; null = the whole round), like the temporary app's "ערעור פתוח".
+  const openAppeals = useMemo(() => {
+    const m = new Map<string, (string | null)[]>();
+    for (const a of appeals) if (a.status === 'open') m.set(a.climber_id, [...(m.get(a.climber_id) ?? []), a.boulder_id]);
+    return m;
+  }, [appeals]);
+  const lastUpdate = useMemo(() => {
+    let max = '';
+    for (const r of [...results.values(), ...leadResults.values()]) if (r.updated_at && r.updated_at > max) max = r.updated_at;
+    return max ? new Date(max) : null;
+  }, [results, leadResults]);
   // The favorites filter only hides rows: ranks stay those of the whole round (group / age class).
   const visible = onlyFavorites ? rows.filter((r) => favorites.has(r.climber_id)) : rows;
 
@@ -125,6 +136,11 @@ export function RoundResults() {
         </p>
       )}
       <h1>{t(round.kind)} <RoundStatus status={round.status} /></h1>
+      <div className="round-meta">
+        {lastUpdate && <span className="muted small">{t('updatedAt')} {lastUpdate.toLocaleTimeString(lang === 'he' ? 'he-IL' : 'en-GB')}</span>}
+        {openAppeals.size > 0 && <span className="appeal-badge">{t('appealOpen')}</span>}
+        <button className="chip no-print" onClick={() => window.print()} title={t('printPdf')}>PDF ⤓</button>
+      </div>
       {siblings.length > 1 && (
         <nav className="round-nav" aria-label={t('rounds')}>
           {siblings.map((r) => r.status === 'planned'
@@ -173,7 +189,7 @@ export function RoundResults() {
             )}
             {visible.map((row) => (
               <ResultRowView key={row.climber_id} row={row} starter={byId.get(row.climber_id)!} lang={lang} favorite={favorites.has(row.climber_id)}
-                boulders={boulders} lead={lead} results={results} leadResults={leadResults} />
+                boulders={boulders} lead={lead} results={results} leadResults={leadResults} appeal={openAppeals.get(row.climber_id)} />
             ))}
           </tbody>
         </table>
@@ -221,21 +237,23 @@ function StartList({ starters, groups, group, onGroup }: {
   );
 }
 
-function ResultRowView({ row, starter: s, lang, boulders, lead, results, leadResults, favorite }: {
+function ResultRowView({ row, starter: s, lang, boulders, lead, results, leadResults, favorite, appeal }: {
   row: Row; starter: Starter; lang: Lang; boulders: Boulder[]; lead: boolean; favorite: boolean;
-  results: Map<string, ResultRow>; leadResults: Map<string, LeadRow>;
+  results: Map<string, ResultRow>; leadResults: Map<string, LeadRow>; appeal?: (string | null)[];
 }) {
+  const { t } = useI18n();
   return (
     <tr className={favorite ? 'favorite' : undefined}>
       <td className="rank">{row.rank ?? '–'}</td>
       <td className="name">
         <FavoriteStar climberId={s.climber_id} name={s.profile.full_name} />
         <Link className="athlete" to={`/climber/${s.climber_id}?d=${lead ? 'lead' : 'boulder'}`}>{localized(lang, s.profile.full_name, s.profile.full_name_he)}</Link>
+        {appeal && <span className="appeal-badge" title={t('appealOpen')}>{t('appeal')}</span>}
         <span className="athlete-meta">{[s.bib, s.age_class, s.profile.club].filter(Boolean).join(' • ')}</span>
         <span className="ascents">
           {boulders.map((b) => lead
             ? <RouteChip key={b.id} number={b.number} r={leadResults.get(resultKey(b.id, row.climber_id))} />
-            : <Cell key={b.id} number={b.number} r={results.get(resultKey(b.id, row.climber_id))} />)}
+            : <Cell key={b.id} number={b.number} r={results.get(resultKey(b.id, row.climber_id))} appeal={!!appeal?.includes(b.id)} />)}
         </span>
       </td>
       <td className="score">{row.score}</td>

@@ -249,3 +249,18 @@ h1 .fav-star { font-size: 1.6rem; }
 .ranking-part.dropped { opacity: .45; text-decoration: line-through; }
 .ranking-part.champ { border-color: var(--accent); }
 .ranking-part.adjust { border-style: dashed; }
+
+/* Round header: last update, open appeals, PDF (print) */
+.round-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: -.25rem 0 .75rem; }
+.appeal-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+  background: #f5a524; color: #1c1c1c; margin-inline-start: 6px; vertical-align: middle; }
+.asc.appealed .asc-cell { outline: 2px solid #f5a524; outline-offset: 1px; }
+
+@media print {
+  .no-print, .site-header, header, nav, .discipline-bar, .continue-bar, .fav-star, .tabs, .chips, .round-nav { display: none !important; }
+  body { background: #fff !important; color: #000 !important; }
+  .table-wrap { overflow: visible !important; box-shadow: none !important; }
+  table.results { width: 100%; font-size: 11px; }
+  table.results tr { break-inside: avoid; }
+  .crumbs { display: block !important; }
+}
