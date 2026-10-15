@@ -30,6 +30,11 @@ NS = uuid.UUID('6b7f4a52-2c1e-4f4e-9a3b-1c0de1ca0001')  # ILCA LogLig import nam
 TEST_COMPETITIONS = {'4768', '12829', '15209'}
 
 
+def is_practice(title: str) -> bool:
+    """Club simulations ("סימולציית ...") and training camps ("מחנה ...") are rehearsals, not ILCA competitions."""
+    return bool(re.search(r'סימולצי|מחנה', title))
+
+
 def season_of(date: str | None) -> str | None:
     """Ranking season from the event date. LogLig's season folders don't match ILCA's ranking seasons
     (e.g. the August 2025 league event sits in LogLig's 2024-25); an ILCA season runs June to May."""
@@ -225,6 +230,16 @@ def parse_height(h: str) -> tuple[int, bool, bool] | None:
     return (int(m[1]), bool(m[2]), False) if m else None
 
 
+def time_tie_left(rnd: dict) -> bool:
+    """A lead round where LogLig ranked climbers equal although their climbing times differ: LogLig did
+    not break ties by time there (2022-23 finals), so neither must we."""
+    by_rank: dict[int, set[str]] = {}
+    for c in rnd['climbers']:
+        if c['rank'] is not None and len(c.get('routes', [])) == 1:
+            by_rank.setdefault(c['rank'], set()).add(c['routes'][0]['time'])
+    return any(len(times) > 1 for times in by_rank.values())
+
+
 def to_rows(comps: list[dict]) -> dict:
     """Rows for each table, keyed by table name."""
     t = {k: [] for k in ('competitions', 'categories', 'rounds', 'boulders', 'profiles', 'profile_private',
@@ -246,7 +261,8 @@ def to_rows(comps: list[dict]) -> dict:
                     continue
                 round_id = uid('round', cat['id'], rnd['kind'])
                 t['rounds'].append({'id': round_id, 'category_id': cat_id, 'kind': rnd['kind'], 'status': 'closed',
-                                    'scoring': {'lead': 'lead', 'boulder_totals': 'classic'}.get(cat['discipline'], 'ifsc2025')})
+                                    'scoring': {'lead': 'lead', 'boulder_totals': 'classic'}.get(cat['discipline'], 'ifsc2025'),
+                                    'time_tiebreak': not time_tie_left(rnd)})
                 n_routes = max([b[0] for c in rnd['climbers'] for b in c.get('boulders', [])] +
                                [len(c.get('routes', [])) for c in rnd['climbers']] + [0])
                 route_ids = {n: uid('route', round_id, n) for n in range(1, n_routes + 1)}
@@ -301,7 +317,7 @@ def sql(comps: list[dict]) -> str:
     cols = {
         'competitions': 'id, name, name_he, starts_on, ends_on, status, season, series',
         'categories': 'id, competition_id, name, name_he, gender',
-        'rounds': 'id, category_id, kind, status, scoring',
+        'rounds': 'id, category_id, kind, status, scoring, time_tiebreak',
         'boulders': 'id, round_id, number',
         'profiles': 'id, full_name, full_name_he, club, gender',
         'profile_private': 'id, birth_date',
@@ -331,6 +347,10 @@ def main() -> None:
     if len(specs) < len(args) - 1:
         print('skipping LogLig test competitions', file=sys.stderr)
     comps = [parse_competition(archive, *spec.split(':')) for spec in specs]
+    practice = [c for c in comps if is_practice(c['title'])]
+    if practice:
+        print('skipping simulations / training camps:', ', '.join(c['id'] for c in practice), file=sys.stderr)
+    comps = [c for c in comps if not is_practice(c['title'])]
     if check:
         ranks = [{'round_id': uid('round', cat['id'], rnd['kind']), 'climber_id': uid('climber', c['name'], c['dob']), 'rank': c['rank']}
                  for comp in comps for cat in comp['categories'] for rnd in cat['rounds'] for c in rnd['climbers']]

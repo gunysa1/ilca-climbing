@@ -51,6 +51,8 @@ export interface Round {
   kind: 'qualification' | 'semifinal' | 'final';
   status: 'planned' | 'live' | 'closed';
   scoring: RoundFormat;
+  /** Lead finals: the climbing time breaks ties left after countback (off for some imported LogLig finals). */
+  time_tiebreak?: boolean;
 }
 
 export interface Boulder {

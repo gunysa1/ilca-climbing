@@ -466,6 +466,16 @@ select pg_temp.assert(
   (select array_agg(right(climber_id::text, 1) || rank order by climber_id) from lead_scores
     where round_id = '30000000-0000-0000-0000-000000000063') = '{a1,b1}',
   'lead semifinal: time does not break a tie');
+reset role;
+update rounds set time_tiebreak = false where id = '30000000-0000-0000-0000-000000000065';
+select pg_temp.login(null);
+select pg_temp.assert(
+  (select array_agg(right(climber_id::text, 1) || rank order by climber_id) from lead_scores
+    where round_id = '30000000-0000-0000-0000-000000000065') = '{a1,b1}',
+  'lead final without time tie-break (imported LogLig 2022-23 finals): the tie stands');
+reset role;
+update rounds set time_tiebreak = true where id = '30000000-0000-0000-0000-000000000065';
+select pg_temp.login(null);
 select pg_temp.assert(
   (select count(*) from climber_history where climber_id = '60000000-0000-0000-0000-00000000000c'
      and discipline = 'lead' and round_id is not null) = 2,

@@ -84,7 +84,7 @@ export function RoundResults() {
       const multi = boulders.length > 1;
       const seeds = new Map(shown.filter((s) => s.prev_place != null).map((s) => [s.climber_id, s.prev_place!]));
       return leadStandings(shown.map((s) => s.climber_id), boulders.map((b) => b.id), [...leadResults.values()].map(toLeadResult), seeds,
-        round.kind === 'final')
+        round.kind === 'final' && round.time_tiebreak !== false)
         // single route: the height is on the route chip; several routes: the geometric mean of rank points
         .map((s) => ({ climber_id: s.climber_id, rank: s.rank, score: s.rank === null ? '–' : multi ? s.points.toFixed(2) : '' }));
     }
