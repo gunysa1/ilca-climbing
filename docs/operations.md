@@ -17,8 +17,8 @@ and publishes both (free plan: 500 builds a month, no cost per deploy).
 
 | Project | Build command | Output directory |
 |---|---|---|
-| viewer (`ilca-live-…`) | `npm run build:viewer` | `dist/viewer` |
-| staff (`ilca-staff-…`) | `npm run build:staff` | `dist/staff` |
+| viewer (`ilca-climbing`, ilca-climbing.pages.dev) | `npm run build:viewer` | `dist/viewer` |
+| staff (`ilca-climbing-staff`, ilca-climbing-staff.pages.dev) | `npm run build:staff` | `dist/staff` |
 
 Root directory: the repository root; Node from `.node-version`. The production settings are in the
 committed `.env` (Supabase URL, publishable key, the two site addresses; nothing secret);
