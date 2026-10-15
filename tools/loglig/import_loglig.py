@@ -36,12 +36,12 @@ def is_practice(title: str) -> bool:
 
 
 def season_of(date: str | None) -> str | None:
-    """Ranking season from the event date. LogLig's season folders don't match ILCA's ranking seasons
-    (e.g. the August 2025 league event sits in LogLig's 2024-25); an ILCA season runs June to May."""
+    """Season from the event date: September to August, like ILCA's LogLig season folders (a few
+    events were filed late, e.g. October 2025 shells in 2024-25, so the date decides)."""
     if not date:
         return None
     y, m = int(date[:4]), int(date[5:7])
-    start = y if m >= 6 else y - 1
+    start = y if m >= 9 else y - 1
     return f'{start}-{(start + 1) % 100:02d}'
 
 

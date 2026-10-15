@@ -3,6 +3,7 @@ import { localized, useI18n } from '../../lib/i18n';
 import {
   RANK_CLASSES, seniorIntlPoints, youthBonusPoints, type Adjustment, type IntlEventType, type IntlResult,
 } from '../../lib/rankings';
+import { seasonOf } from '../../lib/season';
 import { supabase } from '../../lib/supabase';
 import type { Profile } from '../../lib/types';
 import { AdminNav, ErrorLine } from './AdminHome';
@@ -18,7 +19,7 @@ type AdjustmentRow = Adjustment & { id: string; season: string };
 /** Season ranking inputs that aren't ILCA competitions: international results and adjustments. */
 export function AdminRankings() {
   const { t, lang } = useI18n();
-  const [season, setSeason] = useState(currentSeason());
+  const [season, setSeason] = useState(() => seasonOf(new Date()));
   const [intl, setIntl] = useState<IntlRow[]>([]);
   const [adjustments, setAdjustments] = useState<AdjustmentRow[]>([]);
   const [names, setNames] = useState(new Map<string, Profile>());
@@ -97,12 +98,6 @@ export function AdminRankings() {
   );
 }
 
-/** Ranking season of today (June to May). */
-function currentSeason(): string {
-  const d = new Date();
-  const start = d.getMonth() >= 5 ? d.getFullYear() : d.getFullYear() - 1;
-  return `${start}-${String((start + 1) % 100).padStart(2, '0')}`;
-}
 
 function PickedClimber({ id, onPick }: { id: string | null; onPick: (id: string) => void }) {
   const { t, lang } = useI18n();

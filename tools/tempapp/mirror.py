@@ -27,7 +27,7 @@ def uid(*parts: object) -> str:
 
 def season_of(date: str) -> str:
     y, m = int(date[:4]), int(date[5:7])
-    start = y if m >= 6 else y - 1
+    start = y if m >= 9 else y - 1
     return f'{start}-{(start + 1) % 100:02d}'
 
 

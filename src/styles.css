@@ -264,3 +264,14 @@ h1 .fav-star { font-size: 1.6rem; }
   table.results tr { break-inside: avoid; }
   .crumbs { display: block !important; }
 }
+
+/* Main page: competitions grouped by season */
+details.season { margin-bottom: .75rem; }
+details.season > summary { display: flex; align-items: baseline; gap: .6rem; cursor: pointer; list-style: none;
+  padding: .55rem .25rem; border-bottom: 1px solid var(--border); margin-bottom: .6rem; }
+details.season > summary::-webkit-details-marker { display: none; }
+details.season > summary::before { content: '▸'; color: var(--accent); transition: transform .15s; }
+details.season[open] > summary::before { transform: rotate(90deg); }
+[dir="rtl"] details.season > summary::before { content: '◂'; }
+[dir="rtl"] details.season[open] > summary::before { transform: rotate(-90deg); }
+.season-title { font-weight: 700; font-size: 1.1rem; color: var(--text-strong); }

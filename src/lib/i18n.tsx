@@ -165,6 +165,8 @@ const dict = {
   intlResults: { he: 'תוצאות בין-לאומיות', en: 'International results' },
   noRankings: { he: 'אין עדיין מדרג לעונה הזו', en: 'No rankings for this season yet' },
   updatedAt: { he: 'עודכן', en: 'Updated' },
+  seasonOf: { he: 'עונת', en: 'Season' },
+  oneCompetition: { he: 'תחרות אחת', en: '1 competition' },
   appeals: { he: 'ערעורים', en: 'Appeals' },
   openAppeal: { he: 'פתיחת ערעור', en: 'Open appeal' },
   appealReason: { he: 'סיבת הערעור', en: 'Reason' },
