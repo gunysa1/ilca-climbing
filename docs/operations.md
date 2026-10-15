@@ -34,7 +34,8 @@ Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in both sites' environment,
 ## Accounts and roles
 
 - Users are created in Supabase (Authentication → Add user). A new user gets a profile and the
-  `climber` role.
+  `climber` role. To add a judge: create their account, then staff app → ניהול → אנשים → judge; only
+  then do they appear in a round's judge list.
 - The first admin: `supabase/admin.sql`. After that: staff app → ניהול → אנשים (roles judge /
   coach / admin, linking a login to an existing climber profile, coach ↔ athlete links).
 - Judges score only boulders they are assigned to (round page → judges), only while the round is live.

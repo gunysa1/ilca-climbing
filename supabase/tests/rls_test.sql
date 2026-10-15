@@ -604,12 +604,31 @@ select pg_temp.assert((select judge_name from claim_climber('30000000-0000-0000-
   '40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')) = 'Judge',
   'a second judge sees the climber is held by the first');
 select pg_temp.assert((select count(*) from judge_claims) = 1, 'judges of the boulder see its claims');
+select pg_temp.denied($$select set_on_wall('40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', true)$$, 'a judge marks a climber another judge holds');
+select pg_temp.login(null);
+select pg_temp.assert(not exists (select 1 from on_wall('30000000-0000-0000-0000-000000000001')), 'a claim alone does not put a climber on the wall');
+select pg_temp.denied($$select set_on_wall('40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', true)$$, 'public marks a climber on the wall');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select set_on_wall('40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', true);
+select pg_temp.login(null);
+select pg_temp.assert((select array_agg(right(boulder_id::text, 1) || ':' || right(climber_id::text, 1)) from on_wall('30000000-0000-0000-0000-000000000001'))
+  = '{1:2}', 'public sees who is on the wall (boulder, climber; no judge)');
+select pg_temp.denied($$select * from judge_claims$$, 'public reads judge claims');
+reset role;
+update rounds set status = 'closed' where id = '30000000-0000-0000-0000-000000000001';
+select pg_temp.login(null);
+select pg_temp.assert(not exists (select 1 from on_wall('30000000-0000-0000-0000-000000000001')), 'nobody is on the wall in a closed round');
+reset role;
+update rounds set status = 'live' where id = '30000000-0000-0000-0000-000000000001';
 reset role;
 update judge_claims set claimed_at = now() - interval '31 seconds';
+select pg_temp.login(null);
+select pg_temp.assert(not exists (select 1 from on_wall('30000000-0000-0000-0000-000000000001')), 'a stale claim is not on the wall');
 select pg_temp.login('00000000-0000-0000-0000-0000000000b2');
 select pg_temp.assert((select judge_name from claim_climber('30000000-0000-0000-0000-000000000001',
   '40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')) = 'Judge Two',
   'a stale claim (30+ seconds) can be taken over');
+select pg_temp.assert((select on_wall_since is null from judge_claims), 'a takeover clears the on-the-wall mark');
 select release_claim('40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002');
 select pg_temp.assert(not exists (select 1 from judge_claims), 'judge releases own claim');
 select pg_temp.denied($$select claim_climber('30000000-0000-0000-0000-000000000001',
@@ -624,6 +643,22 @@ update boulder_results set locked = true
 select pg_temp.denied($$update boulder_results set attempts = attempts + 1
   where boulder_id = '40000000-0000-0000-0000-000000000001' and climber_id = '00000000-0000-0000-0000-000000000002'$$,
   'judge changes a locked result');
+select claim_climber('30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002');
+select set_on_wall('40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', true);
+select pg_temp.login(null);
+select pg_temp.assert(not exists (select 1 from on_wall('30000000-0000-0000-0000-000000000001')), 'a climber with a locked result is off the wall');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select claim_climber('30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001');
+select set_on_wall('40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', true);
+select pg_temp.assert((select array_agg(right(climber_id::text, 1)) from judge_claims where on_wall_since is not null) = '{1}',
+  'one climber per boulder: marking the next takes the previous off');
+select set_on_wall('40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', false);
+select pg_temp.login(null);
+select pg_temp.assert(not exists (select 1 from on_wall('30000000-0000-0000-0000-000000000001')), 'the judge marks a climber off the wall');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select release_claim('40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select release_claim('40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002');
 select pg_temp.login('00000000-0000-0000-0000-00000000000a');
 update boulder_results set attempts = attempts + 1, locked = false
   where boulder_id = '40000000-0000-0000-0000-000000000001' and climber_id = '00000000-0000-0000-0000-000000000002';

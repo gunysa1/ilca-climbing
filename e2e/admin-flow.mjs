@@ -125,6 +125,19 @@ await jp.getByText(/1 \/ 3/).waitFor();                       // one climber at 
 await jp.getByRole('button', { name: /List/ }).click();
 await jp.locator('.starter-list').getByRole('button', { name: /מאיה גל/ }).click();
 await jp.locator('.pad-head').getByText('מאיה גל').waitFor();
+// On the wall: opening a climber on the pad is not enough; the judge marks it (or counts an attempt).
+const vp = await page('en');
+await vp.goto(`${view}/round/${roundId}`);
+await vp.locator('tr', { hasText: 'מאיה גל' }).waitFor();
+await vp.waitForLoadState('networkidle');
+if (await vp.locator('.on-wall, .on-wall-row').count()) problems.push('climber shown on the wall before the judge marked it');
+await jp.getByRole('button', { name: /On the wall/ }).click();
+await jp.getByText('Shown to the public as climbing now').waitFor();
+await jp.locator('.pad').screenshot({ path: `${out}/judge-on-wall-en.png` });
+await vp.reload();
+await vp.locator('.on-wall').getByText('מאיה גל').waitFor();
+await vp.locator('tr.on-wall-row', { hasText: 'מאיה גל' }).locator('.climbing-badge').waitFor();
+await vp.screenshot({ path: `${out}/results-on-wall-en.png`, fullPage: true });
 await jp.getByRole('button', { name: 'Zone' }).click();          // zone before any attempt: asks first
 await jp.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
 await jp.getByRole('button', { name: 'Add attempt' }).click();
@@ -138,6 +151,10 @@ await jp.getByRole('dialog').getByText(/1 Attempts · Zone 1 · no Top/).waitFor
 await jp.getByRole('dialog').getByRole('button', { name: 'Yes, lock' }).click();
 await jp.getByText('This result is locked').waitFor();
 await jp.screenshot({ path: `${out}/judge-locked-en.png` });
+await vp.reload();                                             // locking takes the climber off the wall
+await vp.locator('tr', { hasText: 'מאיה גל' }).waitFor();
+await vp.waitForLoadState('networkidle');
+if (await vp.locator('.on-wall, .on-wall-row').count()) problems.push('locked climber still shown on the wall');
 await jp.getByRole('link', { name: /Boulders/ }).click();          // back to picking a boulder
 await jp.getByRole('link', { name: 'Boulder 2' }).waitFor();
 await p.goto(`${base}/admin/round/${roundId}`);

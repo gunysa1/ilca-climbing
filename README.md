@@ -19,10 +19,12 @@ viewer's bundle doesn't even contain sign-in, judge, coach or admin code.
 
 - **Live results** in IFSC style (IFSC 2025 boulder points with countback, lead geometric-mean
   ranking, classic T/Z for older rounds), updating in real time, with start lists, qualification
-  groups, age-class filters inside combined categories, favorites, open-appeal badges, the time of
+  groups, age-class filters inside combined categories, "on the wall now" per boulder, favorites, open-appeal badges, the time of
   the last update and a print/PDF view.
 - **Judge pad**: one climber at a time in start order, large + / − attempt stepper, Top / Zone,
   live points, confirmations before locking, auto-advance to the next climber still to judge.
+  "▶ On the wall" shows the public who is climbing now on each boulder (only when the judge marks
+  it or counts an attempt; off on lock, leaving the climber, or 30 s without the pad).
   Claims stop two judges scoring the same climber (stale after 30 s); locked results change only
   through an admin.
 - **Admin**: competitions → categories → rounds → boulders, CSV roster import, start lists with

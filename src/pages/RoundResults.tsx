@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { FavoriteStar } from '../components/FavoriteStar';
 import { RoundStatus } from '../components/RoundStatus';
 import { useFavorites } from '../lib/favorites';
+import { onWallByClimber, onWallList, useOnWall } from '../lib/onWall';
 import { saveLastViewed } from '../lib/lastViewed';
 import { supabase } from '../lib/supabase';
 import { localized, useI18n, type Lang } from '../lib/i18n';
@@ -12,11 +13,11 @@ import { boulderPoints, EMPTY_RESULT, standings, totals, type ScoringFormat } fr
 import type { Boulder } from '../lib/types';
 
 /** IFSC-style tile: top half filled on a top, bottom half on a zone, slash when attempted without zone. */
-function Cell({ r, number, appeal }: { r: ResultRow | undefined; number: number; appeal?: boolean }) {
+function Cell({ r, number, appeal, climbing }: { r: ResultRow | undefined; number: number; appeal?: boolean; climbing?: boolean }) {
   const attempted = !!r && r.attempts > 0;
   const cls = !attempted ? 'asc-empty' : r.zone_attempt == null ? 'asc-none' : '';
   return (
-    <span className={`asc${appeal ? ' appealed' : ''}`} title={attempted ? `${boulderPoints(r)}` : undefined}>
+    <span className={`asc${appeal ? ' appealed' : ''}${climbing ? ' climbing' : ''}`} title={attempted ? `${boulderPoints(r)}` : undefined}>
       <span className={`asc-cell ${cls}`}>
         <span className={`asc-top${r?.top_attempt != null ? ' on' : ''}`}>{r?.top_attempt ?? ''}</span>
         <span className={`asc-zone${r?.zone_attempt != null ? ' on' : ''}`}>{r?.zone_attempt ?? ''}</span>
@@ -27,9 +28,9 @@ function Cell({ r, number, appeal }: { r: ResultRow | undefined; number: number;
 }
 
 /** Lead route result chip: "30+", "TOP", or dashed when not climbed yet. */
-function RouteChip({ r, number }: { r: LeadRow | undefined; number: number }) {
+function RouteChip({ r, number, climbing }: { r: LeadRow | undefined; number: number; climbing?: boolean }) {
   return (
-    <span className="asc">
+    <span className={`asc${climbing ? ' climbing' : ''}`}>
       <span className={`route-chip${r?.top ? ' top' : ''}${r ? '' : ' empty'}`} dir="ltr">{r ? formatHeight(r) : ''}</span>
       <span className="asc-label">{number}</span>
     </span>
@@ -68,6 +69,10 @@ export function RoundResults() {
       });
   }, [round?.id]);
   const favorites = useFavorites();
+  // Who is climbing now (live rounds): highlighted like the IFSC app's "climbing now".
+  const wallRows = useOnWall(round?.id, round?.status === 'live');
+  const wall = useMemo(() => onWallList(wallRows, boulders), [wallRows, boulders]);
+  const wallByClimber = useMemo(() => onWallByClimber(wall), [wall]);
   const ageClasses = useMemo(() => [...new Set(starters.map((s) => s.age_class).filter((a): a is string => !!a))].sort(), [starters]);
   // Qualification groups are ranked separately: always show one group at a time.
   const groups = useMemo(() => [...new Set(starters.map((s) => s.group_label).filter((g): g is string => !!g))].sort(), [starters]);
@@ -141,6 +146,19 @@ export function RoundResults() {
         {openAppeals.size > 0 && <span className="appeal-badge">{t('appealOpen')}</span>}
         <button className="chip no-print" onClick={() => window.print()} title={t('printPdf')}>PDF ⤓</button>
       </div>
+      {wall.length > 0 && (
+        <div className="on-wall no-print" aria-live="polite">
+          <span className="on-wall-title"><span className="live-dot" aria-hidden />{t('onWallNow')}</span>
+          {wall.map((w) => {
+            const s = byId.get(w.climber_id);
+            return s && (
+              <Link key={w.boulder_id} className="on-wall-item" to={`/climber/${w.climber_id}`}>
+                <span className="on-wall-num">{w.number}</span>{localized(lang, s.profile.full_name, s.profile.full_name_he)}
+              </Link>
+            );
+          })}
+        </div>
+      )}
       {siblings.length > 1 && (
         <nav className="round-nav" aria-label={t('rounds')}>
           {siblings.map((r) => r.status === 'planned'
@@ -153,7 +171,7 @@ export function RoundResults() {
         <button role="tab" aria-selected={tab === 'result'} className={tab === 'result' ? 'active' : ''} onClick={() => setTab('result')}>{t('resultTab')}</button>
         <button role="tab" aria-selected={tab === 'startlist'} className={tab === 'startlist' ? 'active' : ''} onClick={() => setTab('startlist')}>{t('startList')}</button>
       </div>
-      {tab === 'startlist' ? <StartList starters={groups.length ? starters.filter((s) => s.group_label === group) : starters} groups={groups} group={group} onGroup={setGroup} /> : <>
+      {tab === 'startlist' ? <StartList starters={groups.length ? starters.filter((s) => s.group_label === group) : starters} groups={groups} group={group} onGroup={setGroup} climbing={wallByClimber} /> : <>
       {groups.length > 0 && (
         <div className="chips" role="tablist">
           {groups.map((g) => (
@@ -189,7 +207,8 @@ export function RoundResults() {
             )}
             {visible.map((row) => (
               <ResultRowView key={row.climber_id} row={row} starter={byId.get(row.climber_id)!} lang={lang} favorite={favorites.has(row.climber_id)}
-                boulders={boulders} lead={lead} results={results} leadResults={leadResults} appeal={openAppeals.get(row.climber_id)} />
+                boulders={boulders} lead={lead} results={results} leadResults={leadResults} appeal={openAppeals.get(row.climber_id)}
+                climbing={wallByClimber.get(row.climber_id)} />
             ))}
           </tbody>
         </table>
@@ -200,8 +219,8 @@ export function RoundResults() {
 }
 
 /** Start list: order, bib, name, club, group and the seed (previous-round place). */
-function StartList({ starters, groups, group, onGroup }: {
-  starters: Starter[]; groups: string[]; group: string | null; onGroup: (g: string) => void;
+function StartList({ starters, groups, group, onGroup, climbing }: {
+  starters: Starter[]; groups: string[]; group: string | null; onGroup: (g: string) => void; climbing: Map<string, string[]>;
 }) {
   const { t, lang } = useI18n();
   return (
@@ -221,10 +240,11 @@ function StartList({ starters, groups, group, onGroup }: {
           </thead>
           <tbody>
             {starters.map((s, i) => (
-              <tr key={s.climber_id}>
+              <tr key={s.climber_id} className={climbing.has(s.climber_id) ? 'on-wall-row' : undefined}>
                 <td className="rank">{s.start_order ?? i + 1}</td>
                 <td className="name">
                   <Link className="athlete" to={`/climber/${s.climber_id}`}>{localized(lang, s.profile.full_name, s.profile.full_name_he)}</Link>
+                  {climbing.has(s.climber_id) && <span className="climbing-badge">{t('climbingNow')}</span>}
                   <span className="athlete-meta">{[s.bib, s.age_class, s.profile.club].filter(Boolean).join(' • ')}</span>
                 </td>
                 <td className="score">{s.prev_place ?? ''}</td>
@@ -237,23 +257,27 @@ function StartList({ starters, groups, group, onGroup }: {
   );
 }
 
-function ResultRowView({ row, starter: s, lang, boulders, lead, results, leadResults, favorite, appeal }: {
+function ResultRowView({ row, starter: s, lang, boulders, lead, results, leadResults, favorite, appeal, climbing }: {
   row: Row; starter: Starter; lang: Lang; boulders: Boulder[]; lead: boolean; favorite: boolean;
   results: Map<string, ResultRow>; leadResults: Map<string, LeadRow>; appeal?: (string | null)[];
+  /** Boulders this climber is on right now. */
+  climbing?: string[];
 }) {
   const { t } = useI18n();
   return (
-    <tr className={favorite ? 'favorite' : undefined}>
+    <tr className={[favorite && 'favorite', climbing && 'on-wall-row'].filter(Boolean).join(' ') || undefined}>
       <td className="rank">{row.rank ?? '–'}</td>
       <td className="name">
         <FavoriteStar climberId={s.climber_id} name={s.profile.full_name} />
         <Link className="athlete" to={`/climber/${s.climber_id}?d=${lead ? 'lead' : 'boulder'}`}>{localized(lang, s.profile.full_name, s.profile.full_name_he)}</Link>
         {appeal && <span className="appeal-badge" title={t('appealOpen')}>{t('appeal')}</span>}
+        {climbing && <span className="climbing-badge">{t('climbingNow')}</span>}
         <span className="athlete-meta">{[s.bib, s.age_class, s.profile.club].filter(Boolean).join(' • ')}</span>
         <span className="ascents">
           {boulders.map((b) => lead
-            ? <RouteChip key={b.id} number={b.number} r={leadResults.get(resultKey(b.id, row.climber_id))} />
-            : <Cell key={b.id} number={b.number} r={results.get(resultKey(b.id, row.climber_id))} appeal={!!appeal?.includes(b.id)} />)}
+            ? <RouteChip key={b.id} number={b.number} r={leadResults.get(resultKey(b.id, row.climber_id))} climbing={!!climbing?.includes(b.id)} />
+            : <Cell key={b.id} number={b.number} r={results.get(resultKey(b.id, row.climber_id))} appeal={!!appeal?.includes(b.id)}
+                climbing={!!climbing?.includes(b.id)} />)}
         </span>
       </td>
       <td className="score">{row.score}</td>

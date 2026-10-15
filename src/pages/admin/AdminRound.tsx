@@ -128,6 +128,7 @@ export function AdminRound() {
           </select>
           <button className="secondary" disabled={judges.length === 0}>{t('assign')}</button>
         </form>
+        <p className="muted small">{t('addJudgeHint')}</p>
       </div>
 
       <div className="panel">

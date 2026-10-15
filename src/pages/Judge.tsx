@@ -79,7 +79,27 @@ function useClaim(roundId: string, boulderId: string, climberId: string, enabled
     const beat = setInterval(() => void claim(), CLAIM_BEAT_MS);
     return () => { clearInterval(beat); void supabase.rpc('release_claim', { p_boulder: boulderId, p_climber: climberId }); };
   }, [claim, boulderId, climberId, enabled]);
-  return { holder, mine: !enabled || (!!holder && holder.judge_id === profileId), loading: enabled && !holder };
+  // On the wall (public "climbing now"): only when the judge marks it (set_on_wall), never by opening.
+  const [onWall, setOnWall] = useState(false);
+  const markWall = useCallback(async (on: boolean) => {
+    const { error } = await supabase.rpc('set_on_wall', { p_boulder: boulderId, p_climber: climberId, p_on: on });
+    if (!error) setOnWall(on);
+  }, [boulderId, climberId]);
+  return { holder, mine: !enabled || (!!holder && holder.judge_id === profileId), loading: enabled && !holder, onWall, markWall };
+}
+
+/** "▶ On the wall" / "■ Off the wall": what the public sees as climbing now on this boulder. */
+function WallToggle({ onWall, markWall, disabled }: { onWall: boolean; markWall: (on: boolean) => Promise<void>; disabled: boolean }) {
+  const { t } = useI18n();
+  if (disabled) return null;
+  return (
+    <div className={`wall-toggle${onWall ? ' on' : ''}`}>
+      <span className="small">{onWall ? <><span className="live-dot" aria-hidden /> {t('onWallShown')}</> : t('onWallHint')}</span>
+      <button className={onWall ? 'secondary' : 'primary'} onClick={() => void markWall(!onWall)} aria-pressed={onWall}>
+        {onWall ? `■ ${t('offWall')}` : `▶ ${t('putOnWall')}`}
+      </button>
+    </div>
+  );
 }
 
 /** Fresh claims on a boulder by other judges, live (climber id -> judge name). */
@@ -244,7 +264,7 @@ function Sheet({ title, children, confirm, onConfirm, onCancel }:
 function ScorePad({ roundId, boulderId, starter, initial, locked: initiallyLocked, ...nav }:
   { roundId: string; boulderId: string; starter: Starter; initial: BoulderResult; locked: boolean } & PadNav) {
   const { t } = useI18n();
-  const { holder, mine } = useClaim(roundId, boulderId, starter.climber_id, !initiallyLocked);
+  const { holder, mine, onWall, markWall } = useClaim(roundId, boulderId, starter.climber_id, !initiallyLocked);
   const [history, setHistory] = useState<BoulderResult[]>([]);
   const [state, setState] = useState<BoulderResult>({
     attempts: initial.attempts, zone_attempt: initial.zone_attempt, top_attempt: initial.top_attempt,
@@ -275,6 +295,7 @@ function ScorePad({ roundId, boulderId, starter, initial, locked: initiallyLocke
     setHistory((h) => [...h, state]);
     setState(next);
     void save(next, state);
+    if (action === 'attempt' && !onWall) void markWall(true); // counting an attempt means they're climbing
   }
   // Zone / Top before any attempt was counted: ask first (like the temporary app).
   const outcome = (kind: 'zone' | 'top') => (state.attempts === 0 ? setAsk(kind) : act(kind));
@@ -302,6 +323,7 @@ function ScorePad({ roundId, boulderId, starter, initial, locked: initiallyLocke
       <PadHeader starter={starter} badge={locked ? <span className="pad-badge">{t('lockedBadge')}</span>
         : !mine && holder ? <span className="pad-badge busy">{t('busyBadge')}</span> : null} />
       <PadBlocked locked={locked} holder={mine ? null : holder} nav={nav} />
+      <WallToggle onWall={onWall} markWall={markWall} disabled={blocked} />
 
       <div className="pad-section">{t('attemptsWord')}</div>
       <div className="stepper">
@@ -359,7 +381,7 @@ function ScorePad({ roundId, boulderId, starter, initial, locked: initiallyLocke
 function LeadPad({ roundId, routeId, starter, initial, locked: initiallyLocked, ...nav }:
   { roundId: string; routeId: string; starter: Starter; initial: LeadRow | undefined; locked: boolean } & PadNav) {
   const { t } = useI18n();
-  const { holder, mine } = useClaim(roundId, routeId, starter.climber_id, !initiallyLocked);
+  const { holder, mine, onWall, markWall } = useClaim(roundId, routeId, starter.climber_id, !initiallyLocked);
   const [hold, setHold] = useState(initial?.hold ?? 0);
   const [plus, setPlus] = useState(initial?.plus ?? false);
   const [top, setTop] = useState(initial?.top ?? false);
@@ -385,9 +407,10 @@ function LeadPad({ roundId, routeId, starter, initial, locked: initiallyLocked, 
       <PadHeader starter={starter} badge={locked ? <span className="pad-badge">{t('lockedBadge')}</span>
         : !mine && holder ? <span className="pad-badge busy">{t('busyBadge')}</span> : null} />
       <PadBlocked locked={locked} holder={mine ? null : holder} nav={nav} />
+      <WallToggle onWall={onWall} markWall={markWall} disabled={blocked} />
       <div className="pad-section">{t('hold')}</div>
       <div className="stepper">
-        <button className="stepper-btn" onClick={() => { setHold((h) => h + 1); changed(); }} disabled={blocked || top} aria-label={`+1 ${t('hold')}`}>+</button>
+        <button className="stepper-btn" onClick={() => { setHold((h) => h + 1); changed(); if (!onWall) void markWall(true); }} disabled={blocked || top} aria-label={`+1 ${t('hold')}`}>+</button>
         <strong className="stepper-value" dir="ltr">{formatHeight({ hold, plus, top })}</strong>
         <button className="stepper-btn" onClick={() => { setHold((h) => Math.max(0, h - 1)); changed(); }} disabled={blocked || top || hold === 0} aria-label={`−1 ${t('hold')}`}>−</button>
       </div>

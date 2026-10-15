@@ -77,7 +77,7 @@ calling the API directly still gets only what the policies allow.
 | Who | Reads | Writes |
 |---|---|---|
 | Public (no sign-in) | published competitions, results of rounds that aren't planned, open appeals (not their reasons), rankings inputs | nothing |
-| Judge | results and claims of their assigned boulders | results of their assigned boulders, only while the round is live and the result isn't locked; claims through `claim_climber()` |
+| Judge | results and claims of their assigned boulders | results of their assigned boulders, only while the round is live and the result isn't locked; claims through `claim_climber()`, on the wall through `set_on_wall()` (only for a climber they hold) |
 | Coach | private data and history of linked athletes | private notes on linked athletes |
 | Admin | everything, incl. audit logs and appeal reasons | everything |
 
@@ -96,8 +96,9 @@ All of this is in `supabase/tests/rls_test.sql`.
 
 ## Realtime
 
-The results page subscribes to `boulder_results`, `lead_results` and `appeals` of its round; the
-judge pad to `judge_claims` of its boulder. Everything else loads on navigation.
+The results page subscribes to `boulder_results`, `lead_results` and `appeals` of its round, and
+polls `on_wall(round)` every 5 s in live rounds (claims aren't public, so no Realtime for them); the
+judge pad subscribes to `judge_claims` of its boulder. Everything else loads on navigation.
 
 ## Migrations
 
@@ -123,3 +124,4 @@ judge pad to `judge_claims` of its boulder. Everything else loads on navigation.
 | 20261015000017 | fast ranks (`*_for` functions) |
 | 20261015000018 | judge claims, locked results, appeals |
 | 20261015000019 | claims stale after 30 s |
+| 20261015000020 | on the wall: judges mark the climber climbing now (`set_on_wall`); public `on_wall(round)` |
