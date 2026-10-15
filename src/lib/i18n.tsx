@@ -116,6 +116,8 @@ const dict = {
   time: { he: 'זמן', en: 'Time' },
   birthDate: { he: 'תאריך לידה', en: 'Birth date' },
   all: { he: 'הכל', en: 'All' },
+  continueWatching: { he: 'המשך לצפות', en: 'Continue watching' },
+  dismiss: { he: 'סגור', en: 'Dismiss' },
   favorites: { he: 'מועדפים', en: 'Favorites' },
   follow: { he: 'הוסף למועדפים', en: 'Follow' },
   unfollow: { he: 'הסר ממועדפים', en: 'Unfollow' },

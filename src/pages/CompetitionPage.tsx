@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { RoundStatus } from '../components/RoundStatus';
 import { localized, useI18n } from '../lib/i18n';
+import { saveLastViewed } from '../lib/lastViewed';
 import { supabase } from '../lib/supabase';
 import type { Category, Competition, Round } from '../lib/types';
 
@@ -16,7 +17,12 @@ export function CompetitionPage() {
 
   useEffect(() => {
     if (!id) return;
-    supabase.from('competitions').select('*').eq('id', id).single().then(({ data }) => setComp(data as Competition));
+    supabase.from('competitions').select('*').eq('id', id).single().then(({ data }) => {
+      const c = data as Competition | null;
+      setComp(c);
+      if (c) saveLastViewed({ competition_id: c.id, competition: c.name, competition_he: c.name_he,
+        round_id: null, round_kind: null, category: null, category_he: null });
+    });
     supabase.from('categories').select('*, rounds(*)').eq('competition_id', id).order('name')
       .then(({ data }) => setCats((data as CategoryWithRounds[]) ?? []));
   }, [id]);

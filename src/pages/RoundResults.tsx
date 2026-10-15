@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { FavoriteStar } from '../components/FavoriteStar';
 import { RoundStatus } from '../components/RoundStatus';
 import { useFavorites } from '../lib/favorites';
+import { saveLastViewed } from '../lib/lastViewed';
+import { supabase } from '../lib/supabase';
 import { localized, useI18n, type Lang } from '../lib/i18n';
 import { formatHeight, leadStandings } from '../lib/lead';
 import { resultKey, toLeadResult, useRoundData, type LeadRow, type ResultRow, type Starter } from '../lib/roundData';
@@ -42,6 +44,19 @@ export function RoundResults() {
   const { round, boulders, starters, results, leadResults, loading } = useRoundData(id);
   const [ageClass, setAgeClass] = useState<string | null>(null);
   const [onlyFavorites, setOnlyFavorites] = useState(false);
+  const [context, setContext] = useState<{ category: string; category_he: string | null;
+    competition: { id: string; name: string; name_he: string | null } } | null>(null);
+  useEffect(() => {
+    if (!round) return;
+    supabase.from('categories').select('name, name_he, competition:competitions(id, name, name_he)').eq('id', round.category_id).single()
+      .then(({ data }) => {
+        const d = data as unknown as { name: string; name_he: string | null; competition: { id: string; name: string; name_he: string | null } } | null;
+        const c = d ? { category: d.name, category_he: d.name_he, competition: d.competition } : null;
+        setContext(c);
+        if (c) saveLastViewed({ competition_id: c.competition.id, competition: c.competition.name, competition_he: c.competition.name_he,
+          round_id: round.id, round_kind: round.kind, category: c.category, category_he: c.category_he });
+      });
+  }, [round?.id]);
   const favorites = useFavorites();
   const ageClasses = useMemo(() => [...new Set(starters.map((s) => s.age_class).filter((a): a is string => !!a))].sort(), [starters]);
   // Qualification groups are ranked separately: always show one group at a time.
@@ -88,6 +103,12 @@ export function RoundResults() {
 
   return (
     <section>
+      {context && (
+        <p className="crumbs">
+          <Link to={`/competition/${context.competition.id}`}>{localized(lang, context.competition.name, context.competition.name_he)}</Link>
+          {' › '}{localized(lang, context.category, context.category_he)}
+        </p>
+      )}
       <h1>{t(round.kind)} <RoundStatus status={round.status} /></h1>
       {groups.length > 0 && (
         <div className="chips" role="tablist">

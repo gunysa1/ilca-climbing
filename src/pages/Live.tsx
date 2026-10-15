@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DisciplineBar, useDiscipline } from '../components/DisciplineBar';
 import { disciplinesOf } from '../lib/discipline';
+import { lastViewedHref, readLastViewed, saveLastViewed, type LastViewed } from '../lib/lastViewed';
 import { localized, useI18n } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
 import type { Competition, RoundFormat } from '../lib/types';
@@ -12,6 +13,7 @@ export function Live() {
   const { t, lang } = useI18n();
   const [comps, setComps] = useState<CompetitionRow[] | null>(null);
   const [discipline, setDiscipline] = useDiscipline();
+  const [last, setLast] = useState<LastViewed | null>(readLastViewed);
 
   useEffect(() => {
     // RLS hides drafts from the public.
@@ -26,6 +28,18 @@ export function Live() {
 
   return (
     <section className="with-bottom-bar">
+      {last && (
+        <div className="continue-bar">
+          <Link to={lastViewedHref(last)} className="continue-link">
+            <span className="muted small">{t('continueWatching')}</span>
+            <span className="continue-title">
+              {localized(lang, last.competition, last.competition_he)}
+              {last.round_kind && <> · {last.category && `${localized(lang, last.category, last.category_he)} · `}{t(last.round_kind)}</>}
+            </span>
+          </Link>
+          <button type="button" className="link" aria-label={t('dismiss')} onClick={() => { saveLastViewed(null); setLast(null); }}>✕</button>
+        </div>
+      )}
       <h1>{t('competitions')} · {t(discipline === 'boulder' ? 'discBoulder' : discipline === 'lead' ? 'discLead' : 'discSpeed')}</h1>
       {comps === null && <p className="muted">{t('loading')}</p>}
       {comps !== null && shown.length === 0 && (
