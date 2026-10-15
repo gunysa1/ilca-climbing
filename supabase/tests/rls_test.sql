@@ -435,24 +435,37 @@ select pg_temp.assert((select count(*) from round_ranks where round_id = '300000
   'lead rounds rank in round_ranks, not in the boulder view');
 select pg_temp.denied($$select updated_by from lead_results$$, 'public reads lead judge identity');
 reset role;
--- single route, same height and same seed: the faster time ranks higher (IFSC final rule; LogLig 2026 final)
+-- single route, same height and same seed: in a final the faster time ranks higher (IFSC rule;
+-- LogLig 2026 final); in other rounds the tie stands (LogLig 2024-25 semifinals)
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into categories (id, competition_id, name, gender) values
+  ('20000000-0000-0000-0000-000000000008', '10000000-0000-0000-0000-000000000001', 'Lead Youth', 'mixed');
 insert into rounds (id, category_id, kind, status, scoring) values
-  ('30000000-0000-0000-0000-000000000063', '20000000-0000-0000-0000-000000000006', 'semifinal', 'live', 'lead');
+  ('30000000-0000-0000-0000-000000000063', '20000000-0000-0000-0000-000000000006', 'semifinal', 'live', 'lead'),
+  ('30000000-0000-0000-0000-000000000065', '20000000-0000-0000-0000-000000000008', 'final', 'live', 'lead');
 insert into boulders (id, round_id, number) values
-  ('40000000-0000-0000-0000-000000000064', '30000000-0000-0000-0000-000000000063', 1);
+  ('40000000-0000-0000-0000-000000000064', '30000000-0000-0000-0000-000000000063', 1),
+  ('40000000-0000-0000-0000-000000000067', '30000000-0000-0000-0000-000000000065', 1);
 insert into round_starters (round_id, climber_id, start_order, prev_place) values
   ('30000000-0000-0000-0000-000000000063', '60000000-0000-0000-0000-00000000000a', 1, 3),
-  ('30000000-0000-0000-0000-000000000063', '60000000-0000-0000-0000-00000000000b', 2, 3);
+  ('30000000-0000-0000-0000-000000000063', '60000000-0000-0000-0000-00000000000b', 2, 3),
+  ('30000000-0000-0000-0000-000000000065', '60000000-0000-0000-0000-00000000000a', 1, 3),
+  ('30000000-0000-0000-0000-000000000065', '60000000-0000-0000-0000-00000000000b', 2, 3);
 insert into lead_results (boulder_id, climber_id, round_id, hold, plus, top, time_ms) values
   ('40000000-0000-0000-0000-000000000064', '60000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-000000000063', 35, true, false, 188000),
-  ('40000000-0000-0000-0000-000000000064', '60000000-0000-0000-0000-00000000000b', '30000000-0000-0000-0000-000000000063', 35, true, false, 130000);
+  ('40000000-0000-0000-0000-000000000064', '60000000-0000-0000-0000-00000000000b', '30000000-0000-0000-0000-000000000063', 35, true, false, 130000),
+  ('40000000-0000-0000-0000-000000000067', '60000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-000000000065', 35, true, false, 188000),
+  ('40000000-0000-0000-0000-000000000067', '60000000-0000-0000-0000-00000000000b', '30000000-0000-0000-0000-000000000065', 35, true, false, 130000);
 select set_config('request.jwt.claim.sub', '', false);
 select pg_temp.login(null);
 select pg_temp.assert(
   (select array_agg(right(climber_id::text, 1) || rank order by rank) from lead_scores
-    where round_id = '30000000-0000-0000-0000-000000000063') = '{b1,a2}',
-  'lead single route: faster time breaks a tie after countback');
+    where round_id = '30000000-0000-0000-0000-000000000065') = '{b1,a2}',
+  'lead final: faster time breaks a tie after countback');
+select pg_temp.assert(
+  (select array_agg(right(climber_id::text, 1) || rank order by climber_id) from lead_scores
+    where round_id = '30000000-0000-0000-0000-000000000063') = '{a1,b1}',
+  'lead semifinal: time does not break a tie');
 select pg_temp.assert(
   (select count(*) from climber_history where climber_id = '60000000-0000-0000-0000-00000000000c'
      and discipline = 'lead' and round_id is not null) = 2,

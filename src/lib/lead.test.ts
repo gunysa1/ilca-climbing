@@ -42,12 +42,19 @@ describe('leadStandings', () => {
     ]);
   });
 
-  it('single route: after countback, the faster climbing time ranks higher (IFSC final rule)', () => {
+  it('final: after countback, the faster climbing time ranks higher (IFSC final rule)', () => {
     // LogLig Israeli lead championship 2026, men's final: both 35+, same qualification place, 02:10 vs 03:08
     const out = leadStandings(['slow', 'fast'], ['r1'],
       [r('slow', 'r1', 35, true, false, 188_000), r('fast', 'r1', 35, true, false, 130_000)],
-      new Map([['slow', 3], ['fast', 3]]));
+      new Map([['slow', 3], ['fast', 3]]), true);
     expect(out.map((s) => [s.climber_id, s.rank])).toEqual([['fast', 1], ['slow', 2]]);
+  });
+
+  it('other rounds: time does not break a tie (LogLig 2024-25 semifinals)', () => {
+    const out = leadStandings(['slow', 'fast'], ['r1'],
+      [r('slow', 'r1', 26, false, false, 205_000), r('fast', 'r1', 26, false, false, 168_000)],
+      new Map([['slow', 1], ['fast', 1]]));
+    expect(out.map((s) => [s.climber_id, s.rank])).toEqual([['slow', 1], ['fast', 1]]);
   });
 
   it('a missing route result counts as the lowest height on that route', () => {
