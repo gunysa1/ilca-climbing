@@ -50,24 +50,32 @@ const tenths = (points: number) => Math.round(points * 10);
  * IFSC 2025 order: points, then countback to the previous-round rank (missing ranks last),
  * then fewer attempts on tops, then fewer attempts on zones. Same order as the temporary
  * ILCA app and public.round_scores.
+ * Classic: tops, zones, attempts to tops, attempts to zones; in a final, then countback (how LogLig
+ * ranked the older totals-only rounds).
  */
-function compare(a: RoundTotals, b: RoundTotals, format: ScoringFormat): number {
+function compare(a: RoundTotals, b: RoundTotals, format: ScoringFormat, isFinal = false): number {
   if (format === 'ifsc2025') {
     const ap = a.prev_rank ?? Infinity;
     const bp = b.prev_rank ?? Infinity;
     return tenths(b.points) - tenths(a.points) || (ap === bp ? 0 : ap - bp) ||
       a.top_attempts - b.top_attempts || a.zone_attempts - b.zone_attempts;
   }
-  return b.tops - a.tops || b.zones - a.zones || a.top_attempts - b.top_attempts || a.zone_attempts - b.zone_attempts;
+  const countback = () => {
+    if (!isFinal) return 0;
+    const ap = a.prev_rank ?? Infinity;
+    const bp = b.prev_rank ?? Infinity;
+    return ap === bp ? 0 : ap - bp;
+  };
+  return b.tops - a.tops || b.zones - a.zones || a.top_attempts - b.top_attempts || a.zone_attempts - b.zone_attempts || countback();
 }
 
 /** Sort and assign competition ranks (ties share a rank: 1, 1, 3). */
-export function rank(rows: RoundTotals[], format: ScoringFormat): (RoundTotals & { rank: number })[] {
-  const sorted = [...rows].sort((a, b) => compare(a, b, format));
+export function rank(rows: RoundTotals[], format: ScoringFormat, isFinal = false): (RoundTotals & { rank: number })[] {
+  const sorted = [...rows].sort((a, b) => compare(a, b, format, isFinal));
   const ranked: (RoundTotals & { rank: number })[] = [];
   sorted.forEach((row, i) => {
     const prev = ranked[i - 1];
-    const tied = prev !== undefined && compare(prev, row, format) === 0;
+    const tied = prev !== undefined && compare(prev, row, format, isFinal) === 0;
     ranked.push({ ...row, rank: tied ? prev.rank : i + 1 });
   });
   return ranked;
@@ -77,9 +85,9 @@ export function rank(rows: RoundTotals[], format: ScoringFormat): (RoundTotals &
  * Ranking for display: climbers with at least one attempt are ranked; the rest (not climbed yet)
  * get rank null and keep their input (start) order after the ranked ones, like the temporary app's "–".
  */
-export function standings(rows: RoundTotals[], format: ScoringFormat, climbed: Set<string>): (RoundTotals & { rank: number | null })[] {
+export function standings(rows: RoundTotals[], format: ScoringFormat, climbed: Set<string>, isFinal = false): (RoundTotals & { rank: number | null })[] {
   return [
-    ...rank(rows.filter((r) => climbed.has(r.climber_id)), format),
+    ...rank(rows.filter((r) => climbed.has(r.climber_id)), format, isFinal),
     ...rows.filter((r) => !climbed.has(r.climber_id)).map((r) => ({ ...r, rank: null })),
   ];
 }

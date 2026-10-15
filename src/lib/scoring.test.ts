@@ -72,6 +72,13 @@ describe('rank', () => {
   it('classic format uses tops, zones, then attempts', () => {
     expect(rank([b, c, a], 'classic').map((r) => r.climber_id)).toEqual(['a', 'b', 'c']);
   });
+
+  it('classic: countback breaks a full tie only in a final (LogLig 2024-25 youth championship)', () => {
+    const t = (climber_id: string, prev_rank: number) =>
+      ({ climber_id, tops: 1, zones: 2, top_attempts: 3, zone_attempts: 5, points: 0, prev_rank });
+    expect(rank([t('x', 4), t('y', 2)], 'classic', true).map((r) => [r.climber_id, r.rank])).toEqual([['y', 1], ['x', 2]]);
+    expect(rank([t('x', 4), t('y', 2)], 'classic').map((r) => r.rank)).toEqual([1, 1]);
+  });
 });
 
 describe('applyAction (judge pad)', () => {

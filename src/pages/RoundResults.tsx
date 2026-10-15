@@ -99,7 +99,7 @@ export function RoundResults() {
     });
     const climbed = new Set(shown.filter((s) => storedTotals.has(s.climber_id)
       || boulders.some((b) => (results.get(resultKey(b.id, s.climber_id))?.attempts ?? 0) > 0)).map((s) => s.climber_id));
-    return standings(totalsRows, format, climbed).map((r) => ({
+    return standings(totalsRows, format, climbed, round.kind === 'final').map((r) => ({
       climber_id: r.climber_id, rank: r.rank,
       score: r.rank === null ? '–' : format === 'ifsc2025'
         ? r.points.toFixed(1) : `${r.tops}T${r.zones}z ${r.top_attempts} ${r.zone_attempts}`,
