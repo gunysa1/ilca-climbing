@@ -87,12 +87,6 @@ idempotent SQL sync (competition, groups with age classes, the round with seeds,
 only when changed). Run it every minute during the round and stop when the temporary app moves to
 another round (it keeps one round at a time and clears results between rounds).
 
-## Test data
-
-The draft competition "בדיקת שיפוט" (id `f0000000-0000-4000-8000-000000000001`) with six test
-climbers (`f0000000-0000-4000-8000-0000000001xx`) is for trying the judge pad. Delete the
-competition and those profiles when it's no longer needed.
-
 ## Backups
 
 Check what the project's Supabase plan backs up (project settings → Database → Backups). Before
