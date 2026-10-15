@@ -40,13 +40,13 @@ audit, people/roles, rankings inputs); national rankings per the ILCA 2025 crite
 against ILCA's published 2023-24 / 2024-25 tables); LogLig history 2020-21 to 2025-26 (80
 competitions, 99.6% of ranks identical); live mirror of the temporary app (tools/tempapp).
 
-Live project `rkuuzforzfjbdnybddwb`: all migrations applied (through 20261015000019) with
+Live project `tsahkbtxjlgmebfmwkbq` (Frankfurt; moved from Seoul 2026-10-15): all migrations applied with
 `npx -y supabase@2.121.0 db push --linked`; `.env.local` uses the publishable key. Run
 `db advisors --linked` after schema changes. Live writes (imports, data fixes) only with the
 user's explicit go-ahead. Seasons run September to August.
 
-Open work: Netlify deploy (needs `netlify login`); first event fully on these apps; offline retry
-queue for the judge pad; judge invites instead of creating users in the Supabase dashboard; admin
+Hosting: Cloudflare Pages builds both apps on every push to main (settings in the committed `.env`).
+Open work: first event fully on these apps; offline retry queue for the judge pad; admin
 screen for qualification groups; merging duplicate climber profiles; speed discipline; calendar;
 notifications. Test data to remove when done: draft competition "בדיקת שיפוט"
 (`f0000000-0000-4000-8000-000000000001`) and profiles `f0000000-0000-4000-8000-0000000001xx`.

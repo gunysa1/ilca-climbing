@@ -3,7 +3,7 @@
 Results, judging and rankings for the Israel Climbing Association (ILCA, התאחדות הטיפוס בישראל):
 live boulder and lead results, a judge scoring pad, coach views, the full history of every climber
 since 2020-21, and the national rankings. Hebrew (RTL) by default with an English toggle.
-React + Vite PWAs on Netlify, data in Supabase (Postgres, Auth, Realtime).
+React + Vite PWAs on Cloudflare Pages, data in Supabase (Postgres, Auth, Realtime; Frankfurt).
 
 ## Two apps, one codebase
 

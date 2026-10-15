@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Supabase project | `rkuuzforzfjbdnybddwb` (Postgres, Auth, Realtime) |
+| Supabase project | `tsahkbtxjlgmebfmwkbq`, Frankfurt / eu-central-1 (Postgres, Auth, Realtime). Moved from Seoul on 2026-10-15 for latency |
 | Local env | `.env.local` (not in git): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (the publishable key), optional `VITE_VIEWER_URL` / `VITE_STAFF_URL` |
 | Supabase CLI | `npx -y supabase@2.121.0` (pinned), linked with `supabase link --project-ref …` |
 
@@ -12,15 +12,18 @@ Never put the service-role key in the app or in git; the apps only need the publ
 
 ## Deploying
 
-Two Netlify sites from this repository:
+Two Cloudflare Pages projects connected to this GitHub repository; every push to `main` builds
+and publishes both (free plan: 500 builds a month, no cost per deploy).
 
-| Site | Base directory | Build | Publish |
-|---|---|---|---|
-| viewer | (repo root) `netlify.toml` | `npm ci && npm run build:viewer` | `dist/viewer` |
-| staff | `apps/staff` (its own `netlify.toml`) | `cd ../.. && npm ci && npm run build:staff` | `../../dist/staff` |
+| Project | Build command | Output directory |
+|---|---|---|
+| viewer (`ilca-live-…`) | `npm run build:viewer` | `dist/viewer` |
+| staff (`ilca-staff-…`) | `npm run build:staff` | `dist/staff` |
 
-Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in both sites' environment, and
-`VITE_STAFF_URL` / `VITE_VIEWER_URL` to link them. The staff site sends `X-Robots-Tag: noindex`.
+Root directory: the repository root; Node from `.node-version`. The production settings are in the
+committed `.env` (Supabase URL, publishable key, the two site addresses; nothing secret);
+`.env.local` overrides them for local development. `apps/*/public/_headers` set `noindex` and the
+one-year cache for `/assets/*`; Cloudflare serves `index.html` for app routes (single-page app).
 
 ## Database changes
 
