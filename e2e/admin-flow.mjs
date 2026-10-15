@@ -138,6 +138,8 @@ await jp.getByRole('dialog').getByText(/1 Attempts · Zone 1 · no Top/).waitFor
 await jp.getByRole('dialog').getByRole('button', { name: 'Yes, lock' }).click();
 await jp.getByText('This result is locked').waitFor();
 await jp.screenshot({ path: `${out}/judge-locked-en.png` });
+await jp.getByRole('link', { name: /Boulders/ }).click();          // back to picking a boulder
+await jp.getByRole('link', { name: 'Boulder 2' }).waitFor();
 await p.goto(`${base}/admin/round/${roundId}`);
 await p.locator('tr', { hasText: 'מאיה גל' }).getByText(/🔒1\/1/).waitFor();
 const appealForm = p.locator('.panel', { hasText: 'Appeals' }).locator('form');

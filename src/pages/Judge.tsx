@@ -146,12 +146,16 @@ export function JudgeBoulder() {
   return (
     <section className="judge">
       <div className="judge-top">
-        <button className="secondary" onClick={() => go(Math.max(0, i - 1))} disabled={i === 0}>{t('prevClimber')}</button>
+        <Link className="button secondary" to="/judge">{lang === 'he' ? '→' : '←'} {t(lead ? 'routesWord' : 'bouldersWord')}</Link>
         <div className="judge-title">
           <strong>{t(lead ? 'route' : 'boulder')} {boulder.number}</strong>
           <span className="muted small">{i + 1} / {starters.length} · {t('lockedCount')} {done}</span>
         </div>
         <button className="secondary" onClick={() => setShowList((v) => !v)} aria-expanded={showList}>☰ {t('climberList')}</button>
+      </div>
+      <div className="judge-steps">
+        <button className="secondary" onClick={() => go(i - 1)} disabled={i === 0}>{t('prevClimber')}</button>
+        <button className="secondary" onClick={() => go(i + 1)} disabled={i >= starters.length - 1}>{t('followingClimber')}</button>
       </div>
       {showList && (
         <ul className="starter-list">

@@ -318,3 +318,6 @@ details.season[open] > summary::before { transform: rotate(90deg); }
 .sheet-actions button { min-height: 3.4rem; font-size: 1.05rem; font-weight: 700; }
 .toast { position: fixed; bottom: calc(1rem + env(safe-area-inset-bottom)); inset-inline: 1rem; margin: 0 auto; max-width: 520px; z-index: 60;
   background: #1c2433; color: #fff; padding: .75rem 1rem; border-radius: 12px; text-align: center; }
+.judge-steps { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-bottom: .75rem; }
+.judge-top .button { display: inline-flex; align-items: center; justify-content: center; padding: .5rem .8rem; border-radius: 8px;
+  border: 1px solid var(--accent); color: var(--accent); text-decoration: none; }
