@@ -19,7 +19,7 @@ viewer's bundle doesn't even contain sign-in, judge, coach or admin code.
 
 - **Live results** in IFSC style (IFSC 2025 boulder points with countback, lead geometric-mean
   ranking, classic T/Z for older rounds), updating in real time, with start lists, qualification
-  groups, age-class filters inside combined categories, "on the wall now" per boulder, favorites, open-appeal badges, the time of
+  groups, age-class filters inside combined categories, a men / women (category) switch, "on the wall now" per boulder, favorites, open-appeal badges, the time of
   the last update and a print/PDF view.
 - **Judge pad**: one climber at a time in start order, large + / − attempt stepper, Top / Zone,
   live points, confirmations before locking, auto-advance to the next climber still to judge.

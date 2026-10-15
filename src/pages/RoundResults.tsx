@@ -4,6 +4,7 @@ import { FavoriteStar } from '../components/FavoriteStar';
 import { RoundStatus } from '../components/RoundStatus';
 import { useFavorites } from '../lib/favorites';
 import { onWallByClimber, onWallList, useOnWall } from '../lib/onWall';
+import { switchTarget } from '../lib/categorySwitch';
 import { saveLastViewed } from '../lib/lastViewed';
 import { supabase } from '../lib/supabase';
 import { localized, useI18n, type Lang } from '../lib/i18n';
@@ -50,6 +51,9 @@ export function RoundResults() {
   // Other rounds of the category (Q / S / F chips, like IFSC) and the Result / Start list tab.
   const [siblings, setSiblings] = useState<{ id: string; kind: 'qualification' | 'semifinal' | 'final'; status: string }[]>([]);
   const [tab, setTab] = useState<'result' | 'startlist'>('result');
+  // The competition's categories (men / women, ...), to switch to the same round in another one.
+  const [categories, setCategories] = useState<{ id: string; name: string; name_he: string | null;
+    rounds: { id: string; kind: 'qualification' | 'semifinal' | 'final'; status: 'planned' | 'live' | 'closed' }[] }[]>([]);
   useEffect(() => {
     if (!round) return;
     setTab('result');
@@ -59,11 +63,14 @@ export function RoundResults() {
   }, [round?.id]);
   useEffect(() => {
     if (!round) return;
+    setContext(null); // no stale category name while switching men ↔ women
     supabase.from('categories').select('name, name_he, competition:competitions(id, name, name_he)').eq('id', round.category_id).single()
       .then(({ data }) => {
         const d = data as unknown as { name: string; name_he: string | null; competition: { id: string; name: string; name_he: string | null } } | null;
         const c = d ? { category: d.name, category_he: d.name_he, competition: d.competition } : null;
         setContext(c);
+        if (c) supabase.from('categories').select('id, name, name_he, rounds(id, kind, status)').eq('competition_id', c.competition.id).order('name')
+          .then(({ data: cs }) => setCategories((cs ?? []) as typeof categories));
         if (c) saveLastViewed({ competition_id: c.competition.id, competition: c.competition.name, competition_he: c.competition.name_he,
           round_id: round.id, round_kind: round.kind, category: c.category, category_he: c.category_he });
       });
@@ -139,6 +146,17 @@ export function RoundResults() {
           <Link to={`/competition/${context.competition.id}`}>{localized(lang, context.competition.name, context.competition.name_he)}</Link>
           {' › '}{localized(lang, context.category, context.category_he)}
         </p>
+      )}
+      {categories.length > 1 && (
+        <nav className="round-nav category-switch" aria-label={t('category')}>
+          {categories.map((c) => {
+            const label = localized(lang, c.name, c.name_he);
+            if (c.id === round.category_id) return <span key={c.id} className="round-chip current" aria-current="page">{label}</span>;
+            const to = switchTarget(c.rounds, round.kind);
+            return to ? <Link key={c.id} to={`/round/${to}`} className="round-chip">{label}</Link>
+              : <span key={c.id} className="round-chip planned">{label}</span>;
+          })}
+        </nav>
       )}
       <h1>{t(round.kind)} <RoundStatus status={round.status} /></h1>
       <div className="round-meta">
