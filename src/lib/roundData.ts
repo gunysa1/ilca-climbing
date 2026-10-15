@@ -76,33 +76,62 @@ const sortStarters = (starters: Starter[]) =>
 
 export const resultKey = (boulderId: string, climberId: string) => `${boulderId}:${climberId}`;
 
+const EMPTY: RoundData = { round: null, category: null, categories: [], boulders: [], starters: [], results: new Map(), leadResults: new Map(), totals: new Map(), appeals: [], loading: true };
+
+/** Round pages already loaded or prefetched in this visit: switching men / women (or Q / S / F)
+ *  shows them at once, then refreshes. */
+const pageCache = new Map<string, RoundPage>();
+const inFlight = new Map<string, Promise<RoundPage | null>>();
+
+function fetchRoundPage(roundId: string): Promise<RoundPage | null> {
+  let p = inFlight.get(roundId);
+  if (!p) {
+    p = Promise.resolve(supabase.rpc('round_page', { p_round: roundId })).then(({ data }) => {
+      const page = data as RoundPage | null;
+      if (page) pageCache.set(roundId, page);
+      return page;
+    }).finally(() => inFlight.delete(roundId));
+    inFlight.set(roundId, p);
+  }
+  return p;
+}
+
+/** Load a round page in the background (e.g. the other category's round), so opening it is instant. */
+export function prefetchRound(roundId: string) {
+  if (!pageCache.has(roundId)) void fetchRoundPage(roundId);
+}
+
+const toState = (page: RoundPage): RoundData => ({
+  round: page.round,
+  category: page.category,
+  categories: page.categories,
+  boulders: page.boulders,
+  starters: sortStarters(page.starters),
+  results: new Map(page.results.map((r) => [resultKey(r.boulder_id, r.climber_id), r])),
+  leadResults: new Map(page.lead_results.map((r) => [resultKey(r.boulder_id, r.climber_id), r])),
+  totals: new Map(page.totals.map((r) => [r.climber_id, r])),
+  appeals: page.appeals,
+  loading: false,
+});
+
 /** Loads a round with its boulders, starters and results, and keeps results live via Realtime. */
 export function useRoundData(roundId: string | undefined): RoundData {
-  const [state, setState] = useState<RoundData>({ round: null, category: null, categories: [], boulders: [], starters: [], results: new Map(), leadResults: new Map(), totals: new Map(), appeals: [], loading: true });
+  const [state, setState] = useState<RoundData>(() => {
+    const cached = roundId ? pageCache.get(roundId) : undefined;
+    return cached ? toState(cached) : EMPTY;
+  });
 
   useEffect(() => {
     if (!roundId) return;
     let cancelled = false;
-    // A different round: never show the previous round's data while this one loads.
-    setState({ round: null, category: null, categories: [], boulders: [], starters: [], results: new Map(), leadResults: new Map(), totals: new Map(), appeals: [], loading: true });
-
-    // Everything in one request (round_page): was four sequential round trips.
-    void supabase.rpc('round_page', { p_round: roundId }).then(({ data }) => {
+    // A different round: show it from the cache when it's there (instant), never the previous
+    // round's data; then load it fresh in one request (round_page).
+    const cached = pageCache.get(roundId);
+    setState(cached ? toState(cached) : EMPTY);
+    pageCache.delete(roundId); // so this load fetches fresh data
+    void fetchRoundPage(roundId).then((page) => {
       if (cancelled) return;
-      const page = data as RoundPage | null;
-      if (!page) { setState((s) => ({ ...s, loading: false })); return; }
-      setState({
-        round: page.round,
-        category: page.category,
-        categories: page.categories,
-        boulders: page.boulders,
-        starters: sortStarters(page.starters),
-        results: new Map(page.results.map((r) => [resultKey(r.boulder_id, r.climber_id), r])),
-        leadResults: new Map(page.lead_results.map((r) => [resultKey(r.boulder_id, r.climber_id), r])),
-        totals: new Map(page.totals.map((r) => [r.climber_id, r])),
-        appeals: page.appeals,
-        loading: false,
-      });
+      setState(page ? toState(page) : (s) => ({ ...s, loading: false }));
     });
 
     const channel = supabase.channel(`round:${roundId}`)

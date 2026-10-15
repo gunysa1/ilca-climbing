@@ -17,6 +17,8 @@
     "preview:staff": "vite preview --mode staff"
   },
   "dependencies": {
+    "@supabase/postgrest-js": "2.117.2",
+    "@supabase/realtime-js": "2.117.2",
     "@supabase/supabase-js": "2.117.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",

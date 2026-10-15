@@ -1,24 +1,26 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Link, NavLink, Outlet, Route, Routes } from 'react-router-dom';
 import { RequireRole } from '../../components/RequireRole';
 import { AuthProvider, useAuth } from '../../lib/auth';
 import { I18nProvider, useI18n } from '../../lib/i18n';
 import { supabase, supabaseConfigured } from '../../lib/supabase';
-import { Climber } from '../../pages/Climber';
-import { Coach } from '../../pages/Coach';
 import { CompetitionPage } from '../../pages/CompetitionPage';
 import { JudgeBoulder, JudgeHome } from '../../pages/Judge';
 import { AcceptInvite } from '../../pages/AcceptInvite';
 import { Login } from '../../pages/Login';
 import { SetPassword } from '../../pages/SetPassword';
-import { Rankings } from '../../pages/Rankings';
 import { RoundResults } from '../../pages/RoundResults';
-import { Search } from '../../pages/Search';
-import { AdminCompetition } from '../../pages/admin/AdminCompetition';
-import { AdminHome } from '../../pages/admin/AdminHome';
-import { AdminPeople } from '../../pages/admin/AdminPeople';
-import { AdminRankings } from '../../pages/admin/AdminRankings';
-import { AdminRound } from '../../pages/admin/AdminRound';
 
+// Admin, coach and the less used pages load when opened; the judge pad and results load with the app.
+const Climber = lazy(() => import('../../pages/Climber').then((m) => ({ default: m.Climber })));
+const Coach = lazy(() => import('../../pages/Coach').then((m) => ({ default: m.Coach })));
+const Rankings = lazy(() => import('../../pages/Rankings').then((m) => ({ default: m.Rankings })));
+const Search = lazy(() => import('../../pages/Search').then((m) => ({ default: m.Search })));
+const AdminCompetition = lazy(() => import('../../pages/admin/AdminCompetition').then((m) => ({ default: m.AdminCompetition })));
+const AdminHome = lazy(() => import('../../pages/admin/AdminHome').then((m) => ({ default: m.AdminHome })));
+const AdminPeople = lazy(() => import('../../pages/admin/AdminPeople').then((m) => ({ default: m.AdminPeople })));
+const AdminRankings = lazy(() => import('../../pages/admin/AdminRankings').then((m) => ({ default: m.AdminRankings })));
+const AdminRound = lazy(() => import('../../pages/admin/AdminRound').then((m) => ({ default: m.AdminRound })));
 /** The staff app: judges, coaches and admins. Sign-in first. */
 export function StaffApp() {
   return (
@@ -83,7 +85,7 @@ function StaffLayout() {
       </header>
       <main className="page">
         {!supabaseConfigured && <p className="notice">{t('notConfigured')}</p>}
-        <Outlet />
+        <Suspense fallback={<p className="muted">…</p>}><Outlet /></Suspense>
       </main>
     </>
   );

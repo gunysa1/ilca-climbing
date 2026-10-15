@@ -8,7 +8,7 @@ import { switchTarget } from '../lib/categorySwitch';
 import { saveLastViewed } from '../lib/lastViewed';
 import { localized, useI18n, type Lang } from '../lib/i18n';
 import { formatHeight, leadStandings } from '../lib/lead';
-import { resultKey, toLeadResult, useRoundData, type LeadRow, type ResultRow, type Starter } from '../lib/roundData';
+import { prefetchRound, resultKey, toLeadResult, useRoundData, type LeadRow, type ResultRow, type Starter } from '../lib/roundData';
 import { boulderPoints, EMPTY_RESULT, standings, totals, type ScoringFormat } from '../lib/scoring';
 import type { Boulder } from '../lib/types';
 
@@ -52,9 +52,20 @@ export function RoundResults() {
   const siblings = useMemo(() => [...(categories.find((c) => c.id === round?.category_id)?.rounds ?? [])]
     .sort((a, b) => ['qualification', 'semifinal', 'final'].indexOf(a.kind) - ['qualification', 'semifinal', 'final'].indexOf(b.kind)),
   [categories, round?.category_id]);
+  // Age classes differ per category: a new category starts unfiltered (the tab stays, like IFSC).
+  useEffect(() => { setAgeClass(null); }, [round?.category_id]);
+  // Load the other categories' matching rounds and this category's other rounds in the background,
+  // so the men / women switch and the Q / S / F chips open instantly.
+  useEffect(() => {
+    if (!round) return;
+    for (const c of categories) {
+      const to = c.id === round.category_id ? null : switchTarget(c.rounds, round.kind);
+      if (to) prefetchRound(to);
+    }
+    for (const r of siblings) if (r.id !== round.id && r.status !== 'planned') prefetchRound(r.id);
+  }, [round?.id, categories, siblings]);
   useEffect(() => {
     if (!round || !category) return;
-    setTab('result');
     saveLastViewed({ competition_id: category.competition.id, competition: category.competition.name, competition_he: category.competition.name_he,
       round_id: round.id, round_kind: round.kind, category: category.name, category_he: category.name_he });
   }, [round?.id, category?.id]);

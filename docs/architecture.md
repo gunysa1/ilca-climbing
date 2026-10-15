@@ -17,6 +17,11 @@ the network). `VITE_STAFF_URL` / `VITE_VIEWER_URL` link the two headers.
 
 Rule: never add sign-in, writes or staff pages to the viewer.
 
+The viewer's Supabase client is `src/lib/supabaseViewer.ts` (PostgREST + Realtime only); a small
+plugin in `vite.config.ts` swaps it in for every import of `src/lib/supabase.ts` in the viewer
+build, so the public app carries no sign-in or storage code (~30% smaller). Less used pages
+(rankings, climber, search, favorites; in the staff app also admin and coach) load when opened.
+
 ## Data model
 
 ```
@@ -73,7 +78,9 @@ A round page (results and judge pad) loads with one call, `round_page(round)`: t
 category and competition, the competition's categories with their rounds (men / women switch),
 boulders, the start list, results and appeals (security invoker: the same RLS as separate
 queries). Built files are cached for a year (`/assets/*`, content-hashed names), and the page
-opens its connection to Supabase while the app downloads (preconnect).
+opens its connection to Supabase while the app downloads (preconnect). Round pages are cached for the visit and
+the other categories' matching rounds are prefetched, so the men / women switch and the Q / S / F
+chips open instantly; each visit then refreshes in the background.
 
 ## Security
 

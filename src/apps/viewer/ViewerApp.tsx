@@ -1,14 +1,15 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, NavLink, Outlet, Route, Routes } from 'react-router-dom';
 import { I18nProvider, useI18n } from '../../lib/i18n';
 import { supabaseConfigured } from '../../lib/supabase';
-import { Climber } from '../../pages/Climber';
 import { CompetitionPage } from '../../pages/CompetitionPage';
-import { Favorites } from '../../pages/Favorites';
 import { Live } from '../../pages/Live';
-import { Rankings } from '../../pages/Rankings';
 import { RoundResults } from '../../pages/RoundResults';
-import { Search } from '../../pages/Search';
 
+const Climber = lazy(() => import('../../pages/Climber').then((m) => ({ default: m.Climber })));
+const Favorites = lazy(() => import('../../pages/Favorites').then((m) => ({ default: m.Favorites })));
+const Rankings = lazy(() => import('../../pages/Rankings').then((m) => ({ default: m.Rankings })));
+const Search = lazy(() => import('../../pages/Search').then((m) => ({ default: m.Search })));
 /** The public app: view only, no sign-in (like the IFSC app). Staff work happens in the staff app. */
 export function ViewerApp() {
   return (
@@ -54,7 +55,7 @@ function ViewerLayout() {
       </header>
       <main className="page">
         {!supabaseConfigured && <p className="notice">{t('notConfigured')}</p>}
-        <Outlet />
+        <Suspense fallback={<p className="muted">…</p>}><Outlet /></Suspense>
       </main>
     </>
   );
