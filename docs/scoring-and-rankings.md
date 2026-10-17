@@ -72,6 +72,7 @@ senior events. International points (only in the top 60% of the field):
 | World Cup | 60 | 100 | 140 (boulder 1-20, lead 1-26) | 200 (boulder 1-6, lead 1-8) | 300 |
 | European Cup | | | | 60 (1-8) | 100 |
 | European Championships | | 60 | 100 (1-24) | 140 (1-8) | 200 |
+| World Championships | 0 for now: they earn points, but ILCA's table for them isn't known yet | | | | |
 
 ### Youth U21 / U19 / U17
 

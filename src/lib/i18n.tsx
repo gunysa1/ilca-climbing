@@ -261,6 +261,7 @@ const dict = {
   seriesOther: { he: 'לא נספרת במדרג', en: 'Not ranked' },
   eventType: { he: 'סוג תחרות', en: 'Event type' },
   world_cup: { he: 'סבב גביע עולם', en: 'World Cup' },
+  world_championship: { he: 'אליפות העולם', en: 'World Championships' },
   european_cup: { he: 'סבב גביע אירופה', en: 'European Cup' },
   european_championship: { he: 'אליפות אירופה', en: 'European Championships' },
   european_youth_cup: { he: 'סבב גביע אירופה לנוער', en: 'European Youth Cup' },

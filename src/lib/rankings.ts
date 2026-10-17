@@ -116,9 +116,9 @@ export function classOfBirthYear(birthYear: number, seasonEndYear: number): Rank
 
 // ---------------------------------------------------------------------------------- international
 
-export type IntlEventType = 'world_cup' | 'european_cup' | 'european_championship'
+export type IntlEventType = 'world_cup' | 'world_championship' | 'european_cup' | 'european_championship'
   | 'european_youth_cup' | 'european_youth_championship' | 'world_youth_championship' | 'manual';
-export const SENIOR_INTL: IntlEventType[] = ['world_cup', 'european_cup', 'european_championship'];
+export const SENIOR_INTL: IntlEventType[] = ['world_cup', 'world_championship', 'european_cup', 'european_championship'];
 export const YOUTH_INTL: IntlEventType[] = ['european_youth_cup', 'european_youth_championship', 'world_youth_championship'];
 
 export interface IntlResult {
@@ -152,6 +152,8 @@ export function seniorIntlPoints(r: IntlResult): number {
       if (place <= 30) return 100;
       if (place <= 40) return 60;
       return 0;
+    case 'world_championship':
+      return 0; // the results count as events, but ILCA's points table for them isn't known yet
     case 'european_cup':
       if (final && place <= 3) return 100;
       if (final && place <= 8) return 60;

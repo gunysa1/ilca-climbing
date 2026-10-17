@@ -88,6 +88,9 @@ describe('international points', () => {
     expect(seniorIntlPoints(intl({ discipline: 'boulder', event_type: 'european_cup', place: 8, field_size: 67, reached: 'final' }))).toBe(60);
     expect(seniorIntlPoints(intl({ discipline: 'boulder', event_type: 'european_cup', place: 3, field_size: 48, reached: 'final' }))).toBe(100);
   });
+  it('World Championships score 0 until ILCA publishes their table', () => {
+    expect(seniorIntlPoints(intl({ event_type: 'world_championship', place: 1, field_size: 60, reached: 'final' }))).toBe(0);
+  });
   it('only the top 60% of the field score', () => {
     expect(seniorIntlPoints(intl({ place: 38, field_size: 60 }))).toBe(0);
   });

@@ -9,7 +9,7 @@ import type { Profile } from '../../lib/types';
 import { AdminNav, ErrorLine } from './AdminHome';
 import { ClimberPicker } from './ClimberPicker';
 
-const EVENT_TYPES: IntlEventType[] = ['world_cup', 'european_cup', 'european_championship',
+const EVENT_TYPES: IntlEventType[] = ['world_cup', 'world_championship', 'european_cup', 'european_championship',
   'european_youth_cup', 'european_youth_championship', 'world_youth_championship', 'manual'];
 const KINDS = ['qualification', 'semifinal', 'final'] as const;
 
