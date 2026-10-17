@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { currentSeason, eventType, ilcaSeason, nameScore, pickMatch, reachedOf, skeleton, type Candidate } from './ifsc';
+import { currentSeason, eventType, ilcaSeason, localDate, nameScore, pickMatch, reachedOf, skeleton, type Candidate } from './ifsc';
 
 describe('eventType', () => {
   it.each([
@@ -25,6 +25,11 @@ describe('seasons', () => {
     expect(currentSeason('2027-03-01')).toBe('2026-27');
     expect(currentSeason('2027-08-31')).toBe('2026-27');
     expect(currentSeason('2027-09-01')).toBe('2027-28');
+  });
+  it('localDate is the date in Israel, not UTC', () => {
+    expect(localDate(new Date('2026-12-31T22:30:00Z'))).toBe('2027-01-01'); // 00:30 in Israel (winter, UTC+2)
+    expect(localDate(new Date('2026-06-30T20:59:00Z'))).toBe('2026-06-30'); // 23:59 in Israel (summer, UTC+3)
+    expect(localDate(new Date('2026-06-30T21:00:00Z'))).toBe('2026-07-01');
   });
 });
 

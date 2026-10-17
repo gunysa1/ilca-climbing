@@ -35,6 +35,15 @@ export function currentSeason(today: string): string {
   return `${start}-${String(start + 1).slice(2)}`;
 }
 
+/** Today's date (YYYY-MM-DD) in Israel: the sync runs at 03:00 UTC, but the window and the 1 January list follow
+ *  the local calendar. */
+export function localDate(now: Date): string {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(now);
+  const part = (type: string) => parts.find((p) => p.type === type)!.value;
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
 /** Furthest round an athlete reached: the last round with a score or rank. */
 export function reachedOf(rounds: { round_name: string; score?: string | null; rank?: number | null }[]): 'qualification' | 'semifinal' | 'final' {
   const done = rounds.filter((r) => r.score || r.rank);

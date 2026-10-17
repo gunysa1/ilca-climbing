@@ -100,6 +100,22 @@ export function supabaseStore(db: SupabaseClient): Store {
       return add.length;
     },
 
+    async correctResults(climberId, rows) {
+      const have = check(await db.from('international_results')
+        .select('id, place, field_size, reached, ifsc_event_id, ifsc_dcat_id').eq('climber_id', climberId).neq('event_type', 'manual')
+        .not('ifsc_event_id', 'is', null), 'international_results') as { id: string; place: number | null; field_size: number | null;
+          reached: string; ifsc_event_id: number; ifsc_dcat_id: number | null }[];
+      let n = 0;
+      for (const h of have) {
+        const r = rows.find((x) => x.ifsc_event_id === h.ifsc_event_id && x.ifsc_dcat_id === h.ifsc_dcat_id);
+        if (!r || (h.place === r.place && h.field_size === r.field_size && h.reached === r.reached)) continue;
+        check(await db.from('international_results').update({ place: r.place, field_size: r.field_size, reached: r.reached })
+          .eq('id', h.id).neq('event_type', 'manual'), 'international_results correct');
+        n++;
+      }
+      return n;
+    },
+
     async linkProfile(profileId, ifscId) {
       // Only an unlinked profile; a profile linked meanwhile, or this athlete on another profile (unique index), fails the run.
       const updated = check(await db.from('profiles').update({ ifsc_id: String(ifscId) })
@@ -121,7 +137,8 @@ export function supabaseStore(db: SupabaseClient): Store {
     },
 
     async worldRows(season) {
-      return check(await db.from('world_rankings').select('as_of').eq('season', season), 'world_rankings') ?? [];
+      return check(await db.from('world_rankings').select('climber_id, discipline, position, as_of').eq('season', season),
+        'world_rankings') ?? [];
     },
 
     async replaceWorld(season, rows, asOf) {
@@ -141,22 +158,33 @@ export function supabaseStore(db: SupabaseClient): Store {
           'world_rankings delete');
       }
     },
+
+    async replaceWorldFor(season, climberId, rows, asOf) {
+      if (rows.length) {
+        check(await db.from('world_rankings').upsert(rows.map((r) => ({ ...r, season, as_of: asOf })),
+          { onConflict: 'climber_id,season,discipline' }), 'world_rankings upsert');
+      }
+      const gone = ['boulder', 'lead'].filter((d) => !rows.some((r) => r.discipline === d));
+      if (gone.length) {
+        check(await db.from('world_rankings').delete().eq('season', season).eq('climber_id', climberId).in('discipline', gone),
+          'world_rankings delete');
+      }
+    },
   };
 }
 
 const STALE_MINUTES = 15;
 
 /** Starts a run in ifsc_sync_runs, one at a time: runs still `running` after 15 minutes are marked failed
- *  ('timed out'); if another run is younger, returns null (busy). Soft lock: two calls in the same instant can
- *  both start. */
+ *  ('timed out'); if another run is younger, returns null (busy). The lock is the partial unique index
+ *  ifsc_sync_runs_one_running: of two calls in the same instant, the second insert fails with a unique violation. */
 export async function startRun(db: SupabaseClient): Promise<number | null> {
   const cutoff = new Date(Date.now() - STALE_MINUTES * 60_000).toISOString();
   check(await db.from('ifsc_sync_runs').update({ status: 'failed', error: 'timed out', finished_at: new Date().toISOString() })
     .eq('status', 'running').lt('started_at', cutoff), 'ifsc_sync_runs stale');
-  const busy = check(await db.from('ifsc_sync_runs').select('id').eq('status', 'running').limit(1), 'ifsc_sync_runs') ?? [];
-  if (busy.length) return null;
-  const run = check(await db.from('ifsc_sync_runs').insert({ status: 'running' }).select('id').single(), 'ifsc_sync_runs insert') as { id: number };
-  return run.id;
+  const r = await db.from('ifsc_sync_runs').insert({ status: 'running' }).select('id').single();
+  if (r.error?.code === '23505') return null;
+  return (check(r, 'ifsc_sync_runs insert') as { id: number }).id;
 }
 
 /** Ends a run (ok with counts, or failed with the error). Logs, never throws: the reply must still go out. */

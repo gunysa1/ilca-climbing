@@ -1,8 +1,10 @@
 // Daily IFSC sync (pg_cron with the x-sync-secret header) or a manual run by an admin (staff app).
 // Body {} runs the full sync; { athlete } imports the waiting results of an athlete an admin just linked.
-// Every call is logged in ifsc_sync_runs (running → ok with counts, or failed with the error); one run at a time
-// (409 busy while another runs; a run still running after 15 minutes is marked failed).
+// Every call is logged in ifsc_sync_runs (running → ok with counts and warnings for skipped categories/athletes, or
+// failed with the error); one run at a time (409 busy while another runs; a run still running after 15 minutes is
+// marked failed).
 import { json, cors, requireAdmin, serviceClient } from '../_shared/admin.ts';
+import { localDate } from '../_shared/ifsc.ts';
 import { parseSyncBody, sameSecret } from '../_shared/pure.ts';
 import { runSync, type Ifsc } from './sync.ts';
 import { finishRun, startRun, supabaseStore } from './store.ts';
@@ -54,7 +56,7 @@ Deno.serve(async (req) => {
   const id = run;
 
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDate(new Date());
     const summary = await runSync(ifscFetcher(), supabaseStore(db), today, { onlyAthlete: input.athlete });
     await finishRun(db, id, { status: 'ok', ...summary });
     return json({ status: 'ok', ...summary });
