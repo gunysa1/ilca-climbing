@@ -852,6 +852,74 @@ select pg_temp.assert(jsonb_array_length(round_page('30000000-0000-0000-0000-000
   'round_page lists the competition''s categories');
 reset role;
 
+-- ---------------------------------------------------------------- home_page(): one call for the home page
+-- fixtures: a draft competition with a live round, someone on the wall, a finished competition,
+-- an upcoming and a past published competition (dates relative to Israel's today)
+insert into rounds (id, category_id, kind, status) values
+  ('3f000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002', 'final', 'live');
+insert into judge_claims (boulder_id, climber_id, round_id, judge_id, claimed_at, on_wall_since) values
+  ('40000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001',
+   '00000000-0000-0000-0000-00000000000e', now(), now())
+  on conflict (boulder_id, climber_id) do update set claimed_at = now(), on_wall_since = now(), judge_id = excluded.judge_id;
+update competitions set status = 'finished' where id = '10000000-0000-0000-0000-000000000003';
+insert into competitions (id, name, starts_on, ends_on, status) values
+  ('1a000000-0000-0000-0000-000000000001', 'Tomorrow cup', (now() at time zone 'Asia/Jerusalem')::date + 1, (now() at time zone 'Asia/Jerusalem')::date + 1, 'published'),
+  ('1a000000-0000-0000-0000-000000000002', 'Past cup', (now() at time zone 'Asia/Jerusalem')::date - 10, (now() at time zone 'Asia/Jerusalem')::date - 10, 'published');
+update competitions set starts_on = (now() at time zone 'Asia/Jerusalem')::date + 1,
+  ends_on = (now() at time zone 'Asia/Jerusalem')::date + 1 where id = '10000000-0000-0000-0000-000000000002';
+select pg_temp.login(null);
+select pg_temp.assert(home_page() is not null and json_typeof(home_page() -> 'live') = 'array'
+  and json_typeof(home_page() -> 'upcoming') = 'array' and json_typeof(home_page() -> 'latest') = 'array',
+  'anon gets home_page()');
+select pg_temp.assert(exists (select 1 from json_array_elements(home_page() -> 'live') e
+    where e ->> 'round_id' = '30000000-0000-0000-0000-000000000001'
+      and e -> 'competition' ->> 'name' = 'Israeli Cup #1' and e -> 'category' ->> 'name' = 'Open Women'),
+  'home_page: the live section lists a live round with its competition and category');
+select pg_temp.assert((select json_agg(w ->> 'number' || ':' || (w ->> 'full_name'))::text
+    from json_array_elements(home_page() -> 'live') e, json_array_elements(e -> 'on_wall') w
+    where e ->> 'round_id' = '30000000-0000-0000-0000-000000000001') = '["2:Noa"]',
+  'home_page: who is on the wall in a live round (boulder number, name)');
+select pg_temp.assert(home_page()::text !~ '10000000-0000-0000-0000-000000000002'
+  and home_page()::text !~ '3f000000-0000-0000-0000-000000000001' and home_page()::text !~ '3d000000-0000-0000-0000-000000000001'
+  and home_page()::text !~ 'Secret draft', 'home_page: nothing of a draft competition (public)');
+select pg_temp.assert(home_page()::text !~* 'birth' and home_page()::text !~ 'asthma' and home_page()::text !~ '050-'
+  and home_page()::text !~* 'updated_by' and home_page()::text !~* 'email' and home_page()::text !~* 'judge',
+  'home_page carries no private columns (birth dates, phones, medical notes, emails, judges)');
+select pg_temp.assert(exists (select 1 from json_array_elements(home_page() -> 'upcoming') e where e ->> 'id' = '1a000000-0000-0000-0000-000000000001')
+  and not exists (select 1 from json_array_elements(home_page() -> 'upcoming') e where e ->> 'id' = '1a000000-0000-0000-0000-000000000002')
+  and json_array_length(home_page() -> 'upcoming') <= 3,
+  'home_page: upcoming lists the next published competitions only (at most 3)');
+select pg_temp.assert((select json_agg((w ->> 'full_name') || '@' || (w ->> 'round_kind'))::text
+    from json_array_elements(home_page() -> 'latest') e, json_array_elements(e -> 'winners') w
+    where e ->> 'id' = '10000000-0000-0000-0000-000000000003' and w ->> 'category' = 'Open Women') = '["Tamar@final"]',
+  'home_page: a finished competition with its winner per category (rank 1 of the final, after countback)');
+select pg_temp.assert((select json_agg(w ->> 'full_name' order by w ->> 'full_name')::text
+    from json_array_elements(home_page() -> 'latest') e, json_array_elements(e -> 'winners') w
+    where e ->> 'id' = '10000000-0000-0000-0000-000000000003' and w ->> 'category' = 'Tie Men') = '["Noa", "Tamar"]',
+  'home_page: tied winners are all listed');
+select pg_temp.assert(not exists (select 1 from json_array_elements(home_page() -> 'latest') e
+    where e ->> 'id' <> '10000000-0000-0000-0000-000000000003'
+      and e ->> 'id' not in (select id::text from competitions where status = 'finished')),
+  'home_page: latest results are finished competitions only');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert(home_page()::text !~ '10000000-0000-0000-0000-000000000002' and home_page()::text !~ '3f000000-0000-0000-0000-000000000001',
+  'home_page: drafts stay off the home page for admins too');
+select pg_temp.login(null);
+select pg_temp.assert(json_array_length(favorites_page(array['00000000-0000-0000-0000-000000000001'::uuid]) -> 'profiles') = 1
+  and json_array_length(favorites_page(array['00000000-0000-0000-0000-000000000001'::uuid]) -> 'history')
+    = (select count(*) from climber_history_for(array['00000000-0000-0000-0000-000000000001'::uuid]))
+  and json_array_length(favorites_page(array['00000000-0000-0000-0000-000000000001'::uuid]) -> 'history') > 0
+  and favorites_page(array['00000000-0000-0000-0000-000000000001'::uuid])::text !~* 'birth|asthma|050-|email',
+  'favorites_page: public profiles and history of the starred climbers, nothing private');
+select pg_temp.assert(json_array_length(favorites_page('{}') -> 'profiles') = 0
+  and json_array_length(favorites_page('{}') -> 'history') = 0, 'favorites_page: nothing for no favorites');
+reset role;
+delete from judge_claims where boulder_id = '40000000-0000-0000-0000-000000000002' and climber_id = '00000000-0000-0000-0000-000000000001';
+delete from rounds where id = '3f000000-0000-0000-0000-000000000001';
+delete from competitions where id in ('1a000000-0000-0000-0000-000000000001', '1a000000-0000-0000-0000-000000000002');
+update competitions set starts_on = '2026-12-01', ends_on = '2026-12-01' where id = '10000000-0000-0000-0000-000000000002';
+update competitions set status = 'published' where id = '10000000-0000-0000-0000-000000000003';
+
 -- ---------------------------------------------------------------- deleting an account (service role)
 reset role;
 insert into profiles (id, full_name) values ('dddd0000-0000-0000-0000-000000000001', 'Former Judge'), ('dddd0000-0000-0000-0000-000000000002', 'Scorer');
