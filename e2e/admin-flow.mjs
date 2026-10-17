@@ -52,7 +52,8 @@ step('home page with nothing live: no "Live now"; menu link to the competitions 
   await home.getByRole('heading', { name: /National ranking/ }).waitFor();
   await home.waitForLoadState('networkidle');
   if (await home.locator('.home-live').count()) problems.push('home shows "Live now" with nothing live');
-  if (reqs.join() !== 'rpc/home_page,rpc/season_rankings') problems.push(`home requests (empty): ${reqs.join(', ')}`);
+  // the ranking: this season, and the previous one when this season has no points yet
+  if (!/^rpc\/home_page,rpc\/season_rankings(,rpc\/season_rankings)?$/.test(reqs.join())) problems.push(`home requests (empty): ${reqs.join(', ')}`);
   await home.waitForTimeout(6000); // nothing live: the live part is asked again only after 60 s
   if (reqs.filter((r) => r === 'rpc/home_page').length !== 1) problems.push(`home polls with nothing live: ${reqs.join(', ')}`);
   await home.locator('.nav').getByRole('link', { name: 'Competitions' }).click();

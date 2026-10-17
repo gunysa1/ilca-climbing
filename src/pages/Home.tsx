@@ -150,6 +150,17 @@ export function Home() {
   );
 }
 
+const previousSeason = (season: string) => {
+  const start = Number(season.slice(0, 4)) - 1;
+  return `${start}-${String((start + 1) % 100).padStart(2, '0')}`;
+};
+
+/** A season from this visit's cache, else from the database. */
+const seasonData = (season: string) => (seasonCache.has(season) ? Promise.resolve(seasonCache.get(season)!) : loadSeason(season));
+
+const rankingTables = (data: SeasonData, season: string) =>
+  TABLES.map((x) => ({ ...x, rows: topOfRanking(seasonRanking(data, season, 'senior', x.gender, x.discipline)) }));
+
 const TABLES: { discipline: Discipline; gender: Gender; label: [MsgKey, MsgKey] }[] = [
   { discipline: 'boulder', gender: 'male', label: ['discBoulder', 'men'] },
   { discipline: 'boulder', gender: 'female', label: ['discBoulder', 'women'] },
@@ -157,19 +168,31 @@ const TABLES: { discipline: Discipline; gender: Gender; label: [MsgKey, MsgKey] 
   { discipline: 'lead', gender: 'female', label: ['discLead', 'women'] },
 ];
 
-/** Top 3 senior men and women in bouldering and lead this season: the rankings page's calculation.
+/** Top 3 senior men and women in bouldering and lead: the rankings page's calculation. Early in a
+ * season, before anyone has points, it shows the previous season (labelled with its season).
  * Rendered after the rest of the page has its data, so it never holds up the top. */
 function HomeRanking() {
   const { t, lang } = useI18n();
-  const season = seasonOf(new Date());
-  const [data, setData] = useState<SeasonData | null>(seasonCache.get(season) ?? null);
+  const current = seasonOf(new Date());
+  const [shown, setShown] = useState<{ season: string; data: SeasonData } | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let live = true;
-    void loadSeason(season).then((d) => { if (!live) return; if (d) setData(d); else if (!seasonCache.has(season)) setFailed(true); });
+    void (async () => {
+      const d = await seasonData(current);
+      if (!live) return;
+      if (!d) { setFailed(true); return; }
+      if (!rankingTables(d, current).every((x) => x.rows.length === 0)) { setShown({ season: current, data: d }); return; }
+      const previous = previousSeason(current);
+      const p = await seasonData(previous);
+      if (!live) return;
+      setShown(p && !rankingTables(p, previous).every((x) => x.rows.length === 0) ? { season: previous, data: p } : { season: current, data: d });
+    })();
     return () => { live = false; };
-  }, [season]);
-  const tables = useMemo(() => (data ? TABLES.map((x) => ({ ...x, rows: topOfRanking(seasonRanking(data, season, 'senior', x.gender, x.discipline)) })) : null), [data, season]);
+  }, [current]);
+  const season = shown?.season ?? current;
+  const data = shown?.data ?? null;
+  const tables = useMemo(() => (shown ? rankingTables(shown.data, shown.season) : null), [shown]);
   const empty = tables?.every((x) => x.rows.length === 0);
 
   return (
