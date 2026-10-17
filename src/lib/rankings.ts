@@ -213,6 +213,8 @@ export interface RankingInput {
   rounds: RoundPlacing[];
   /** Age class of each climber in this season (youth rankings). */
   ageClass: Map<string, RankClass>;
+  /** Climbers below the senior minimum age this season (`season_senior_too_young`): not in the senior ranking. */
+  tooYoung?: Set<string>;
   intl: IntlResult[];
   adjustments: Adjustment[];
   /** Profile gender, when known (places international-only climbers in the right table). */
@@ -237,7 +239,10 @@ export function computeRanking(input: RankingInput): RankingRow[] {
   const { rankClass, gender, discipline } = input;
   const rows = input.rounds.filter((r) => r.discipline === discipline && (r.gender === gender));
   const youth = rankClass !== 'senior';
-  const inClass = (id: string) => !youth || input.ageClass.get(id) === rankClass;
+  const inClass = (id: string) => youth ? input.ageClass.get(id) === rankClass : !input.tooYoung?.has(id);
+  // Places among the ranking's own climbers: youth by age class; seniors without those too young
+  // (mixed events such as "נשים+ U17" re-rank the seniors among themselves).
+  const ownPlaces = (places: EventPlace[]) => youth || places.some((p) => !inClass(p.climber_id)) ? cutPlaces(places, inClass) : places;
 
   const acc = new Map<string, { events: EventScore[]; champ: { place: number; points: number } | null; bonus: number }>();
   const get = (id: string) => {
@@ -253,9 +258,7 @@ export function computeRanking(input: RankingInput): RankingRow[] {
       ? r.series === 'premier_league_u17' || /U\s?17/i.test(r.category)
       : !youthOnly(r.category)));
   for (const [, pool] of leaguePools) {
-    let places = eventPlaces(pool);
-    if (youth) places = cutPlaces(places, inClass);
-    for (const p of places) {
+    for (const p of ownPlaces(eventPlaces(pool))) {
       if (!inClass(p.climber_id)) continue;
       get(p.climber_id).events.push({ competition_id: pool[0].competition_id, label: pool[0].competition, starts_on: pool[0].starts_on,
         place: p.place, points: leaguePoints(p.place, p.tied), counted: false, kind: 'league' });
@@ -267,7 +270,7 @@ export function computeRanking(input: RankingInput): RankingRow[] {
     ? pools(rows, (r) => r.series === 'youth_championship' && classOfCategory(r.category) === rankClass)
     : pools(rows, (r) => r.series === 'israeli_championship' && !youthOnly(r.category));
   for (const [, pool] of champPools) {
-    for (const p of eventPlaces(pool)) {
+    for (const p of youth ? eventPlaces(pool) : ownPlaces(eventPlaces(pool))) {
       const e = get(p.climber_id);
       const points = round2(2 * leaguePoints(p.place, p.tied));
       if (!e.champ || points > e.champ.points) e.champ = { place: p.place, points };

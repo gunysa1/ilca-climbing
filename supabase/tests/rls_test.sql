@@ -712,9 +712,20 @@ select pg_temp.assert(
   (select array_agg(right(climber_id::text, 2) || ':' || age_class order by climber_id) from season_age_classes('2026-27'))
     = '{0a:U19}',
   'age classes: only the class, only climbers with a public result that season');
+select pg_temp.assert(not exists (select 1 from season_senior_too_young('2026-27')),
+  'senior minimum: 18 in 2027 is old enough');
 reset role;
+update profile_private set birth_date = '2011-05-01' where id = '60000000-0000-0000-0000-00000000000a';
+select pg_temp.login(null);
+select pg_temp.assert(
+  (select array_agg(right(climber_id::text, 2)) from season_senior_too_young('2026-27')) = '{0a}',
+  'senior minimum: 16 in 2027 is below 17; only climbers with a public result that season');
+reset role;
+update profile_private set birth_date = '2009-05-01' where id = '60000000-0000-0000-0000-00000000000a';
 update competitions set series = 'other' where id = '10000000-0000-0000-0000-000000000001';
 select pg_temp.login(null);
+select pg_temp.assert(not exists (select 1 from season_senior_too_young('2026-27')),
+  'senior minimum: nothing for climbers who only competed in unranked events');
 select pg_temp.assert(not exists (select 1 from season_age_classes('2026-27')),
   'age classes: nothing for climbers who only competed in unranked events');
 reset role;
@@ -817,6 +828,9 @@ from unnest(array['public.admin_accounts()', 'public.link_account(uuid,uuid)', '
 select pg_temp.assert(prosecdef and has_function_privilege('anon', 'public.season_age_classes(text)', 'execute'),
   'season_age_classes reads private birth dates for everyone, exposing only the class')
 from pg_proc where oid = 'public.season_age_classes(text)'::regprocedure;
+select pg_temp.assert(prosecdef and has_function_privilege('anon', 'public.season_senior_too_young(text)', 'execute'),
+  'season_senior_too_young reads private birth dates for everyone, exposing only "below the minimum"')
+from pg_proc where oid = 'public.season_senior_too_young(text)'::regprocedure;
 select pg_temp.assert(not prosecdef, 'previous_round runs with the caller''s rights')
 from pg_proc where oid = 'public.previous_round(uuid)'::regprocedure;
 select pg_temp.assert(not has_function_privilege(r, f, 'execute'), r || ' cannot execute trigger ' || f)

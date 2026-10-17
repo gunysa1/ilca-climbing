@@ -18,6 +18,7 @@ const FIRST_YOUTH_SEASON = '2024-25';
 interface SeasonData {
   rounds: RoundPlacing[];
   ageClass: Map<string, RankClass>;
+  tooYoung: Set<string>;
   intl: IntlResult[];
   adjustments: (Adjustment & { season: string })[];
   profiles: Map<string, Profile & { gender: Gender | null }>;
@@ -46,10 +47,11 @@ export function Rankings() {
     if (!season) return;
     setData(null);
     (async () => {
-      const [rounds, { data: ages }, { data: intl }, { data: adjustments }] = await Promise.all([
+      const [rounds, { data: ages }, { data: young }, { data: intl }, { data: adjustments }] = await Promise.all([
         // season_ranking_rounds() ranks only the season's rounds (the ranking_rounds view ranks every round)
         allRows<RoundPlacing>((from, to) => supabase.rpc('season_ranking_rounds', { p_season: season }).range(from, to)),
         supabase.rpc('season_age_classes', { p_season: season }),
+        supabase.rpc('season_senior_too_young', { p_season: season }),
         supabase.from('international_results').select('*').eq('season', season),
         supabase.from('ranking_adjustments').select('*').eq('season', season),
       ]);
@@ -62,6 +64,7 @@ export function Rankings() {
       setData({
         rounds,
         ageClass: new Map(((ages ?? []) as { climber_id: string; age_class: RankClass }[]).map((a) => [a.climber_id, a.age_class])),
+        tooYoung: new Set(((young ?? []) as { climber_id: string }[]).map((y) => y.climber_id)),
         intl: (intl ?? []).map((r) => ({ ...r, points: r.points == null ? null : Number(r.points) })) as IntlResult[],
         adjustments: (adjustments ?? []).map((a) => ({ ...a, points: Number(a.points) })) as SeasonData['adjustments'],
         profiles,
@@ -71,7 +74,7 @@ export function Rankings() {
 
   const rows = useMemo(() => {
     if (!data || discipline === 'speed') return [];
-    return computeRanking({ rankClass, gender, discipline, rounds: data.rounds, ageClass: data.ageClass, intl: data.intl,
+    return computeRanking({ rankClass, gender, discipline, rounds: data.rounds, ageClass: data.ageClass, tooYoung: data.tooYoung, intl: data.intl,
       adjustments: data.adjustments, climberGender: new Map([...data.profiles].map(([id, p]) => [id, p.gender])) });
   }, [data, rankClass, gender, discipline]);
 

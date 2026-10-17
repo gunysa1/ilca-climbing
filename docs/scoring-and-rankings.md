@@ -94,6 +94,10 @@ U17 = E-16…E-15.
 
 - Equal totals: the better (youth) championship place ranks higher; otherwise the rank is shared.
 - Only climbers with more than 0 points are listed.
+- Senior rankings leave out climbers below IFSC's senior minimum age (by age reached in the year the
+  season ends): 16 until 2024, 17 from 2025 (IFSC General Assembly 2023, IFSC rules 2025), so
+  2024-25 starts with those born in 2008. In events shared with them (e.g. "נשים+ U17") the seniors
+  are re-ranked among themselves. `season_senior_too_young()` exposes only "below the minimum".
 - Admin adjustments (e.g. disciplinary deductions published by ILCA) are added last.
 - International results: the points ILCA published (2023-24 seniors, 2024-25 youth bouldering),
   results imported from IFSC for the other seasons and tables (`tools/ifsc`, 2023-24 to 2025-26),

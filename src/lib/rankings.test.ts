@@ -146,6 +146,14 @@ describe('rankings (appendix examples)', () => {
     expect([me.total, me.bonus, me.championship?.points]).toEqual([270, 70, 94]);
   });
 
+  it('seniors: climbers below the minimum age are left out and the rest re-ranked among themselves', () => {
+    // "נשים+ U17": the U17 climber y wins; a, b move up to 1st and 2nd among the seniors.
+    const rounds = [...event('premier_league', { y: 1, a: 2, b: 3 }), ...event('israeli_championship', { y: 1, a: 2 })];
+    const r = computeRanking({ rankClass: 'senior', gender: 'female', discipline: 'lead', rounds, ageClass: new Map(),
+      tooYoung: new Set(['y']), intl: [intl({ climber_id: 'y', place: 1, field_size: 10 })], adjustments: [] });
+    expect(r.map((x) => [x.climber_id, x.total])).toEqual([['a', 300], ['b', 80]]);
+  });
+
   it('ranking ties: the championship place breaks them, otherwise shared; adjustments apply', () => {
     // a: 100 + 130 (3rd) + 10 = 240; b: 80 + 160 (2nd) = 240 -> b first (better championship place)
     const rounds = [...event('premier_league', { a: 1, b: 2 }), ...event('israeli_championship', { c: 1, b: 2, a: 3 }),
