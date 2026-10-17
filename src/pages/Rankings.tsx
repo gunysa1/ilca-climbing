@@ -5,7 +5,7 @@ import { FavoriteStar } from '../components/FavoriteStar';
 import { localized, useI18n, type MsgKey } from '../lib/i18n';
 import { RANK_CLASSES, type Gender, type RankClass } from '../lib/rankings';
 import { criteriaForSeason, FIRST_SEASON, FIRST_YOUTH_SEASON } from '../lib/criteria';
-import { loadSeason, seasonCache, seasonRanking, type SeasonData } from '../lib/seasonRankings';
+import { fmtPoints, loadSeason, seasonCache, seasonRanking, type SeasonData } from '../lib/seasonRankings';
 import { supabase } from '../lib/supabase';
 
 const CLASS_LABEL: Record<RankClass, MsgKey | null> = { senior: 'seniors', U21: null, U19: null, U17: null };
@@ -139,4 +139,4 @@ export function Rankings() {
   );
 }
 
-const fmt = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(2).replace(/0$/, ''));
+const fmt = fmtPoints;

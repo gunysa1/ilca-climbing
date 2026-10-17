@@ -48,3 +48,6 @@ export function seasonRanking(data: SeasonData, season: string, rankClass: RankC
   return computeRanking({ criteria: criteriaForSeason(season).criteria, worldRank, rankClass, gender, discipline, rounds: data.rounds, ageClass: data.ageClass, tooYoung: data.tooYoung, intl: data.intl,
     adjustments: data.adjustments, climberGender: new Map([...data.profiles].map(([id, p]) => [id, p.gender])) });
 }
+
+/** Ranking points as the tables show them (whole numbers plain, else up to two decimals). */
+export const fmtPoints = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(2).replace(/0$/, ''));
