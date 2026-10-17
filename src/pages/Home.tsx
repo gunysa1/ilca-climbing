@@ -3,9 +3,10 @@ import { Link } from 'react-router-dom';
 import { ContinueBar } from '../components/ContinueBar';
 import { FavoriteStar } from '../components/FavoriteStar';
 import { useFavorites } from '../lib/favorites';
-import { favoritesLatest, parseHome, topOfRanking, winnersByCategory, type HomeData } from '../lib/home';
+import {
+  favoritesLatest, homePollDue, parseHome, parseLive, topOfRanking, winnersByCategory, withLive, type HomeData,
+} from '../lib/home';
 import { localized, useI18n, type MsgKey } from '../lib/i18n';
-import { ON_WALL_POLL_MS } from '../lib/onWall';
 import type { Discipline, Gender } from '../lib/rankings';
 import { seasonOf } from '../lib/season';
 import { fmtPoints, loadSeason, seasonCache, seasonRanking, type SeasonData } from '../lib/seasonRankings';
@@ -25,21 +26,31 @@ export function Home() {
   const anyLive = (home?.live.length ?? 0) > 0;
   const date = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-GB');
 
-  // Everything but the ranking and favorites: one request; again every 5 s while a round is live
-  // (who is on the wall), like the round page.
+  // Everything but the ranking and favorites: one request. Then only the live part (home_page(true)):
+  // every 5 s while a round is live (who is on the wall, like the round page), every 60 s otherwise;
+  // paused while the tab is hidden, one request at a time.
   useEffect(() => {
     let stop = false;
-    const load = () => supabase.rpc('home_page').then(({ data, error }) => {
-      if (stop) return;
-      if (error || !data) { if (!homeCache) setFailed(true); return; }
-      homeCache = parseHome(data);
-      setHome(homeCache);
-      setFailed(false);
-    });
-    void load();
+    let busy = false;
+    let last = Date.now();
+    const run = (liveOnly: boolean) => {
+      busy = true;
+      last = Date.now();
+      return supabase.rpc('home_page', liveOnly ? { p_live_only: true } : {}).then(({ data, error }) => {
+        busy = false;
+        if (stop) return;
+        if (error || !data) { if (!homeCache) setFailed(true); return; }
+        homeCache = liveOnly && homeCache ? withLive(homeCache, parseLive(data)) : parseHome(data);
+        setHome(homeCache);
+        setFailed(false);
+      }, () => { busy = false; if (!stop && !homeCache) setFailed(true); });
+    };
+    void run(false);
     const timer = setInterval(() => {
-      if (homeCache?.live.length && document.visibilityState === 'visible') void load();
-    }, ON_WALL_POLL_MS);
+      if (busy || document.visibilityState !== 'visible') return;
+      if (!homePollDue(Date.now(), last, (homeCache?.live.length ?? 0) > 0)) return;
+      void run(homeCache !== null); // the first load failed: try the whole page again
+    }, 1000);
     return () => { stop = true; clearInterval(timer); };
   }, []);
 
@@ -107,7 +118,9 @@ export function Home() {
                       <ul className="winners">
                         {winnersByCategory(c.winners).map((g) => (
                           <li key={g.category_id}>
-                            <Link to={`/round/${g.round_id}`} className="winner-cat">{localized(lang, g.category, g.category_he)}</Link>
+                            <Link to={`/round/${g.round_id}`} className="winner-cat">
+                              {localized(lang, g.category, g.category_he)}{g.climbers[0].round_kind !== 'final' && <> · {t(g.climbers[0].round_kind)}</>}
+                            </Link>
                             <span className="winner-names">
                               <span className="medal-1" aria-hidden>1</span>
                               {g.climbers.map((w, i) => (
@@ -124,7 +137,11 @@ export function Home() {
             </section>
           )}
           <p className="home-more"><Link to="/competitions">{t('allCompetitions')} ›</Link></p>
-
+        </>
+      )}
+      {/* after the top of the page has its data (or failed to get it) */}
+      {(home || failed) && (
+        <>
           <HomeRanking />
           <HomeFavorites />
         </>
@@ -193,14 +210,17 @@ function HomeFavorites() {
   const { ids } = useFavorites();
   const key = ids.join(',');
   const [data, setData] = useState<{ profiles: Profile[]; history: HistoryRow[] } | null>(null);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
+    setFailed(false);
     if (ids.length === 0) { setData(null); return; }
     let live = true;
-    void supabase.rpc('favorites_page', { p_climbers: ids }).then(({ data: d }) => {
+    void supabase.rpc('favorites_page', { p_climbers: ids }).then(({ data: d, error }) => {
       if (!live) return;
-      const page = (d ?? {}) as { profiles?: Profile[]; history?: HistoryRow[] };
+      if (error || !d) { setFailed(true); return; }
+      const page = d as { profiles?: Profile[]; history?: HistoryRow[] };
       setData({ profiles: page.profiles ?? [], history: page.history ?? [] });
-    });
+    }, () => { if (live) setFailed(true); });
     return () => { live = false; };
   }, [key]);
   const list = useMemo(() => (data ? favoritesLatest(ids, data.profiles, data.history) : []), [data, key]);
@@ -209,7 +229,7 @@ function HomeFavorites() {
   return (
     <section className="home-section">
       <h2>★ {t('homeFavorites')}</h2>
-      {!data ? <p className="muted">{t('loading')}</p> : (
+      {!data ? (failed ? <p className="error" role="alert">{t('loadFailed')}</p> : <p className="muted">{t('loading')}</p>) : (
         <ul className="event-list">
           {list.map(({ profile: p, latest: e }) => (
             <li key={p.id} className="event">

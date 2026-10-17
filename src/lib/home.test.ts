@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { favoritesLatest, parseHome, topOfRanking, winnersByCategory, type HomeWinner } from './home';
+import {
+  favoritesLatest, homePollDue, parseHome, parseLive, topOfRanking, winnersByCategory, withLive, type HomeLiveRound, type HomeWinner,
+} from './home';
 import type { RankingRow } from './rankings';
 import type { HistoryRow, Profile } from './types';
 
@@ -19,7 +21,7 @@ const profile = (id: string): Profile => ({ id, full_name: id.toUpperCase(), ful
 describe('parseHome', () => {
   it('fills missing parts with empty lists', () => {
     expect(parseHome(null)).toEqual({ live: [], upcoming: [], latest: [] });
-    const d = parseHome({ live: [{ round_id: 'r' }], latest: [{ id: 'c' }] });
+    const d = parseHome({ live: [{ round_id: 'r', competition: { id: 'x' } }], latest: [{ id: 'c' }] });
     expect(d.live[0].on_wall).toEqual([]);
     expect(d.latest[0].winners).toEqual([]);
   });
@@ -53,5 +55,32 @@ describe('favoritesLatest', () => {
     ]);
     expect(out.map((f) => [f.profile.id, f.latest?.competition_id ?? null, f.latest?.placing ?? null]))
       .toEqual([['b', null, null], ['a', 'new', 2]]);
+  });
+});
+
+const liveRound = (competition: string): HomeLiveRound => ({
+  round_id: `r-${competition}`, kind: 'qualification', scoring: 'ifsc2025',
+  category: { id: 'cat', name: 'Women', name_he: null, gender: 'female' },
+  competition: { id: competition, name: competition, name_he: null }, on_wall: [],
+});
+const comp = (id: string) => ({ id, name: id, name_he: null, venue: null, starts_on: '2026-11-01', ends_on: '2026-11-01' });
+
+describe('withLive', () => {
+  it('replaces the live part and keeps a live competition out of upcoming', () => {
+    const home = { live: [], upcoming: [comp('a'), comp('b')], latest: [] };
+    const next = withLive(home, [liveRound('b')]);
+    expect(next.live.map((r) => r.round_id)).toEqual(['r-b']);
+    expect(next.upcoming.map((c) => c.id)).toEqual(['a']);
+    expect(parseHome({ live: [liveRound('a')], upcoming: [comp('a')] }).upcoming).toEqual([]);
+    expect(parseLive({ live: [{ ...liveRound('a'), on_wall: undefined }] })[0].on_wall).toEqual([]);
+  });
+});
+
+describe('homePollDue', () => {
+  it('every 5 s while live, every 60 s otherwise', () => {
+    expect(homePollDue(5000, 0, true)).toBe(true);
+    expect(homePollDue(3000, 0, true)).toBe(false);
+    expect(homePollDue(5000, 0, false)).toBe(false);
+    expect(homePollDue(60000, 0, false)).toBe(true);
   });
 });

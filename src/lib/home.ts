@@ -27,11 +27,29 @@ export interface HomeData {
 /** home_page() json -> HomeData (missing parts are empty). */
 export function parseHome(raw: unknown): HomeData {
   const d = (raw ?? {}) as Partial<HomeData>;
-  return {
-    live: (d.live ?? []).map((r) => ({ ...r, on_wall: r.on_wall ?? [] })),
+  return withLive({
+    live: [],
     upcoming: d.upcoming ?? [],
     latest: (d.latest ?? []).map((c) => ({ ...c, winners: c.winners ?? [] })),
-  };
+  }, parseLive(raw));
+}
+
+/** The live part of home_page() / home_page(true). */
+export function parseLive(raw: unknown): HomeLiveRound[] {
+  return (((raw ?? {}) as Partial<HomeData>).live ?? []).map((r) => ({ ...r, on_wall: r.on_wall ?? [] }));
+}
+
+/** How often the home page asks for the live part (home_page(true)): often while something is live
+ * (who is on the wall, as on the round page), rarely otherwise (a round that goes live later appears). */
+export const HOME_LIVE_POLL_MS = 5000;
+export const HOME_IDLE_POLL_MS = 60000;
+export const homePollDue = (now: number, last: number, anyLive: boolean) =>
+  now - last >= (anyLive ? HOME_LIVE_POLL_MS : HOME_IDLE_POLL_MS) - 250; // timer jitter
+
+/** The page with a fresh live part (home_page(true)); a competition that is live now isn't "upcoming". */
+export function withLive(home: HomeData, live: HomeLiveRound[]): HomeData {
+  const liveComps = new Set(live.map((r) => r.competition.id));
+  return { ...home, live, upcoming: home.upcoming.filter((c) => !liveComps.has(c.id)) };
 }
 
 /** Winners grouped by category (a tie gives one category several winners), in the order given. */

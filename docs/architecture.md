@@ -79,10 +79,11 @@ adjustments, world rankings and profiles in one JSON), and the climber page one 
 RPC (profile, history and the competitions' series and season).
 
 The viewer opens on a home page (`/`, `src/pages/Home.tsx`): continue watching, rounds live now (with
-who is on the wall; refreshed every 5 s while something is live), the next 3 published competitions,
+who is on the wall), the next 3 published competitions (not live yet),
 the 3 latest finished ones with each category's winners (rank 1 of its last round, ties all shown),
 and the favorites. All of that but the favorites is one `home_page()` call (security invoker, explicit
-public columns, drafts left out); the favorites are one `favorites_page(climbers)` call, only when the
+public columns, drafts left out, JIT off). After that only `home_page(true)` (the live part) is polled: every 5 s
+while a round is live, every 60 s otherwise. A last round climbed in groups shows no winner. The favorites are one `favorites_page(climbers)` call, only when the
 device has some. After that the page loads this season's `season_rankings` for the top 3 senior men /
 women in boulder and lead, through `lib/seasonRankings.ts`, the same loader, cache and calculation as
 the rankings page. The competitions list by season is at `/competitions`.
@@ -177,4 +178,4 @@ judge pad subscribes to `judge_claims` of its boulder. Everything else loads on 
 | 20261017000027 | senior minimum age (`season_senior_too_young`) |
 | 20261017000028 | `world_rankings` (IFSC world-ranking position per climber, season, discipline) |
 | 20261017000029 | page RPCs `season_rankings(season)` and `climber_page(climber)`; NULL-array fix |
-| 20261017000030 | home page RPCs `home_page()` (live rounds and who is on the wall, upcoming, latest with winners) and `favorites_page(climbers)` |
+| 20261017000030 | home page RPCs `home_page(live_only)` (live rounds and who is on the wall, upcoming, latest with winners) and `favorites_page(climbers)` |
