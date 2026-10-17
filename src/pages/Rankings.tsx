@@ -165,7 +165,7 @@ export function Rankings() {
             </table>
           </div>
         )}
-      <p className="muted small">{t('rankingsRule')}</p>
+      <p className="muted small">{t(edition?.criteria.id === 'ilca2027' ? 'rankingsRule2027' : 'rankingsRule')}</p>
       <DisciplineBar value={discipline} onChange={setDiscipline} />
     </section>
   );

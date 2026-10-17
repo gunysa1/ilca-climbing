@@ -196,6 +196,10 @@ const dict = {
   criteriaLine: { he: 'לפי', en: 'Per' },
   criteriaAssumed: { he: 'הנחה: מסמך העונה לא זמין, לפי המסמך הקודם', en: "Assumed: this season's document is not available; using the previous one" },
   worldRankProvisional: { he: 'דירוג עולמי זמני (נקבע ב-1 בינואר)', en: 'Provisional world ranking (set on 1 January)' },
+  rankingsRule2027: {
+    he: 'בוגרים: אליפות ישראל (ניקוד כפול) ועוד שתי התוצאות הטובות בליגת העל ובניקוד הדירוג העולמי של World Climbing (מקומות 1-10: 400, 11-20: 300, 21-30: 200, 31-40: 100), שמחליף את אירוע הליגה החלש יותר כשהוא גבוה ממנו; בנוער: שתי התוצאות הטובות בליגה במחלקת הגיל, אליפות ישראל לנוער (ניקוד כפול) ובונוס אליפויות נוער: עולם (גמר 60, פודיום 100) ואירופה (גמר 40, פודיום 60). תחרויות שלא נספרו מסומנות באפור.',
+    en: 'Seniors: Israeli championship (double points) plus the best two of the premier-league results and the World Climbing world-ranking points (places 1-10: 400, 11-20: 300, 21-30: 200, 31-40: 100), which replace the weaker league event when higher; youth: the best two league results in the age class, the youth championship (double points) and the youth-championship bonus: World (final 60, podium 100) and European (final 40, podium 60). Results that do not count are greyed out.',
+  },
   intlResults: { he: 'תוצאות בין-לאומיות', en: 'International results' },
   noRankings: { he: 'אין עדיין מדרג לעונה הזו', en: 'No rankings for this season yet' },
   updatedAt: { he: 'עודכן', en: 'Updated' },
