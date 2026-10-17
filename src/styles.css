@@ -253,6 +253,9 @@ h1 .fav-star { font-size: 1.6rem; }
 .ranking-part.dropped { opacity: .45; text-decoration: line-through; }
 .ranking-part.champ { border-color: var(--accent); }
 .ranking-part.adjust { border-style: dashed; }
+a.ranking-part { text-decoration: none; }
+a.ranking-part:hover { border-color: var(--accent); }
+a.ranking-part.dropped { text-decoration: line-through; }
 
 /* Round header: last update, open appeals, PDF (print) */
 .round-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: -.25rem 0 .75rem; }

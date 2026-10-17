@@ -144,15 +144,18 @@ export function Rankings() {
                         <Link className="athlete" to={`/climber/${r.climber_id}?d=${discipline}`}>{p ? localized(lang, p.full_name, p.full_name_he) : '?'}</Link>
                         {p?.club && <span className="athlete-meta">{p.club}</span>}
                         <span className="ranking-parts">
-                          {r.events.map((e) => (
-                            <span key={e.competition_id} className={`ranking-part${e.counted ? '' : ' dropped'}`} title={e.label}>
-                              {e.kind === 'intl' ? '🌍 ' : e.kind === 'world' ? '🌐 ' : ''}{e.place ? <>{e.place}<small> · {fmt(e.points)}</small></> : fmt(e.points)}
-                            </span>
-                          ))}
+                          {r.events.map((e) => {
+                            const cls = `ranking-part${e.counted ? '' : ' dropped'}`;
+                            const body = <>{e.kind === 'intl' ? '🌍 ' : e.kind === 'world' ? '🌐 ' : ''}{e.place ? <>{e.place}<small> · {fmt(e.points)}</small></> : fmt(e.points)}</>;
+                            // ILCA league events link to their competition; international ones have no page here
+                            return e.kind === 'league'
+                              ? <Link key={e.competition_id} to={`/competition/${e.competition_id}`} className={cls} title={e.label}>{body}</Link>
+                              : <span key={e.competition_id} className={cls} title={e.label}>{body}</span>;
+                          })}
                           {r.championship && (
-                            <span className="ranking-part champ" title={t(youth ? 'youthChampShort' : 'champShort')}>
+                            <Link to={`/competition/${r.championship.competition_id}`} className="ranking-part champ" title={`${t(youth ? 'youthChampShort' : 'champShort')} · ${r.championship.label}`}>
                               🏆 {r.championship.place}<small> · {fmt(r.championship.points)}</small>
-                            </span>
+                            </Link>
                           )}
                           {r.bonus > 0 && <span className="ranking-part" title={t('intlBonus')}>🌍 +{fmt(r.bonus)}</span>}
                           {r.adjustment !== 0 && <span className="ranking-part adjust" title={t('adjustment')}>{r.adjustment > 0 ? '+' : ''}{fmt(r.adjustment)}</span>}

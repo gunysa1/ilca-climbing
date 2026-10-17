@@ -115,7 +115,7 @@ describe('rankings (appendix examples)', () => {
     const r = computeRanking({ criteria: ILCA_2025, rankClass: 'senior', gender: 'female', discipline: 'lead', rounds, ageClass: new Map(), intl: wc, adjustments: [] });
     const me = r.find((x) => x.climber_id === 'me')!;
     expect(me.total).toBe(370);
-    expect(me.championship).toEqual({ place: 3, points: 130 });
+    expect(me.championship).toMatchObject({ place: 3, points: 130, competition_id: expect.any(String), label: expect.any(String) });
     expect(me.events.filter((e) => e.counted).map((e) => e.points).sort()).toEqual([100, 140]);
   });
 

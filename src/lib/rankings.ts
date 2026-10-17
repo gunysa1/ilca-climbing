@@ -199,13 +199,16 @@ export interface Adjustment { climber_id: string; discipline: Discipline; rank_c
 
 export interface EventScore { competition_id: string; label: string; starts_on: string; place: number; points: number; counted: boolean; kind: 'league' | 'intl' | 'world' }
 
+export interface Championship { place: number; points: number; competition_id: string; label: string }
+
 export interface RankingRow {
   climber_id: string;
   rank: number;
   total: number;
   /** League (and for seniors international or world ranking) events, with the best 2 marked counted. */
   events: EventScore[];
-  championship: { place: number; points: number } | null;
+  /** Best (youth) championship result, with the competition it came from. */
+  championship: Championship | null;
   bonus: number;
   adjustment: number;
 }
@@ -252,7 +255,7 @@ export function computeRanking(input: RankingInput): RankingRow[] {
   // (mixed events such as "נשים+ U17" re-rank the seniors among themselves).
   const ownPlaces = (places: EventPlace[]) => youth || places.some((p) => !inClass(p.climber_id)) ? cutPlaces(places, inClass) : places;
 
-  const acc = new Map<string, { events: EventScore[]; champ: { place: number; points: number } | null; bonus: number }>();
+  const acc = new Map<string, { events: EventScore[]; champ: Championship | null; bonus: number }>();
   const get = (id: string) => {
     if (!acc.has(id)) acc.set(id, { events: [], champ: null, bonus: 0 });
     return acc.get(id)!;
@@ -281,7 +284,7 @@ export function computeRanking(input: RankingInput): RankingRow[] {
     for (const p of youth ? eventPlaces(pool) : ownPlaces(eventPlaces(pool))) {
       const e = get(p.climber_id);
       const points = round2(2 * leaguePoints(p.place, p.tied));
-      if (!e.champ || points > e.champ.points) e.champ = { place: p.place, points };
+      if (!e.champ || points > e.champ.points) e.champ = { place: p.place, points, competition_id: pool[0].competition_id, label: pool[0].competition };
     }
   }
 
