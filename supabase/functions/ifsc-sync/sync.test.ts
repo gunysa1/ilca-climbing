@@ -17,13 +17,8 @@ function memStore(init: { linked?: [number, string][]; candidates?: Candidate[];
     linkedProfiles: async () => new Map(linked),
     candidates: async (birthday) => (init.candidates ?? []).filter((c) => c.birth_date === birthday),
     manualGroups: async () => new Set(init.manual ?? []),
-    takePending: async (id) => {
-      const p = pending.get(id);
-      if (!p) return null;
-      writes.push(`takePending ${id}`);
-      pending.delete(id);
-      return p.results;
-    },
+    pendingResults: async () => new Map([...pending].map(([id, p]) => [id, { status: p.status, results: structuredClone(p.results) }])),
+    clearPending: async (id) => { writes.push(`clear ${id}`); pending.delete(id); },
     insertResults: async (climber, rows) => {
       writes.push(`insert ${climber}`);
       const have = results.get(climber) ?? [];
@@ -73,7 +68,7 @@ function api(over: Record<string, unknown> = {}) {
   for (const d of ['2026-10-17', '2027-01-01']) {
     paths[`/api/v1/cuwr/3?date=${d}`] = { ranking: [{ athlete_id: 200, rank: 1, country: 'FRA' },
       { athlete_id: 101, rank: 40, country: 'ISR' }, { athlete_id: 102, rank: 77, country: 'ISR' }] };
-    for (const c of [7, 1, 5]) paths[`/api/v1/cuwr/${c}?date=${d}`] = { ranking: [] };
+    for (const c of [7, 1, 5]) paths[`/api/v1/cuwr/${c}?date=${d}`] = { ranking: [{ athlete_id: 300 + c, rank: 1, country: 'USA' }] };
   }
   Object.assign(paths, over);
   const calls: string[] = [];
@@ -153,7 +148,7 @@ describe('runSync', () => {
     const s = memStore({ linked: [[101, 'p1']], candidates: [p2],
       pending: [{ ifsc_athlete_id: 103, firstname: 'Dan', lastname: 'LEVI', gender: 'male', birthday: '2009-01-01',
         suggested_profile: null, score: null, results: [row()], status: 'ignored' }] });
-    expect((await runSync(api().ifsc, s.store, '2026-10-17')).pending).toBe(1);
+    expect((await runSync(api().ifsc, s.store, '2026-10-17')).pending).toBe(0);
     expect(s.pending.get(103)?.status).toBe('ignored');
     expect(s.pending.get(103)?.results).toHaveLength(2);
   });
@@ -181,6 +176,10 @@ describe('runSync', () => {
     ['an error object for an athlete', { '/api/v1/athletes/103': { error: 'not found' } }],
     ['a world ranking without a list', { '/api/v1/cuwr/5?date=2026-10-17': { error: 'x' } }],
     ['a league without events', { '/api/v1/season_leagues/457': {} }],
+    ['an empty world ranking', { '/api/v1/cuwr/7?date=2026-10-17': { ranking: [] } }],
+    ['a category without an id', { '/api/v1/season_leagues/457': { events: [{ event_id: 1505, event: 'IFSC World Cup Keqiao 2026',
+      local_start_date: '2026-10-01', d_cats: [{ name: 'BOULDER Men', status: 'finished', result_url: '/api/v1/results/x' }] }] },
+      '/api/v1/results/x': { ranking: [rnk(101, 1)] } }],
   ])('rejects on %s without writing anything', async (_, over) => {
     const s = base();
     const o = over as Record<string, unknown>;
@@ -259,5 +258,32 @@ describe('runSync', () => {
     expect(await runSync(ifsc, s.store, '2026-10-17')).toMatchObject({ linked: 1, pending: 2 });
     expect(s.linked.get(102)).toBe('p2');
     expect(s.pending.get(106)).toMatchObject({ suggested_profile: 'p2', score: 1 });
+  });
+
+  it('imports and clears waiting results of a linked athlete absent from this run', async () => {
+    const s = memStore({ linked: [[101, 'p1'], [108, 'p8']], candidates: [p2],
+      pending: [{ ifsc_athlete_id: 108, firstname: 'A', lastname: 'B', gender: null, birthday: null, suggested_profile: null,
+        score: null, status: 'pending', results: [row()] }] });
+    expect((await runSync(api().ifsc, s.store, '2026-10-17')).added).toBe(3);
+    expect(s.results.get('p8')?.map((r) => r.ifsc_event_id)).toEqual([1490]);
+    expect(s.pending.has(108)).toBe(false);
+  });
+
+  it('keeps the waiting row when inserting fails', async () => {
+    const s = memStore({ linked: [[101, 'p1'], [108, 'p8']], candidates: [p2],
+      pending: [{ ifsc_athlete_id: 108, firstname: 'A', lastname: 'B', gender: null, birthday: null, suggested_profile: null,
+        score: null, status: 'pending', results: [row()] }] });
+    const insert = s.store.insertResults;
+    s.store.insertResults = async (climber, rows) => { if (climber === 'p8') throw new Error('db down'); return insert(climber, rows); };
+    await expect(runSync(api().ifsc, s.store, '2026-10-17')).rejects.toThrow('db down');
+    await expect(runSync(api().ifsc, s.store, '2026-10-17', { onlyAthlete: 108 })).rejects.toThrow('db down');
+    expect(s.pending.has(108)).toBe(true);
+  });
+
+  it('accepts a world ranking without Israelis', async () => {
+    const s = base();
+    const { ifsc } = api({ '/api/v1/cuwr/3?date=2026-10-17': { ranking: [{ athlete_id: 200, rank: 1, country: 'FRA' }] } });
+    expect((await runSync(ifsc, s.store, '2026-10-17')).world).toBe(0);
+    expect(s.world.replaced).toEqual([{ season: '2026-27', asOf: '2026-10-17', rows: [] }]);
   });
 });

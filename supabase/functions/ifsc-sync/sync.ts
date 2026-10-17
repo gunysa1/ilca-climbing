@@ -23,8 +23,10 @@ export interface Store {
   candidates(birthday: string): Promise<Candidate[]>;
   /** `${season}|${class}|${discipline}` groups holding ILCA-published ('manual') rows. */
   manualGroups(): Promise<Set<string>>;
-  /** An athlete's waiting results, deleting their pending row; null if none. */
-  takePending(ifscId: number): Promise<ResultRow[] | null>;
+  /** Every ifsc_pending row (any status): ifsc_athlete_id → status and waiting results. */
+  pendingResults(): Promise<Map<number, { status: 'pending' | 'ignored'; results: ResultRow[] }>>;
+  /** Deletes an athlete's pending row (after their results were imported). */
+  clearPending(ifscId: number): Promise<void>;
   /** Add-only: inserts rows whose (discipline, event_name, starts_on) the climber lacks, sets ifsc ids where null on
    *  the ones they have; returns the number inserted. */
   insertResults(climberId: string, rows: ResultRow[]): Promise<number>;
@@ -82,8 +84,10 @@ export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { o
     const profile = linked.get(opts.onlyAthlete);
     if (!profile) return sum;
     const manual = await store.manualGroups();
-    const waiting = await store.takePending(opts.onlyAthlete);
-    if (waiting) sum.added += await importRows(store, manual, profile, waiting);
+    const waiting = (await store.pendingResults()).get(opts.onlyAthlete);
+    if (!waiting) return sum;
+    sum.added += await importRows(store, manual, profile, waiting.results);
+    await store.clearPending(opts.onlyAthlete);
     return sum;
   }
 
@@ -105,6 +109,7 @@ export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { o
           if ((disc !== 'boulder' && disc !== 'lead') || dc.status !== 'finished') continue;
           const ranking = list(await ifsc.get(dc.result_url), 'ranking', dc.result_url);
           const dcatId = Number(dc.id ?? String(dc.result_url).match(/\/result\/(\d+)/)?.[1]);
+          if (!Number.isInteger(dcatId)) throw new Error(`IFSC ${lg.url}: no category id for ${ev.event} ${dc.name}`);
           const fieldSize = ranking.filter((x) => x.rank).length;
           for (const x of ranking) {
             if (x.country !== 'ISR' || !x.rank) continue;
@@ -139,7 +144,9 @@ export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { o
   if (worldDate) {
     for (const [dcat, discipline] of WORLD_DCATS) {
       const path = `/api/v1/cuwr/${dcat}?date=${worldDate}`;
-      for (const x of list(await ifsc.get(path), 'ranking', path)) {
+      const ranking = list(await ifsc.get(path), 'ranking', path);
+      if (!ranking.length) throw new Error(`IFSC ${path}: empty world ranking`);
+      for (const x of ranking) {
         if (x.country === 'ISR' && x.rank) worldIsr.push({ athlete: x.athlete_id, discipline, position: x.rank });
       }
     }
@@ -160,27 +167,30 @@ export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { o
     pending.push({ ifsc_athlete_id: id, ...d, suggested_profile, score, results: athletes.get(id)!.rows });
   }
   const manual = await store.manualGroups();
+  const waiting = await store.pendingResults();
 
-  // 5. Writes.
+  // 5. Writes. A waiting row is cleared only once its results are in.
   for (const [id, profile] of newLinks) {
     await store.linkProfile(profile, id);
     sum.linked++;
   }
-  for (const [id, a] of athletes) {
-    const profile = linked.get(id) ?? newLinks.get(id);
+  const allLinks = new Map([...linked, ...newLinks]);
+  for (const id of new Set([...athletes.keys(), ...waiting.keys()])) {
+    const profile = allLinks.get(id);
     if (!profile) continue;
-    const waiting = await store.takePending(id);
-    sum.added += await importRows(store, manual, profile, [...a.rows, ...(waiting ?? [])]);
+    const w = waiting.get(id);
+    sum.added += await importRows(store, manual, profile, [...(athletes.get(id)?.rows ?? []), ...(w?.results ?? [])]);
+    if (w) await store.clearPending(id);
   }
   for (const p of pending) {
     await store.upsertPending(p);
-    sum.pending++;
+    if (waiting.get(p.ifsc_athlete_id)?.status !== 'ignored') sum.pending++;
   }
   if (worldDate) {
     const seen = new Set<string>();
     const rows: { climber_id: string; discipline: 'boulder' | 'lead'; position: number }[] = [];
     for (const w of worldIsr) {
-      const climber_id = linked.get(w.athlete) ?? newLinks.get(w.athlete);
+      const climber_id = allLinks.get(w.athlete);
       if (!climber_id || seen.has(`${climber_id}|${w.discipline}`)) continue;
       seen.add(`${climber_id}|${w.discipline}`);
       rows.push({ climber_id, discipline: w.discipline, position: w.position });
