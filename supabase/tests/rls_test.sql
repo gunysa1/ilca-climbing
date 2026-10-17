@@ -1207,6 +1207,11 @@ select pg_temp.assert(not exists (
          or has_table_privilege('anon', c.oid, 'delete') or has_table_privilege('anon', c.oid, 'truncate')
          or has_any_column_privilege('anon', c.oid, 'insert') or has_any_column_privilege('anon', c.oid, 'update'))),
   'anon holds no write privilege on any public table');
+-- TRUNCATE bypasses RLS: no API role may truncate a public table.
+select pg_temp.assert(not exists (
+  select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'public' and c.relkind in ('r', 'p') and has_table_privilege(r, c.oid, 'truncate')),
+  r || ' cannot truncate any public table') from unnest(array['anon', 'authenticated', 'service_role']) r;
 select pg_temp.assert(not has_function_privilege(r, 'public.refresh_rankings_cache()', 'execute'),
   r || ' cannot execute refresh_rankings_cache') from unnest(array['anon', 'authenticated', 'service_role']) r;
 select pg_temp.login(null);
