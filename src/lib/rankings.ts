@@ -138,6 +138,7 @@ export interface IntlResult {
   /** 'manual': points as published by ILCA (e.g. a bonus total), counted as a youth bonus or senior event by `for_class`. */
   points?: number | null;
   for_class?: 'senior' | 'youth' | null;
+  ifsc_event_id?: number | null;
 }
 
 /** Senior international points (tables 5-7, conditions 3.8): 0 when not in the top 60% of the field. */
@@ -197,7 +198,9 @@ export function youthBonusPoints(r: IntlResult): number {
 
 export interface Adjustment { climber_id: string; discipline: Discipline; rank_class: RankClass | null; points: number; note: string }
 
-export interface EventScore { competition_id: string; label: string; starts_on: string; place: number; points: number; counted: boolean; kind: 'league' | 'intl' | 'world' }
+export interface EventScore { competition_id: string; label: string; starts_on: string; place: number; points: number; counted: boolean; kind: 'league' | 'intl' | 'world';
+  /** External link (international events with a known IFSC event id). */
+  href?: string }
 
 export interface Championship { place: number; points: number; competition_id: string; label: string }
 
@@ -298,7 +301,8 @@ export function computeRanking(input: RankingInput): RankingRow[] {
       if (b > 0 || (r.event_type !== 'manual' && YOUTH_INTL.includes(r.event_type))) get(r.climber_id).bonus += b;
     } else if (SENIOR_INTL.includes(r.event_type) || (r.event_type === 'manual' && r.for_class === 'senior')) {
       get(r.climber_id).events.push({ competition_id: r.id ?? r.event_name, label: r.event_name, starts_on: r.starts_on,
-        place: r.place ?? 0, points: perEvent ? seniorIntlPoints(r) : 0, counted: false, kind: 'intl' });
+        place: r.place ?? 0, points: perEvent ? seniorIntlPoints(r) : 0, counted: false, kind: 'intl',
+        ...(r.ifsc_event_id ? { href: `https://ifsc.results.info/event/${r.ifsc_event_id}` } : {}) });
     }
   }
   if (!youth && !perEvent) {

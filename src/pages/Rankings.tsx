@@ -111,7 +111,8 @@ export function Rankings() {
                             .map((e) => {
                             const cls = `ranking-part${e.counted ? '' : ' dropped'}`;
                             const body = <>{e.kind === 'intl' ? '🌍 ' : e.kind === 'world' ? '🌐 ' : ''}{e.place ? <>{e.place}<small> · {fmt(e.points)}</small></> : fmt(e.points)}</>;
-                            // ILCA league events link to their competition; international ones have no page here
+                            // ILCA league events link to their competition; international ones to the IFSC results page
+                            if (e.href) return <a key={e.competition_id} href={e.href} target="_blank" rel="noopener" className={cls} title={e.label}>{body}</a>;
                             return e.kind === 'league'
                               ? <Link key={e.competition_id} to={`/competition/${e.competition_id}`} className={cls} title={e.label}>{body}</Link>
                               : <span key={e.competition_id} className={cls} title={e.label}>{body}</span>;

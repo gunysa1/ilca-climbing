@@ -77,6 +77,19 @@ describe('classes', () => {
   });
 });
 
+describe('international event links', () => {
+  const run = (ifsc_event_id?: number | null) => computeRanking({ criteria: ILCA_2025, rankClass: 'senior', gender: 'female', discipline: 'lead',
+    rounds: placed('premier_league', 'me', 1), ageClass: new Map(), intl: [intl({ climber_id: 'me', place: 25, field_size: 63, reached: 'semifinal', ifsc_event_id })], adjustments: [] })
+    .find((x) => x.climber_id === 'me')!.events.find((e) => e.kind === 'intl')!;
+  it('links to the IFSC event page when the id is set', () => {
+    expect(run(1366).href).toBe('https://ifsc.results.info/event/1366');
+  });
+  it('has no link without an id', () => {
+    expect(run().href).toBeUndefined();
+    expect(run(null).href).toBeUndefined();
+  });
+});
+
 describe('international points', () => {
   it('appendix A: world cup lead 25/63 (semi) = 140, 33/82 = 60, 29/59 = 100', () => {
     expect(seniorIntlPoints(intl({ place: 25, field_size: 63, reached: 'semifinal' }))).toBe(140);
