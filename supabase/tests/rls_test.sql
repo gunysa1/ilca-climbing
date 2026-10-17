@@ -867,7 +867,32 @@ insert into competitions (id, name, starts_on, ends_on, status) values
   ('1a000000-0000-0000-0000-000000000002', 'Past cup', (now() at time zone 'Asia/Jerusalem')::date - 10, (now() at time zone 'Asia/Jerusalem')::date - 10, 'published');
 update competitions set starts_on = (now() at time zone 'Asia/Jerusalem')::date + 1,
   ends_on = (now() at time zone 'Asia/Jerusalem')::date + 1 where id = '10000000-0000-0000-0000-000000000002';
+-- a published competition starting tomorrow that is already live: under "live now", not "upcoming"
+insert into competitions (id, name, starts_on, ends_on, status) values
+  ('1a000000-0000-0000-0000-000000000003', 'Live tomorrow cup', (now() at time zone 'Asia/Jerusalem')::date + 1, (now() at time zone 'Asia/Jerusalem')::date + 1, 'published');
+insert into categories (id, competition_id, name, gender) values
+  ('2a000000-0000-0000-0000-000000000003', '1a000000-0000-0000-0000-000000000003', 'Open Men', 'male');
+insert into rounds (id, category_id, kind, status) values
+  ('3a000000-0000-0000-0000-000000000003', '2a000000-0000-0000-0000-000000000003', 'qualification', 'live');
+-- the finished competition gets a category climbed only in a two-group qualification: no single winner
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into categories (id, competition_id, name, gender) values
+  ('2a000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', 'Grouped Women', 'female');
+insert into rounds (id, category_id, kind, status) values
+  ('3a000000-0000-0000-0000-000000000001', '2a000000-0000-0000-0000-000000000001', 'qualification', 'closed');
+insert into boulders (id, round_id, number) values ('4a000000-0000-0000-0000-000000000001', '3a000000-0000-0000-0000-000000000001', 1);
+insert into registrations values
+  ('2a000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 1),
+  ('2a000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 2);
+update round_starters set group_label = case when climber_id = '00000000-0000-0000-0000-000000000001' then 'A' else 'B' end
+  where round_id = '3a000000-0000-0000-0000-000000000001';
+insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt) values
+  ('4a000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '3a000000-0000-0000-0000-000000000001', 1, 1, 1),
+  ('4a000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', '3a000000-0000-0000-0000-000000000001', 2, 1, 2);
+select set_config('request.jwt.claim.sub', '', false);
 select pg_temp.login(null);
+select pg_temp.assert((select count(*) from round_ranks_for(array['3a000000-0000-0000-0000-000000000001'::uuid]) where rank = 1) = 2,
+  'fixture: the two-group qualification has a rank 1 in each group');
 select pg_temp.assert(home_page() is not null and json_typeof(home_page() -> 'live') = 'array'
   and json_typeof(home_page() -> 'upcoming') = 'array' and json_typeof(home_page() -> 'latest') = 'array',
   'anon gets home_page()');
@@ -898,9 +923,19 @@ select pg_temp.assert((select json_agg(w ->> 'full_name' order by w ->> 'full_na
     where e ->> 'id' = '10000000-0000-0000-0000-000000000003' and w ->> 'category' = 'Tie Men') = '["Noa", "Tamar"]',
   'home_page: tied winners are all listed');
 select pg_temp.assert(not exists (select 1 from json_array_elements(home_page() -> 'latest') e
-    where e ->> 'id' <> '10000000-0000-0000-0000-000000000003'
-      and e ->> 'id' not in (select id::text from competitions where status = 'finished')),
-  'home_page: latest results are finished competitions only');
+    where e ->> 'id' not in (select id::text from competitions where status = 'finished'))
+  and home_page()::text !~ '1a000000-0000-0000-0000-000000000002',
+  'home_page: latest results are finished competitions only (a past published one is not listed anywhere)');
+select pg_temp.assert(not exists (select 1 from json_array_elements(home_page() -> 'latest') e, json_array_elements(e -> 'winners') w
+    where w ->> 'category' = 'Grouped Women'),
+  'home_page: a last round climbed in groups gives no winner (no rank 1 per group)');
+select pg_temp.assert(exists (select 1 from json_array_elements(home_page() -> 'live') e where e ->> 'round_id' = '3a000000-0000-0000-0000-000000000003')
+  and not exists (select 1 from json_array_elements(home_page() -> 'upcoming') e where e ->> 'id' = '1a000000-0000-0000-0000-000000000003'),
+  'home_page: a competition with a live round is under live now, not upcoming');
+select pg_temp.assert((home_page(true) -> 'live')::text = (home_page() -> 'live')::text
+  and home_page(true) -> 'upcoming' is null and home_page(true) -> 'latest' is null
+  and home_page(true)::text !~ '3f000000-0000-0000-0000-000000000001',
+  'home_page(true): only the live part (same as the full page), no drafts');
 select pg_temp.login('00000000-0000-0000-0000-00000000000a');
 select pg_temp.assert(home_page()::text !~ '10000000-0000-0000-0000-000000000002' and home_page()::text !~ '3f000000-0000-0000-0000-000000000001',
   'home_page: drafts stay off the home page for admins too');
@@ -911,12 +946,19 @@ select pg_temp.assert(json_array_length(favorites_page(array['00000000-0000-0000
   and json_array_length(favorites_page(array['00000000-0000-0000-0000-000000000001'::uuid]) -> 'history') > 0
   and favorites_page(array['00000000-0000-0000-0000-000000000001'::uuid])::text !~* 'birth|asthma|050-|email',
   'favorites_page: public profiles and history of the starred climbers, nothing private');
+select pg_temp.assert(json_array_length(favorites_page(array_prepend('00000000-0000-0000-0000-000000000001'::uuid,
+    array(select gen_random_uuid() from generate_series(1, 300)))) -> 'profiles') = 1
+  and json_array_length(favorites_page(array_append(array(select gen_random_uuid() from generate_series(1, 300)),
+    '00000000-0000-0000-0000-000000000001'::uuid)) -> 'profiles') = 0,
+  'favorites_page reads at most the first 200 climbers');
 select pg_temp.assert(json_array_length(favorites_page('{}') -> 'profiles') = 0
   and json_array_length(favorites_page('{}') -> 'history') = 0, 'favorites_page: nothing for no favorites');
 reset role;
 delete from judge_claims where boulder_id = '40000000-0000-0000-0000-000000000002' and climber_id = '00000000-0000-0000-0000-000000000001';
 delete from rounds where id = '3f000000-0000-0000-0000-000000000001';
-delete from competitions where id in ('1a000000-0000-0000-0000-000000000001', '1a000000-0000-0000-0000-000000000002');
+delete from competitions where id in ('1a000000-0000-0000-0000-000000000001', '1a000000-0000-0000-0000-000000000002',
+  '1a000000-0000-0000-0000-000000000003');
+delete from categories where id = '2a000000-0000-0000-0000-000000000001';
 update competitions set starts_on = '2026-12-01', ends_on = '2026-12-01' where id = '10000000-0000-0000-0000-000000000002';
 update competitions set status = 'published' where id = '10000000-0000-0000-0000-000000000003';
 
