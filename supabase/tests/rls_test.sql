@@ -742,6 +742,26 @@ insert into international_results (climber_id, season, discipline, event_type, e
   values ('60000000-0000-0000-0000-00000000000a', '2026-27', 'lead', 'european_youth_cup', 'EYC Imst', '2026-06-01', 3, 40, 'final');
 select pg_temp.login(null);
 select pg_temp.assert((select count(*) from international_results) = 1, 'admin adds international results; public reads them');
+-- world_rankings: public read, admin write.
+select pg_temp.denied($$insert into world_rankings (climber_id, season, discipline, position, as_of)
+  values ('60000000-0000-0000-0000-00000000000a', '2026-27', 'lead', 12, '2026-10-01')$$, 'anon adds world rankings');
+select pg_temp.login('00000000-0000-0000-0000-000000000002');
+select pg_temp.denied($$insert into world_rankings (climber_id, season, discipline, position, as_of)
+  values ('00000000-0000-0000-0000-000000000002', '2026-27', 'lead', 12, '2026-10-01')$$, 'non-admin adds world rankings');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+insert into world_rankings (climber_id, season, discipline, position, as_of)
+  values ('60000000-0000-0000-0000-00000000000a', '2026-27', 'lead', 12, '2026-10-01');
+update world_rankings set position = 9 where climber_id = '60000000-0000-0000-0000-00000000000a';
+select pg_temp.login(null);
+select pg_temp.assert((select position from world_rankings where season = '2026-27' and discipline = 'lead') = 9,
+  'admin adds and updates world rankings; public reads them');
+reset role;
+insert into profiles (id, full_name) values ('60000000-0000-0000-0000-0000000000f3', 'World Ranking Temp');
+insert into world_rankings (climber_id, season, discipline, position, as_of)
+  values ('60000000-0000-0000-0000-0000000000f3', '2026-27', 'boulder', 5, '2026-10-01');
+delete from profiles where id = '60000000-0000-0000-0000-0000000000f3';
+select pg_temp.assert((select count(*) from world_rankings where climber_id = '60000000-0000-0000-0000-0000000000f3') = 0
+  and (select count(*) from world_rankings) = 1, 'deleting a profile removes its world rankings');
 select pg_temp.assert(
   (select count(*) from (select * from season_ranking_rounds('2026-27')
                          except all select * from ranking_rounds where season = '2026-27') d) = 0
