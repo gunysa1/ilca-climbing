@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  favoritesLatest, homePollDue, parseHome, parseLive, topOfRanking, winnersByCategory, withLive, type HomeLiveRound, type HomeWinner,
+  favoritesLatest, homePollDue, homeRetryMs, liveCompetitionEnded, parseHome, parseLive, topOfRanking, winnersByCategory, withLive, type HomeLiveRound, type HomeWinner,
 } from './home';
 import type { RankingRow } from './rankings';
 import type { HistoryRow, Profile } from './types';
@@ -82,5 +82,20 @@ describe('homePollDue', () => {
     expect(homePollDue(3000, 0, true)).toBe(false);
     expect(homePollDue(5000, 0, false)).toBe(false);
     expect(homePollDue(60000, 0, false)).toBe(true);
+  });
+});
+
+describe('home retry and ended competitions', () => {
+  it('retries after 5 s, backing off to the idle poll', () => {
+    expect([1, 2, 3, 4, 5, 9].map(homeRetryMs)).toEqual([5000, 10000, 20000, 40000, 60000, 60000]);
+    expect(homePollDue(5000, 0, false, 1)).toBe(true);
+    expect(homePollDue(5000, 0, false, 2)).toBe(false);
+    expect(homePollDue(10000, 0, false, 2)).toBe(true);
+  });
+  it('sees a competition whose live round ended, not a new or still live one', () => {
+    expect(liveCompetitionEnded([liveRound('a'), liveRound('b')], [liveRound('b')])).toBe(true);
+    expect(liveCompetitionEnded([liveRound('a')], [])).toBe(true);
+    expect(liveCompetitionEnded([liveRound('a')], [liveRound('a'), liveRound('b')])).toBe(false);
+    expect(liveCompetitionEnded([], [liveRound('a')])).toBe(false);
   });
 });

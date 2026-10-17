@@ -25,8 +25,8 @@ async function page(lang, viewport = { width: 1280, height: 900 }, as = session)
   }, [as, lang]);
   const p = await ctx.newPage();
   p.on('dialog', (d) => d.accept());
-  // 502: the stubbed invite email failure (invite step); no network / a cut answer: the judge pad offline steps
-  p.on('console', (m) => { if (m.type() === 'error' && !/realtime|websocket|status of 502|ERR_INTERNET_DISCONNECTED|ERR_FAILED|Failed to fetch/i.test(m.text())) problems.push(`console: ${m.text()}`); });
+  // 502: the stubbed invite email failure (invite step); no network / a cut answer (ERR_FAILED, only on boulder_results): the judge pad offline steps
+  p.on('console', (m) => { if (m.type() === 'error' && !/realtime|websocket|status of 502|ERR_INTERNET_DISCONNECTED|Failed to fetch/i.test(m.text()) && !(/ERR_FAILED/.test(m.text()) && m.location().url.includes('/rest/v1/boulder_results'))) problems.push(`console: ${m.text()}`); });
   p.on('response', (r) => { if (r.url().includes('/rest/v1') && r.status() >= 400) problems.push(`${r.status()} ${r.request().method()} ${r.url()}`); });
   return p;
 }
