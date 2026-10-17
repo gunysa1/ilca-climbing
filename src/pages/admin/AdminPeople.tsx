@@ -10,7 +10,7 @@ import { InviteJudge } from './InviteJudge';
 import { Sheet } from '../../components/Sheet';
 
 const STAFF_ROLES = ['judge', 'coach', 'admin'] as const satisfies readonly AppRole[];
-type ProfileRow = Profile & { user_id: string | null };
+type ProfileRow = Profile & { user_id: string | null; ifsc_id: string | null };
 interface CoachLink { coach_id: string; climber_id: string }
 
 export function AdminPeople() {
@@ -25,12 +25,15 @@ export function AdminPeople() {
   // Deleting an account: asked first in a sheet (no accidents), done by the delete-account function.
   const [toDelete, setToDelete] = useState<AdminAccount | null>(null);
   const [deleted, setDeleted] = useState<string | null>(null);
+  // IFSC link of a climber: edited inline; unlinking is asked first in a sheet.
+  const [ifscEdit, setIfscEdit] = useState<{ id: string; value: string } | null>(null);
+  const [toUnlink, setToUnlink] = useState<ProfileRow | null>(null);
 
   const reload = useCallback(async () => {
     let profError: string | null = null;
     const [acc, prof, cl] = await Promise.all([
       supabase.rpc('admin_accounts'),
-      allRows<ProfileRow>((from, to) => supabase.from('profiles').select('id, full_name, full_name_he, club, country, gender, user_id')
+      allRows<ProfileRow>((from, to) => supabase.from('profiles').select('id, full_name, full_name_he, club, country, gender, user_id, ifsc_id')
         .order('full_name').order('id').range(from, to)).catch((e: Error) => { profError = e.message; return []; }),
       supabase.from('coach_athletes').select('coach_id, climber_id'),
     ]);
@@ -57,6 +60,15 @@ export function AdminPeople() {
     setError(error?.message ?? null);
     if (!error) await reload();
   };
+
+  // Sets or clears profiles.ifsc_id (admins only, enforced by a trigger). Results already imported stay either way;
+  // the daily sync imports the waiting results of a newly set athlete.
+  async function saveIfsc(p: ProfileRow, value: string | null) {
+    const { error } = await supabase.from('profiles').update({ ifsc_id: value }).eq('id', p.id);
+    if (error) return setError(error.code === '23505' ? t('ifscIdTaken') : error.message);
+    setIfscEdit(null); setToUnlink(null); setError(null);
+    await reload();
+  }
 
   const byId = useMemo(() => new Map(profiles.map((p) => [p.id, p])), [profiles]);
   const unlinked = profiles.filter((p) => !p.user_id);
@@ -89,6 +101,14 @@ export function AdminPeople() {
           onConfirm={() => void deleteAccount(toDelete)} onCancel={() => setToDelete(null)}>
           <p className="sheet-result" dir="ltr">{toDelete.email}</p>
           <p>{t('deleteAccountText')}</p>
+        </Sheet>
+      )}
+
+      {toUnlink && (
+        <Sheet title={t('ifscUnlinkTitle')} confirm={t('unlink')} danger
+          onConfirm={() => void saveIfsc(toUnlink, null)} onCancel={() => setToUnlink(null)}>
+          <p className="sheet-result">{name(toUnlink)} · IFSC {toUnlink.ifsc_id}</p>
+          <p>{t('ifscUnlinkText')}</p>
         </Sheet>
       )}
 
@@ -161,7 +181,7 @@ export function AdminPeople() {
         <input placeholder={t('search')} value={filter} onChange={(e) => setFilter(e.target.value)} />
         <div className="table-wrap">
           <table className="admin-table">
-            <thead><tr><th>{t('athlete')}</th><th>{t('club')}</th><th>{t('gender')}</th><th>{t('accounts')}</th></tr></thead>
+            <thead><tr><th>{t('athlete')}</th><th>{t('club')}</th><th>{t('gender')}</th><th>{t('accounts')}</th><th>{t('ifscId')}</th></tr></thead>
             <tbody>
               {shownClimbers.slice(0, 200).map((p) => (
                 <tr key={p.id}>
@@ -173,6 +193,20 @@ export function AdminPeople() {
                       ? <>{accounts.find((a) => a.user_id === p.user_id)?.email}{' '}
                           <button className="link danger-text" onClick={() => void run(supabase.rpc('unlink_account', { p_profile: p.id }))}>{t('unlink')}</button></>
                       : <span className="muted">{t('noAccount')}</span>}
+                  </td>
+                  <td className="ifsc-cell">
+                    {ifscEdit?.id === p.id ? (
+                      <form className="inline-form" onSubmit={(e) => { e.preventDefault(); void saveIfsc(p, ifscEdit.value.trim()); }}>
+                        <input aria-label={t('ifscIdLabel')} value={ifscEdit.value} inputMode="numeric" pattern="\d+" required dir="ltr" size={8}
+                          onChange={(e) => setIfscEdit({ id: p.id, value: e.target.value })} />
+                        <button className="link">{t('save')}</button>
+                        <button type="button" className="link" onClick={() => setIfscEdit(null)}>{t('cancel')}</button>
+                      </form>
+                    ) : <>
+                      {p.ifsc_id && <a href={`https://ifsc.results.info/athlete/${p.ifsc_id}`} target="_blank" rel="noreferrer" dir="ltr">{p.ifsc_id}</a>}{' '}
+                      <button className="link" onClick={() => setIfscEdit({ id: p.id, value: p.ifsc_id ?? '' })}>{t('ifscEdit')}</button>
+                      {p.ifsc_id && <>{' '}<button className="link danger-text" onClick={() => setToUnlink(p)}>{t('unlink')}</button></>}
+                    </>}
                   </td>
                 </tr>
               ))}

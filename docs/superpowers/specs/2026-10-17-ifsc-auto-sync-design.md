@@ -40,7 +40,8 @@ automatically; unclear ones wait for an admin.
 - Edge function `ifsc-sync` (Deno): fetches IFSC with `referer: https://ifsc.results.info/`, reads
   and writes with the service role inside the function. Accepts either the cron secret
   (`IFSC_SYNC_SECRET`, a function secret, also stored in Vault for the cron call) or an admin's JWT
-  ("run now"). Stops at the first IFSC error and logs it; a failed run changes nothing.
+  ("run now"). Stops at the first IFSC error and logs it; a failed run changes nothing. (Task 8: a single failing
+  category or athlete is skipped and listed in the run's warnings instead; see docs/operations.md.)
 - Migration: `international_results` + `ifsc_event_id int`, `ifsc_dcat_id int` (nullable);
   `ifsc_pending (ifsc_athlete_id int primary key, name, birthday, gender, suggested_profile uuid null,
   score, first_seen, results jsonb)` and `ifsc_sync_runs` — admin read/write only (RLS + tests);

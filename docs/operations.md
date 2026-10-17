@@ -119,13 +119,29 @@ python3 tools/loglig/import_loglig.py --check ARCHIVE SEASON_ID:COMP_ID [...]   
 ### IFSC daily sync (edge function `ifsc-sync`)
 
 Every day at 03:00 UTC pg_cron calls the `ifsc-sync` edge function. It reads the IFSC results API for
-events of the last 60 days (World Cups and Championships, European and youth events; boulder and lead),
-adds Israeli results add-only to `international_results` (never into a season/class/discipline group
-with ILCA-published points), links new athletes to a profile when the match is confident (birth date,
-gender, name; sets `profiles.ifsc_id`) and leaves the others in `ifsc_pending` for an admin, and refreshes
-the season's `world_rankings` (today's list until 1 January, then the official 1 January list once). The
-first IFSC error stops the run before any write; a failed run is safe to repeat (add-only). An IFSC row an
-admin deletes (ניהול → דירוגים) is remembered in `ifsc_dismissed` and never imported again.
+events of the last 60 days, counted on the Israel calendar (World Cups and Championships, European and youth
+events; boulder and lead), adds Israeli results to `international_results` (never into a season/class/discipline
+group with ILCA-published points), corrects `place`, `field_size` and `reached` of its own recent rows when IFSC
+revised them (never `manual` rows; counted as "corrected"), links new athletes to a profile when the match is
+confident (birth date, gender, name; sets `profiles.ifsc_id`) and leaves the others in `ifsc_pending` for an
+admin, and refreshes the season's `world_rankings`: today's list until 1 January; during January the 1 January
+list daily, replaced only when IFSC revised it; after January the 1 January list once if never stored.
+
+Failures: all IFSC requests happen before the first write. If the season, league or event lists fail, or every
+category and athlete request fails (at least two), the run is `failed` and writes nothing. A single category or
+athlete that fails (HTTP error, not JSON, malformed) is skipped, listed in the run's `warnings` (shown on the
+admin page as "N skipped") and tried again next run; nothing is written for it. A failing world list skips the
+world part only (the stored positions stay). An IFSC row an admin deletes (ניהול → דירוגים) is remembered in
+`ifsc_dismissed` and never imported again.
+
+Admin (staff app): ניהול → דירוגים lists the athletes to confirm with gender, birth date and their events.
+**Confirm** appears only for a confident suggestion (score ≥ 0.5); a weaker one is shown as text with "pick
+another climber" as the main action, and every link asks again, naming both people. Ignored athletes ("not on
+the team", birthday cleared) sit in a collapsed list with **restore**. ניהול → אנשים shows each climber's IFSC
+number (link to the IFSC athlete page) with edit and unlink; unlinking keeps results already imported (delete
+wrong ones under דירוגים) and the daily run imports a newly set number's waiting results. Results link to the
+IFSC event page: IFSC has no stable URL for one category's results (its category page is
+`/event/<id>/general/<discipline>` and opens the category last viewed in that browser).
 
 Setup (once; the secret is never committed):
 
@@ -141,10 +157,11 @@ Store the same value in Vault as `ifsc_sync_secret`, and the project URL as `pro
 
 Manual run: "run now" on the admin page, or `POST <project_url>/functions/v1/ifsc-sync` with header
 `x-sync-secret` (or an admin's `Authorization: Bearer` token) and body `{}`; `{"athlete": <IFSC id>}`
-imports the waiting results of a just-linked athlete. Each call logs a row in `ifsc_sync_runs`
-(`running`, then `ok` with counts or `failed` with the error), shown on the admin page.
-One run at a time: a call while another runs gets 409 `busy`; a run still `running` after 15 minutes
-is marked `failed` ("timed out"). The sync's list replaces the season's positions daily until 1 January
+imports the waiting results of a just-linked athlete and writes their positions in the current world list.
+Each call logs a row in `ifsc_sync_runs` (`running`, then `ok` with counts and `warnings`, or `failed` with the
+error), shown on the admin page. One run at a time (a partial unique index allows one `running` row,
+migration 037): a call while another runs gets 409 `busy`; a run still `running` after 15 minutes is marked
+`failed` ("timed out"). The sync's list replaces the season's positions daily until 1 January
 (only climbers with an `ifsc_id`), so positions loaded by `tools/ifsc/world_ranking.py` don't last.
 
 ### Rankings cache (pg_cron `rankings-cache`)
