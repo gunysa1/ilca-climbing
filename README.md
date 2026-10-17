@@ -15,7 +15,7 @@ Both sites are rebuilt from `main` on every push. Neither is indexed by search e
 
 | App | For | Sign-in | What it has |
 |---|---|---|---|
-| **ILCA Live** (viewer) | the public, climbers, families | none, view only (like the IFSC app) | live results by season, competitions, rounds (results + start list), climber pages, favorites, search, national rankings, PDF print |
+| **ILCA Live** (viewer) | the public, climbers, families | none, view only (like the IFSC app) | home page (live now, upcoming, latest winners, ranking top 3, favorites), live results by season, competitions, rounds (results + start list), climber pages, favorites, search, national rankings, PDF print |
 | **ILCA Staff** | judges, coaches, admins | required | judge pad, coach view and notes, admin (competitions, rosters, start lists, corrections, appeals, rankings inputs), plus the results pages |
 
 Both read the same database. Who may do what is enforced in Postgres with row level security; the

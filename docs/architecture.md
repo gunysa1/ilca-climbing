@@ -8,7 +8,7 @@ One repository, two Vite builds (`vite --mode viewer|staff`):
 |---|---|---|
 | Entry | `apps/viewer/index.html` → `src/apps/viewer/ViewerApp.tsx` | `apps/staff/index.html` → `src/apps/staff/StaffApp.tsx` |
 | Sign-in | none; the app has no auth provider at all | everything except `/login` |
-| Routes | `/`, `/competition/:id`, `/round/:id`, `/climber/:id`, `/favorites`, `/search`, `/rankings` | a home with one tile per role, `/judge`, `/coach`, `/admin/*`, plus the results pages |
+| Routes | `/` (home), `/competitions`, `/competition/:id`, `/round/:id`, `/climber/:id`, `/favorites`, `/search`, `/rankings` | a home with one tile per role, `/judge`, `/coach`, `/admin/*`, plus the results pages |
 | Output | `dist/viewer` | `dist/staff` |
 | Site | https://ilca-climbing.pages.dev | https://ilca-climbing-staff.pages.dev |
 | Dev | `npm run dev` (5173) | `npm run dev:staff` (5174) |
@@ -77,6 +77,15 @@ The API returns at most 1000 rows per request, so the rankings page does not pag
 `season_rankings(season)` RPC (rounds, age classes, too-young seniors, international results,
 adjustments, world rankings and profiles in one JSON), and the climber page one `climber_page(climber)`
 RPC (profile, history and the competitions' series and season).
+
+The viewer opens on a home page (`/`, `src/pages/Home.tsx`): continue watching, rounds live now (with
+who is on the wall; refreshed every 5 s while something is live), the next 3 published competitions,
+the 3 latest finished ones with each category's winners (rank 1 of its last round, ties all shown),
+and the favorites. All of that but the favorites is one `home_page()` call (security invoker, explicit
+public columns, drafts left out); the favorites are one `favorites_page(climbers)` call, only when the
+device has some. After that the page loads this season's `season_rankings` for the top 3 senior men /
+women in boulder and lead, through `lib/seasonRankings.ts`, the same loader, cache and calculation as
+the rankings page. The competitions list by season is at `/competitions`.
 
 A round page (results and judge pad) loads with one call, `round_page(round)`: the round, its
 category and competition, the competition's categories with their rounds (men / women switch),
@@ -168,3 +177,4 @@ judge pad subscribes to `judge_claims` of its boulder. Everything else loads on 
 | 20261017000027 | senior minimum age (`season_senior_too_young`) |
 | 20261017000028 | `world_rankings` (IFSC world-ranking position per climber, season, discipline) |
 | 20261017000029 | page RPCs `season_rankings(season)` and `climber_page(climber)`; NULL-array fix |
+| 20261017000030 | home page RPCs `home_page()` (live rounds and who is on the wall, upcoming, latest with winners) and `favorites_page(climbers)` |
