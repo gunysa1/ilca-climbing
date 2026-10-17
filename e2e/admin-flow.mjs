@@ -40,6 +40,28 @@ const expectText = async (p, text) => {
   }
 };
 
+step('home page with nothing live: no "Live now"; menu link to the competitions list');
+{
+  const home = await page('en', { width: 1280, height: 900 }, null);
+  const reqs = [];
+  home.on('request', (r) => { if (r.url().includes('/rest/v1/')) reqs.push(r.url().split('/rest/v1/')[1].split('?')[0]); });
+  const t0 = Date.now();
+  await home.goto(`${view}/`);
+  await home.getByRole('heading', { name: 'Upcoming' }).waitFor();
+  console.log(`home (empty): ${Date.now() - t0} ms to content`);
+  await home.getByRole('heading', { name: /National ranking/ }).waitFor();
+  await home.waitForLoadState('networkidle');
+  if (await home.locator('.home-live').count()) problems.push('home shows "Live now" with nothing live');
+  if (reqs.join() !== 'rpc/home_page,rpc/season_rankings') problems.push(`home requests (empty): ${reqs.join(', ')}`);
+  await home.locator('.nav').getByRole('link', { name: 'Competitions' }).click();
+  await home.waitForURL(/\/competitions$/);
+  await home.locator('h1', { hasText: 'Competitions' }).waitFor();
+  await home.locator('.brand').click();
+  await home.waitForURL((u) => u.pathname === '/');
+  await home.getByRole('heading', { name: 'Upcoming' }).waitFor();
+  await home.close();
+}
+
 const p = await page('en');
 step('create competition');
 await p.goto(`${base}/admin`);
@@ -139,6 +161,35 @@ await vp.reload();
 await vp.locator('.on-wall').getByText('מאיה גל').waitFor();
 await vp.locator('tr.on-wall-row', { hasText: 'מאיה גל' }).locator('.climbing-badge').waitFor();
 await vp.screenshot({ path: `${out}/results-on-wall-en.png`, fullPage: true });
+step('home page with a live round: "Live now" with who is on the wall, refreshed every 5 s');
+{
+  const home = await page('en', { width: 1280, height: 900 }, null);
+  const reqs = [];
+  home.on('request', (r) => { if (r.url().includes('/rest/v1/')) reqs.push(r.url().split('/rest/v1/')[1].split('?')[0]); });
+  const t0 = Date.now();
+  await home.goto(`${view}/`);
+  const live = home.locator('.home-live');
+  await live.getByRole('heading', { name: 'Live now' }).waitFor();
+  console.log(`home (live): ${Date.now() - t0} ms to content`);
+  await live.locator('.home-card', { hasText: 'Israeli Cup #2' }).getByText('Senior Women · Qualification').waitFor();
+  await live.locator('.on-wall-item', { hasText: 'מאיה גל' }).waitFor();
+  if ((await live.getByRole('link', { name: /Israeli Cup #2/ }).getAttribute('href')) !== `/round/${roundId}`) problems.push('live round card does not link to the round');
+  await home.locator('.cards').getByText('Israeli Cup #2').waitFor(); // published, starts 2026-11-20: upcoming
+  await home.screenshot({ path: `${out}/home-live-en.png`, fullPage: true });
+  const n = reqs.filter((r) => r === 'rpc/home_page').length;
+  await home.waitForTimeout(5600);
+  if (reqs.filter((r) => r === 'rpc/home_page').length <= n) problems.push('home does not refresh while a round is live');
+  const he390 = await page('he', { width: 390, height: 844 }, null);
+  await he390.goto(`${view}/`);
+  await he390.locator('.home-live').getByRole('heading', { name: 'עכשיו בשידור' }).waitFor();
+  await he390.locator('.home-live .on-wall-item', { hasText: 'מאיה גל' }).waitFor();
+  await he390.getByRole('heading', { name: /מדרג לאומי/ }).waitFor();
+  await he390.waitForLoadState('networkidle');
+  if (await he390.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) problems.push('home (he, 390px, live) scrolls sideways');
+  await he390.screenshot({ path: `${out}/home-live-he-390.png`, fullPage: true });
+  await he390.close();
+  await home.close();
+}
 await jp.getByRole('button', { name: 'Zone' }).click();          // zone before any attempt: asks first
 await jp.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
 await jp.getByRole('button', { name: 'Add attempt' }).click();
@@ -311,6 +362,61 @@ step('rankings and climber pages: one data request each');
   if (!(await pub.getByText(/Counts for the rankings|נספרת במדרג/).count())) problems.push('climber page: ranked competition has no "counts for the rankings" tag');
   await pub.screenshot({ path: `${out}/climber-en.png`, fullPage: true });
   await pub.close();
+}
+
+step('competition finished: home shows latest results with the winner, nothing live, favorites');
+await p.goto(compUrl);
+await p.getByRole('button', { name: 'Close round' }).click();
+await p.getByRole('button', { name: 'Close round' }).waitFor({ state: 'detached' });
+await p.getByLabel('Status').selectOption('finished');
+await p.getByRole('button', { name: 'Save' }).first().click();
+await p.waitForTimeout(500);
+{
+  const home = await page('en', { width: 1280, height: 900 }, null);
+  await home.goto(`${view}/`);
+  const latest = home.locator('.home-section', { has: home.getByRole('heading', { name: 'Latest results' }) });
+  const card = latest.locator('.home-card', { hasText: 'Israeli Cup #2' });
+  await card.waitFor();
+  const li = card.locator('.winners li', { hasText: 'Senior Women' });
+  await li.waitFor();
+  const winner = li.locator('.winner-names a').first();
+  const winnerHref = await winner.getAttribute('href');
+  if (!/^\/climber\//.test(winnerHref ?? '')) problems.push(`winner does not link to the climber: ${winnerHref}`);
+  if (!(await winner.innerText()).includes('נועה')) problems.push(`winner of Senior Women: ${await winner.innerText()}`);
+  await home.waitForLoadState('networkidle');
+  if (await home.locator('.home-live').count()) problems.push('home shows "Live now" after the round closed');
+  if (await home.locator('.home-section', { hasText: 'Your favorites' }).count()) problems.push('home shows favorites without any');
+  // star the winner: the favorites section appears, with one more request
+  await home.evaluate((id) => localStorage.setItem('favorites', JSON.stringify([id])), winnerHref.split('/').pop());
+  const reqs = [];
+  home.on('request', (r) => { if (r.url().includes('/rest/v1/')) reqs.push(r.url().split('/rest/v1/')[1].split('?')[0]); });
+  const t0 = Date.now();
+  await home.reload();
+  const fav = home.locator('.home-section', { has: home.getByRole('heading', { name: /Your favorites/ }) });
+  await fav.locator('.event', { hasText: 'נועה' }).getByText(/Israeli Cup #2 · 1\//).waitFor();
+  console.log(`home (favorites): ${Date.now() - t0} ms to favorites`);
+  await home.waitForLoadState('networkidle');
+  if (reqs.slice().sort().join() !== 'rpc/favorites_page,rpc/home_page,rpc/season_rankings') problems.push(`home requests (favorites): ${reqs.join(', ')}`);
+  console.log(`home requests: ${reqs.join(', ')}`);
+  const rk = home.locator('.home-ranking', { hasText: 'Boulder · Women' });
+  await rk.locator('li', { hasText: 'נועה' }).waitFor();
+  await home.screenshot({ path: `${out}/home-finished-en.png`, fullPage: true });
+  await home.getByRole('link', { name: /Full ranking/ }).click();
+  await home.waitForURL(/\/rankings\?season=2026-27/);
+  await home.locator('.edition-line').waitFor();
+  const he390 = await page('he', { width: 390, height: 844 }, null);
+  await he390.addInitScript((id) => localStorage.setItem('favorites', JSON.stringify([id])), winnerHref.split('/').pop());
+  await he390.goto(`${view}/`);
+  await he390.getByRole('heading', { name: 'תוצאות אחרונות' }).waitFor();
+  await he390.getByRole('heading', { name: /המועדפים שלך/ }).waitFor();
+  await he390.locator('.home-ranking li').first().waitFor();
+  await he390.waitForLoadState('networkidle');
+  if (await he390.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) problems.push('home (he, 390px) scrolls sideways');
+  await he390.screenshot({ path: `${out}/home-he-390.png`, fullPage: true });
+  await he390.emulateMedia({ colorScheme: 'dark' });
+  await he390.screenshot({ path: `${out}/home-he-390-dark.png`, fullPage: true });
+  await he390.close();
+  await home.close();
 }
 
 step('two apps: the viewer is view-only, the staff app needs sign-in');
