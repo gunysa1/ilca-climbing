@@ -59,7 +59,8 @@ it feeds: premier league, U17 league, Israeli championship, youth championship, 
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | Points | 100 | 80 | 65 | 55 | 51 | 47 | 43 | 40 | 37 | 34 | 31 | 28 | 26 | 24 | 22 | 20 | 18 | 16 | 14 | 12 | 10 … 1 |
 
-Tied climbers share the average of the points of the places they cover (2 decimals). The Israeli
+Tied climbers share the average of the points of the places they cover, cut off after 2 decimals
+(criteria 3.3: (80+65+55)/3 = 66.66). The Israeli
 championship and the youth championship count **double**; for a tie there, the doubled points are averaged and
 rounded once (8 tied at 15th: (22+20+18+16+14+12+10+9)×2/8 = 30.25, as in ILCA's 24/25 bouldering table).
 
@@ -125,8 +126,9 @@ earlier one.
 ILCA 2027 differs from 2025 in three points:
 
 - Seniors: no points per international event. Instead one event for the climber's world ranking
-  position in the discipline (1-10: 400, 11-20: 300, 21-30: 200, 31-40: 100), which replaces the
-  weaker league event in the best 2. International events are still listed, with 0 points.
+  position in the discipline (1-10: 400, 11-20: 300, 21-30: 200, 31-40: 100), added to the championship
+  and the best 2 league events (clause 3.6 of the 26/27 version; the April 2026 draft had it replace the weaker
+  league event). International events are still listed, with 0 points.
 - Youth bonus: only the World Youth Championships (final 60, podium 100) and the European Youth
   Championships (final 40, podium 60), with no field-size minimum. European Youth Cups score 0.
 - U17: the U17 league only; open events that include U17 ("גברים+ U17") no longer count.

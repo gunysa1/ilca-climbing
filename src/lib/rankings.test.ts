@@ -31,7 +31,7 @@ const intl = (r: Partial<IntlResult>): IntlResult => ({
 describe('league points (table 4)', () => {
   it('places 1-30, ties share the average of the places they cover', () => {
     expect([1, 2, 3, 10, 20, 30, 31].map((p) => leaguePoints(p))).toEqual([100, 80, 65, 34, 12, 1, 0]);
-    expect(leaguePoints(2, 3)).toBe(66.67); // (80 + 65 + 55) / 3 = 66.66... (2 decimals)
+    expect(leaguePoints(2, 3)).toBe(66.66); // (80 + 65 + 55) / 3 = 66.666..., cut off at 2 decimals (criteria 3.3)
     // Israeli championship ties: double first, then average (ILCA 24/25 bouldering, women 15th, 8 tied: 30.25)
     expect(leaguePoints(15, 8, 2)).toBe(30.25);
     expect(leaguePoints(4, 3)).toBe(51);    // (55 + 51 + 47) / 3
@@ -214,17 +214,18 @@ describe('ILCA 2027', () => {
       intl: opts.intl ?? [], adjustments: [], worldRank, tooYoung: opts.tooYoung });
   const me = (r: ReturnType<typeof computeRanking>) => r.find((x) => x.climber_id === 'me');
 
-  it('world rank 14 (300) replaces the weaker league event: 130 + 300 + 100 = 530', () => {
-    const rounds = [...placed('premier_league', 'me', 1), ...placed('premier_league', 'me', 2), ...placed('israeli_championship', 'me', 3)];
+  it('world rank 14 (300) is added to the best 2 league events (3.6): 130 + 100 + 80 + 300 = 610', () => {
+    const rounds = [...placed('premier_league', 'me', 1), ...placed('premier_league', 'me', 2), ...placed('premier_league', 'me', 3),
+      ...placed('israeli_championship', 'me', 3)];
     const m = me(senior(rounds, new Map([['me', 14]])))!;
-    expect(m.total).toBe(530);
-    expect(m.events.filter((e) => e.counted).map((e) => [e.kind, e.points])).toEqual([['world', 300], ['league', 100]]);
+    expect(m.total).toBe(610);
+    expect(m.events.filter((e) => e.counted).map((e) => [e.kind, e.points])).toEqual([['world', 300], ['league', 100], ['league', 80]]);
     expect(m.events.find((e) => e.kind === 'world')).toEqual({ kind: 'world', label: 'דירוג עולמי 14', place: 14, points: 300,
       competition_id: 'world-ranking', starts_on: '', counted: true });
   });
 
   it('one league event and world rank 35 -> 200', () => {
-    expect(me(senior(placed('premier_league', 'me', 1), new Map([['me', 35]])))!.total).toBe(200);
+    expect(me(senior(placed('premier_league', 'me', 1), new Map([['me', 35]])))!.total).toBe(200); // 100 + 100
   });
 
   it('world rank 5 alone -> 400, listed without league events', () => {

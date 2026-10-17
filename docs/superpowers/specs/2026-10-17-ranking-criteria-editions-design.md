@@ -22,7 +22,8 @@ the class, senior minimum age (`season_senior_too_young`, IFSC: 16 until 2024, 1
 
 - **Seniors:** no points per international event. The climber's **World Climbing world ranking**
   position in the discipline earns 1-10: 400, 11-20: 300, 21-30: 200, 31-40: 100 (table 2). These
-  points replace the weaker of the two counted league events when higher (2.6); with fewer than two
+  points replace the weaker of the two counted league events when higher (2.6) — superseded 2026-10-17: the
+  26/27 version (3.6) adds them to the best 2 league events, as implemented; with fewer than two
   league events they fill the empty slot. Total = championship + best 2 of (league events, world
   ranking). The position is the one set on 1 January within the season (26/27: 1.1.2027); until that
   date the ranking uses the latest position and is marked provisional.

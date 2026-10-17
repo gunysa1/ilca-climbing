@@ -10,7 +10,8 @@
 // the ranking: the (youth) championship place breaks them, otherwise the rank is shared.
 // Only climbers with points > 0 are listed. Admin adjustments (disciplinary deductions) apply last.
 // The criteria edition (src/lib/criteria.ts) is a parameter: ILCA 2027 replaces the senior international
-// events by the world ranking position, changes the youth bonus and drops open events from U17.
+// events by world ranking points (added to the best 2 league events), changes the youth bonus and drops open
+// events from U17.
 
 import type { Criteria } from './criteria';
 
@@ -24,13 +25,15 @@ export const RANK_CLASSES: RankClass[] = ['senior', 'U21', 'U19', 'U17'];
 export const LEAGUE_POINTS = [100, 80, 65, 55, 51, 47, 43, 40, 37, 34, 31, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
+/** Cut off after 2 decimals, as the criteria's example (80+65+55)/3 = 66.66 (the epsilon absorbs float error). */
+const trunc2 = (x: number) => Math.floor(x * 100 + 1e-9) / 100;
 
 /** Table 4 points (times `factor`: 2 for the Israeli championship) for a place shared by `tied` climbers:
- * the average over the places they cover, rounded once at the end. */
+ * the average over the places they cover, cut off after 2 decimals once at the end. */
 export function leaguePoints(place: number, tied = 1, factor = 1): number {
   let sum = 0;
   for (let p = place; p < place + tied; p++) sum += LEAGUE_POINTS[p - 1] ?? 0;
-  return round2((factor * sum) / tied);
+  return trunc2((factor * sum) / tied);
 }
 
 /** One climber's ranked result in one round (from the `ranking_rounds` view). */
@@ -332,8 +335,9 @@ export function computeRanking(input: RankingInput): RankingRow[] {
     // the climber must belong to this ranking's gender (pools are per gender; international rows are not)
     const g = input.climberGender?.get(climber_id);
     if (g ? g !== gender : !rows.some((r) => r.climber_id === climber_id)) continue;
-    // best 2 (at most one world ranking event, so it replaces the weaker league event); 0 points never count
-    const best = [...e.events].filter((x) => x.points > 0).sort((a, b) => b.points - a.points).slice(0, 2);
+    // best 2 events, plus the world ranking points on top (ILCA 2027, 3.6); 0 points never count
+    const best = [...e.events].filter((x) => x.points > 0 && x.kind !== 'world').sort((a, b) => b.points - a.points).slice(0, 2)
+      .concat(e.events.filter((x) => x.kind === 'world' && x.points > 0));
     for (const ev of best) ev.counted = true;
     e.events.sort((a, b) => a.starts_on.localeCompare(b.starts_on));
     const adjustment = adj.get(climber_id) ?? 0;
