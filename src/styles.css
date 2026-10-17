@@ -247,7 +247,7 @@ h1 .fav-star { font-size: 1.6rem; }
 .home-card-link:hover .home-card-title { color: var(--accent); }
 .home-card-title { font-weight: 700; font-size: 1.05rem; color: var(--text-strong); overflow-wrap: anywhere; }
 .home-card-sub { color: var(--muted); }
-.home-on-wall { margin: .6rem 0 0; }
+.on-wall.home-on-wall { margin: .6rem 0 0; }
 .winners { list-style: none; margin: .6rem 0 0; padding: .5rem 0 0; border-top: 1px solid var(--border); display: grid; gap: .3rem; }
 .winners li { display: flex; flex-wrap: wrap; gap: .1rem .5rem; align-items: baseline; min-width: 0; }
 .winner-cat { color: var(--muted); font-size: .85rem; min-width: 6.5rem; }
