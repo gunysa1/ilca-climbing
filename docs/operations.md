@@ -104,9 +104,37 @@ python3 tools/loglig/import_loglig.py --check ARCHIVE SEASON_ID:COMP_ID [...]   
   every difference, then import live. Delete local SQL files afterwards (personal data).
 - Imported so far: 2020-21 to 2025-26, 80 competitions, 99.6% of ranks identical to LogLig.
 
-### IFSC international results (`tools/ifsc`)
+### IFSC daily sync (edge function `ifsc-sync`)
 
-Reads the public IFSC results API (ifsc.results.info; curl, since other clients get 403) for every
+Every day at 03:00 UTC pg_cron calls the `ifsc-sync` edge function. It reads the IFSC results API for
+events of the last 60 days (World Cups and Championships, European and youth events; boulder and lead),
+adds Israeli results add-only to `international_results` (never into a season/class/discipline group
+with ILCA-published points), links new athletes to a profile when the match is confident (birth date,
+gender, name; sets `profiles.ifsc_id`) and leaves the others in `ifsc_pending` for an admin, and refreshes
+the season's `world_rankings` (today's list until 1 January, then the official 1 January list once). The
+first IFSC error stops the run before any write.
+
+Setup (once; the secret is never committed):
+
+```bash
+npx -y supabase@2.121.0 functions deploy ifsc-sync --use-api   # verify_jwt off (config.toml): it checks auth itself
+openssl rand -hex 32                                            # the secret
+npx -y supabase@2.121.0 secrets set IFSC_SYNC_SECRET=<secret> --project-ref tsahkbtxjlgmebfmwkbq
+```
+
+Store the same value in Vault as `ifsc_sync_secret`, and the project URL as `project_url`, then run
+`supabase/cron/ifsc_sync.sql` in the SQL editor (both steps are in its header; rollback:
+`select cron.unschedule('ifsc-sync')`).
+
+Manual run: "run now" on the admin page, or `POST <project_url>/functions/v1/ifsc-sync` with header
+`x-sync-secret` (or an admin's `Authorization: Bearer` token) and body `{}`; `{"athlete": <IFSC id>}`
+imports the waiting results of a just-linked athlete. Each call logs a row in `ifsc_sync_runs`
+(`running`, then `ok` with counts or `failed` with the error), shown on the admin page.
+
+### IFSC international results (`tools/ifsc`, backfills)
+
+The manual tools below are now for backfills (older seasons, one-off checks); the daily sync keeps the
+current season. Reads the public IFSC results API (ifsc.results.info; curl, since other clients get 403) for every
 Israeli boulder/lead result at World Cups, World and European Championships, European Cups and the
 youth European/World events, then matches athletes to profiles by birth date and name:
 

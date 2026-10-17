@@ -386,6 +386,10 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# The daily cron call carries no user JWT, only x-sync-secret; the function checks that or an admin JWT itself.
+[functions.ifsc-sync]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
