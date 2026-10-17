@@ -390,6 +390,10 @@ deno_version = 2
 [functions.ifsc-sync]
 verify_jwt = false
 
+# Same for the ranking tables build (pg_cron, x-sync-secret; or an admin).
+[functions.rankings-build]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

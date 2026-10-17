@@ -63,7 +63,7 @@ export function winnersByCategory(winners: HomeWinner[]): { category_id: string;
 }
 
 /** The top of a ranking table: places 1 to n (ties at n are all kept). */
-export function topOfRanking(rows: RankingRow[], n = 3): RankingRow[] {
+export function topOfRanking<T extends RankingRow>(rows: T[], n = 3): T[] {
   return rows.filter((r) => r.rank <= n);
 }
 

@@ -13,7 +13,7 @@
 // events by world ranking points (added to the best 2 league events), changes the youth bonus and drops open
 // events from U17.
 
-import type { Criteria } from './criteria';
+import type { Criteria } from './criteria.ts';
 
 export type Discipline = 'boulder' | 'lead';
 export type Series = 'premier_league' | 'premier_league_u17' | 'israeli_championship' | 'youth_championship' | 'other';

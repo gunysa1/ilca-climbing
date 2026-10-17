@@ -180,6 +180,27 @@ Setup (once, after `db push` applied 033): run `supabase/cron/rankings_cache.sql
   select public.refresh_rankings_cache();
   ```
 
+### Ranking tables (edge function `rankings-build`, pg_cron `ranking-tables`)
+
+The rankings page and home read finished tables (`ranking_tables`, migration 035; one request:
+`ranking_page()` / `home_rankings()`). The `rankings-build` edge function computes every table of a season
+(class × gender × discipline) with the app's own ranking code (`src/lib/rankingTables.ts` → `rankings.ts`,
+`criteria.ts`) from the season's cached payload above, and stores them through `store_ranking_tables()`
+(service role only). Every minute pg_cron calls it when `ranking_tables_due()` lists a season whose payload
+is newer than its tables, so a change shows within about two minutes. A table not stored yet is computed in
+the browser, as before.
+
+Setup (once, after `db push` applied 035): generate a secret (`openssl rand -hex 32`), set it as the function's
+`RANKINGS_BUILD_SECRET` (`supabase secrets set`), deploy with `supabase functions deploy rankings-build`, then
+run `supabase/cron/ranking_tables.sql` in the SQL editor (its header creates the Vault secret).
+
+- After a change to the ranking code: redeploy the function, then rebuild every season (POST `{"all": true}`
+  with `x-sync-secret` or as an admin, or `delete from public.ranking_tables;` and wait a minute).
+- Check: `select season, count(*), max(built_at) from public.ranking_tables group by 1 order by 1;` (16 per
+  season) and `select * from public.ranking_tables_due();` (empty when up to date).
+- Rollback: `select cron.unschedule('ranking-tables'); delete from public.ranking_tables;` (the pages compute
+  every table in the browser again).
+
 ### IFSC international results (`tools/ifsc`, backfills)
 
 The manual tools below are now for backfills (older seasons, one-off checks); the daily sync keeps the

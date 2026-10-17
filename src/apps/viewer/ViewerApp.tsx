@@ -5,11 +5,12 @@ import { supabaseConfigured } from '../../lib/supabase';
 import { CompetitionPage } from '../../pages/CompetitionPage';
 import { Home } from '../../pages/Home';
 import { Live } from '../../pages/Live';
+// in the first download, like Home: a cold load of /rankings asks for its data without waiting for a page chunk
+import { Rankings } from '../../pages/Rankings';
 import { RoundResults } from '../../pages/RoundResults';
 
 const Climber = lazy(() => import('../../pages/Climber').then((m) => ({ default: m.Climber })));
 const Favorites = lazy(() => import('../../pages/Favorites').then((m) => ({ default: m.Favorites })));
-const Rankings = lazy(() => import('../../pages/Rankings').then((m) => ({ default: m.Rankings })));
 const Search = lazy(() => import('../../pages/Search').then((m) => ({ default: m.Search })));
 /** The public app: view only, no sign-in (like the IFSC app). Staff work happens in the staff app. */
 export function ViewerApp() {

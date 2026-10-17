@@ -1,4 +1,4 @@
-import { youthBonusPoints, type IntlResult } from './rankings';
+import { youthBonusPoints, type IntlResult } from './rankings.ts';
 
 // One object per ILCA criteria document; rankings.ts takes the edition as a parameter.
 

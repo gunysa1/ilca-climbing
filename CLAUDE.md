@@ -21,7 +21,9 @@ view only, no sign-in; `src/apps/viewer`) and the **staff** app (sign-in; judge,
   stored anon-built payload of `season_rankings_cache`, refreshed by pg_cron every minute; built by
   `season_rankings_build` from `season_ranking_rounds`, `season_age_classes`, `season_senior_too_young`, `international_results`,
   `ranking_adjustments`, `world_rankings`; the last three admin-entered or tool-loaded). Tests: the criteria document's worked examples; validated against ILCA's published
-  2024-25 youth bouldering ranking. A new table the build reads needs the `rankings_cache_*` triggers
+  2024-25 youth bouldering ranking. The `rankings-build` edge function runs the same code (via the pure
+  `src/lib/rankingTables.ts`; imports there carry `.ts` for Deno) and stores finished tables in `ranking_tables`;
+  after changing the ranking code redeploy it and rebuild (docs/operations.md). A new table the build reads needs the `rankings_cache_*` triggers
   (migration 033); a migration changing scoring or the build must queue a full rebuild (docs/operations.md).
 - Identity: profiles exist without accounts. `profiles.user_id` links a login (only via `link_account()`);
   policies use `my_profile_id()`, never `auth.uid()` = profile id. Client code uses `useAuth().profileId`.

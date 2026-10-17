@@ -12,6 +12,8 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "noEmit": true,
+    // src/lib files the edge functions import (Deno) name their imports with the extension
+    "allowImportingTsExtensions": true,
     "types": ["vite/client"]
   },
   "include": ["src", "apps", "vite.config.ts", "vitest.config.ts"]

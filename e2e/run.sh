@@ -51,5 +51,5 @@ ready() { curl -sf "http://127.0.0.1:$REST/" >/dev/null && curl -sf "http://127.
 for _ in $(seq 100); do ready && break; sleep 0.2; done
 ready || { echo "e2e: PostgREST or web server did not start" >&2; docker logs "$NAME" 2>&1 | tail -5 >&2; exit 1; }
 
-node e2e/admin-flow.mjs "http://127.0.0.1:$WEB" "$SECRET" "$OUT" "http://127.0.0.1:$VIEW" "http://127.0.0.1:$API"
+E2E_PGPORT="$PGPORT" node e2e/admin-flow.mjs "http://127.0.0.1:$WEB" "$SECRET" "$OUT" "http://127.0.0.1:$VIEW" "http://127.0.0.1:$API"
 echo "e2e screenshots: $OUT"

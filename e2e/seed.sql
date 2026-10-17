@@ -5,7 +5,8 @@ create or replace function auth.uid() returns uuid language sql stable as $$
                   nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')::uuid
 $$;
 create role authenticator login noinherit;
-grant anon, authenticated to authenticator;
+-- service_role: the rankings-build step (e2e runs the edge function's build code against PostgREST)
+grant anon, authenticated, service_role to authenticator;
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('00000000-0000-0000-0000-0000000000a1', 'admin@ilca.test',  '{"full_name":"Admin ILCA"}'),

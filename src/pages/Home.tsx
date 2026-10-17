@@ -9,7 +9,7 @@ import {
 import { localized, useI18n, type MsgKey } from '../lib/i18n';
 import type { Discipline, Gender } from '../lib/rankings';
 import { seasonOf } from '../lib/season';
-import { fmtPoints, loadSeason, seasonCache, seasonRanking, type SeasonData } from '../lib/seasonRankings';
+import { fmtPoints, loadHomeRankings, rankingTable, seasonData, type TableRow } from '../lib/seasonRankings';
 import { supabase } from '../lib/supabase';
 import type { HistoryRow, Profile } from '../lib/types';
 
@@ -155,11 +155,16 @@ const previousSeason = (season: string) => {
   return `${start}-${String((start + 1) % 100).padStart(2, '0')}`;
 };
 
-/** A season from this visit's cache, else from the database. */
-const seasonData = (season: string) => (seasonCache.has(season) ? Promise.resolve(seasonCache.get(season)!) : loadSeason(season));
+type HomeTable = (typeof TABLES)[number] & { rows: TableRow[] };
+type Stored = Awaited<ReturnType<typeof loadHomeRankings>>;
 
-const rankingTables = (data: SeasonData, season: string) =>
-  TABLES.map((x) => ({ ...x, rows: topOfRanking(seasonRanking(data, season, 'senior', x.gender, x.discipline)) }));
+/** A season's four tables (top 3): the stored ones, else computed here from the season's data (null: failed). */
+async function homeTables(season: string, stored: Stored): Promise<HomeTable[] | null> {
+  const s = stored?.get(season);
+  if (s) return TABLES.map((x) => ({ ...x, rows: s.find((t) => t.gender === x.gender && t.discipline === x.discipline)?.rows ?? [] }));
+  const data = await seasonData(season);
+  return data && TABLES.map((x) => ({ ...x, rows: topOfRanking(rankingTable(data, season, 'senior', x.gender, x.discipline).rows) }));
+}
 
 const TABLES: { discipline: Discipline; gender: Gender; label: [MsgKey, MsgKey] }[] = [
   { discipline: 'boulder', gender: 'male', label: ['discBoulder', 'men'] },
@@ -174,25 +179,26 @@ const TABLES: { discipline: Discipline; gender: Gender; label: [MsgKey, MsgKey] 
 function HomeRanking() {
   const { t, lang } = useI18n();
   const current = seasonOf(new Date());
-  const [shown, setShown] = useState<{ season: string; data: SeasonData } | null>(null);
+  const [shown, setShown] = useState<{ season: string; tables: HomeTable[] } | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let live = true;
     void (async () => {
-      const d = await seasonData(current);
+      // both seasons' stored tables in one request; a season without stored tables is computed as before
+      const previous = previousSeason(current);
+      const stored = await loadHomeRankings([current, previous], 3);
+      const d = await homeTables(current, stored);
       if (!live) return;
       if (!d) { setFailed(true); return; }
-      if (!rankingTables(d, current).every((x) => x.rows.length === 0)) { setShown({ season: current, data: d }); return; }
-      const previous = previousSeason(current);
-      const p = await seasonData(previous);
+      if (!d.every((x) => x.rows.length === 0)) { setShown({ season: current, tables: d }); return; }
+      const p = await homeTables(previous, stored);
       if (!live) return;
-      setShown(p && !rankingTables(p, previous).every((x) => x.rows.length === 0) ? { season: previous, data: p } : { season: current, data: d });
+      setShown(p && !p.every((x) => x.rows.length === 0) ? { season: previous, tables: p } : { season: current, tables: d });
     })();
     return () => { live = false; };
   }, [current]);
   const season = shown?.season ?? current;
-  const data = shown?.data ?? null;
-  const tables = useMemo(() => (shown ? rankingTables(shown.data, shown.season) : null), [shown]);
+  const tables = shown?.tables ?? null;
   const empty = tables?.every((x) => x.rows.length === 0);
 
   return (
@@ -207,16 +213,13 @@ function HomeRanking() {
               <div key={`${x.discipline}-${x.gender}`} className="home-ranking">
                 <h3><Link to={`/rankings?season=${season}&c=senior&g=${x.gender}&d=${x.discipline}`}>{t(x.label[0])} · {t(x.label[1])}</Link></h3>
                 <ol className="home-ranking-rows">
-                  {x.rows.map((r) => {
-                    const p = data!.profiles.get(r.climber_id);
-                    return (
-                      <li key={r.climber_id}>
-                        <span className="home-rank">{r.rank}</span>
-                        <Link className="home-rank-name" to={`/climber/${r.climber_id}?d=${x.discipline}`}>{p ? localized(lang, p.full_name, p.full_name_he) : '?'}</Link>
-                        <span className="home-rank-total">{fmtPoints(r.total)}</span>
-                      </li>
-                    );
-                  })}
+                  {x.rows.map((r) => (
+                    <li key={r.climber_id}>
+                      <span className="home-rank">{r.rank}</span>
+                      <Link className="home-rank-name" to={`/climber/${r.climber_id}?d=${x.discipline}`}>{r.full_name != null ? localized(lang, r.full_name, r.full_name_he) : '?'}</Link>
+                      <span className="home-rank-total">{fmtPoints(r.total)}</span>
+                    </li>
+                  ))}
                 </ol>
               </div>
             ))}

@@ -1,5 +1,7 @@
 // Drives the admin UI end to end as a signed-in admin (see e2e/run.sh).
+import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright';
+import { buildDue } from '../supabase/functions/rankings-build/build.ts';
 import { jwt } from './jwt.mjs';
 
 // base: the staff app (admin, judge); view: the public viewer app; api: Supabase (REST).
@@ -31,6 +33,21 @@ async function page(lang, viewport = { width: 1280, height: 900 }, as = session)
   return p;
 }
 const step = (name) => console.log(`- ${name}`);
+
+/** What the two cron jobs do: refresh the rankings cache (postgres), then the rankings-build edge function's
+ *  build code (Node runs the same TypeScript) with the service role, through PostgREST. */
+async function buildRankingTables() {
+  execFileSync('psql', ['-h', '127.0.0.1', '-p', process.env.E2E_PGPORT, '-U', 'postgres', '-d', 'app', '-v', 'ON_ERROR_STOP=1', '-qc',
+    'select public.refresh_rankings_cache()']);
+  const key = jwt(secret, 'service_role');
+  const db = { rpc: async (fn, args = {}) => {
+    const res = await fetch(`${api}/rest/v1/rpc/${fn}`, { method: 'POST', body: JSON.stringify(args),
+      headers: { apikey: key, authorization: `Bearer ${key}`, 'content-type': 'application/json' } });
+    const body = await res.json();
+    return res.ok ? { data: body, error: null } : { data: null, error: { message: body.message ?? res.statusText } };
+  } };
+  return buildDue(db);
+}
 const expectText = async (p, text) => {
   try { await p.getByText(text, { exact: false }).first().waitFor({ timeout: 5000 }); }
   catch (e) {
@@ -52,8 +69,8 @@ step('home page with nothing live: no "Live now"; menu link to the competitions 
   await home.getByRole('heading', { name: /National ranking/ }).waitFor();
   await home.waitForLoadState('networkidle');
   if (await home.locator('.home-live').count()) problems.push('home shows "Live now" with nothing live');
-  // the ranking: this season, and the previous one when this season has no points yet
-  if (!/^rpc\/home_page,rpc\/season_rankings(,rpc\/season_rankings)?$/.test(reqs.join())) problems.push(`home requests (empty): ${reqs.join(', ')}`);
+  // the ranking: no stored tables yet, so this season's data (and the previous one's when this season has no points yet)
+  if (!/^rpc\/home_page,rpc\/home_rankings,rpc\/season_rankings(,rpc\/season_rankings)?$/.test(reqs.join())) problems.push(`home requests (empty): ${reqs.join(', ')}`);
   await home.waitForTimeout(6000); // nothing live: the live part is asked again only after 60 s
   if (reqs.filter((r) => r === 'rpc/home_page').length !== 1) problems.push(`home polls with nothing live: ${reqs.join(', ')}`);
   await home.locator('.nav').getByRole('link', { name: 'Competitions' }).click();
@@ -474,6 +491,28 @@ await p.goto(`${view}/rankings?season=2026-27&c=senior&g=female&d=boulder`);
 await p.locator('.edition-line', { hasText: /^(Per|לפי) / }).filter({ hasText: 'אמות מידה לנבחרות 2027' }).waitFor();
 await p.screenshot({ path: `${out}/rankings-en.png`, fullPage: true });
 
+step('rankings: computed in the browser until stored, then the stored table in one request, the same table');
+let rankingsComputed;
+/** What a rankings page shows: the edition line, the table's text and its links. */
+const rankingShown = async (pg) => [await pg.locator('.edition-line').innerText(), await pg.locator('table.rankings').innerText(),
+  await pg.locator('table.rankings').evaluate((el) => [...el.querySelectorAll('a')].map((a) => a.getAttribute('href')).join(' '))];
+{
+  const pub = await (await browser.newContext()).newPage();
+  const reqs = [];
+  const t0 = { v: 0 };
+  pub.on('request', (r) => { if (r.url().includes('/rest/v1/')) reqs.push(r.url().split('/rest/v1/')[1].split('?')[0]); });
+  t0.v = Date.now();
+  await pub.goto(`${view}/rankings?season=2026-27&c=senior&g=female&d=boulder`);
+  await pub.locator('table.rankings tbody tr').first().waitFor();
+  console.log(`rankings (computed): ${Date.now() - t0.v} ms, requests: ${reqs.join(', ')}`);
+  if (reqs.join() !== 'rpc/ranking_page,rpc/season_rankings') problems.push(`rankings requests (not stored): ${reqs.join(', ')}`);
+  rankingsComputed = await rankingShown(pub);
+  const built = await buildRankingTables();
+  if (!built.built.includes('2026-27')) problems.push(`rankings build: ${JSON.stringify(built)}`);
+  const again = await buildRankingTables();
+  if (again.built.length || again.skipped.length) problems.push(`rankings build with nothing changed: ${JSON.stringify(again)}`);
+  await pub.close();
+}
 step('rankings and climber pages: one data request each');
 {
   const pub = await (await browser.newContext()).newPage();
@@ -483,8 +522,18 @@ step('rankings and climber pages: one data request each');
   t0.v = Date.now();
   await pub.goto(`${view}/rankings?season=2026-27&c=senior&g=female&d=boulder`);
   await pub.locator('table.rankings tbody tr').first().waitFor();
-  console.log(`rankings: ${Date.now() - t0.v} ms, requests: ${reqs.join(', ')}`);
-  if (reqs.filter((r) => r !== 'competitions').join() !== 'rpc/season_rankings') problems.push(`rankings requests: ${reqs.join(', ')}`);
+  console.log(`rankings (stored): ${Date.now() - t0.v} ms, requests: ${reqs.join(', ')}`);
+  await pub.waitForLoadState('networkidle');
+  if (reqs.join() !== 'rpc/ranking_page') problems.push(`rankings requests: ${reqs.join(', ')}`);
+  const stored = await rankingShown(pub);
+  if (JSON.stringify(stored) !== JSON.stringify(rankingsComputed)) problems.push(`stored table differs from the computed one:\n${JSON.stringify(stored)}\n${JSON.stringify(rankingsComputed)}`);
+  // no season in the address: the newest season and its table, still one request
+  reqs.length = 0;
+  await pub.goto(`${view}/rankings?c=senior&g=female&d=boulder`);
+  await pub.locator('table.rankings tbody tr').first().waitFor();
+  await pub.waitForLoadState('networkidle');
+  if (reqs.join() !== 'rpc/ranking_page') problems.push(`rankings requests (no season): ${reqs.join(', ')}`);
+  await pub.screenshot({ path: `${out}/rankings-stored-en.png`, fullPage: true });
   const href = await pub.locator('table.rankings a.athlete').first().getAttribute('href');
   reqs.length = 0;
   t0.v = Date.now();
@@ -505,6 +554,8 @@ await p.getByRole('button', { name: 'Close round' }).waitFor({ state: 'detached'
 await p.getByLabel('Status').selectOption('finished');
 await p.getByRole('button', { name: 'Save' }).first().click();
 await p.waitForTimeout(500);
+// the cron jobs' next run: the changed season's cache and tables
+if (!(await buildRankingTables()).built.includes('2026-27')) problems.push('rankings build after the round closed: 2026-27 not rebuilt');
 {
   const home = await page('en', { width: 1280, height: 900 }, null);
   await home.goto(`${view}/`);
@@ -530,7 +581,7 @@ await p.waitForTimeout(500);
   await fav.locator('.event', { hasText: 'נועה' }).getByText(/Israeli Cup #2 · 1\//).waitFor();
   console.log(`home (favorites): ${Date.now() - t0} ms to favorites`);
   await home.waitForLoadState('networkidle');
-  if (reqs.slice().sort().join() !== 'rpc/favorites_page,rpc/home_page,rpc/season_rankings') problems.push(`home requests (favorites): ${reqs.join(', ')}`);
+  if (reqs.slice().sort().join() !== 'rpc/favorites_page,rpc/home_page,rpc/home_rankings') problems.push(`home requests (favorites): ${reqs.join(', ')}`);
   console.log(`home requests: ${reqs.join(', ')}`);
   const rk = home.locator('.home-ranking', { hasText: 'Boulder · Women' });
   await rk.locator('li', { hasText: 'נועה' }).waitFor();

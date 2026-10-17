@@ -1,21 +1,12 @@
-// One season's national ranking data (season_rankings(), one request) and the table built from it.
-// Shared by the rankings page and the home page, so both show exactly the same calculation.
-import { criteriaForSeason } from './criteria';
-import {
-  computeRanking, type Adjustment, type Discipline, type Gender, type IntlResult, type RankClass, type RankingRow, type RoundPlacing,
-} from './rankings';
+// National ranking tables for the rankings page and home: the stored tables (ranking_tables, built server-side by
+// the rankings-build edge function from the same code), or, for a table not stored yet, the season's data
+// (season_rankings(), one request) and the table computed here (rankingTables.ts).
+import type { Discipline, Gender, RankClass } from './rankings';
+import { FIRST_SEASON } from './criteria';
+import { parseSeason, rankingTable, type RankingTable, type SeasonData, type TableRow } from './rankingTables';
 import { supabase } from './supabase';
-import type { Profile } from './types';
 
-export interface SeasonData {
-  rounds: RoundPlacing[];
-  ageClass: Map<string, RankClass>;
-  tooYoung: Set<string>;
-  intl: IntlResult[];
-  adjustments: (Adjustment & { season: string })[];
-  profiles: Map<string, Profile & { gender: Gender | null }>;
-  world: { climber_id: string; discipline: string; position: number; as_of: string }[];
-}
+export { rankingTable, seasonRanking, type RankingTable, type SeasonData, type TableRow } from './rankingTables';
 
 /** Seasons already loaded in this visit: switching back (or opening the rankings from home) shows them at once. */
 export const seasonCache = new Map<string, SeasonData>();
@@ -24,29 +15,54 @@ export const seasonCache = new Map<string, SeasonData>();
 export async function loadSeason(season: string): Promise<SeasonData | null> {
   const { data: page, error } = await supabase.rpc('season_rankings', { p_season: season });
   if (error || !page) return null;
-  const d = (page ?? {}) as {
-    rounds?: RoundPlacing[]; age_classes?: { climber_id: string; age_class: RankClass }[]; too_young?: string[];
-    intl?: IntlResult[]; adjustments?: (Adjustment & { season: string })[]; world?: SeasonData['world'];
-    profiles?: (Profile & { gender: Gender | null })[];
-  };
-  const data: SeasonData = {
-    rounds: d.rounds ?? [],
-    ageClass: new Map((d.age_classes ?? []).map((a) => [a.climber_id, a.age_class])),
-    tooYoung: new Set(d.too_young ?? []),
-    intl: (d.intl ?? []).map((r) => ({ ...r, points: r.points == null ? null : Number(r.points) })),
-    adjustments: (d.adjustments ?? []).map((a) => ({ ...a, points: Number(a.points) })),
-    profiles: new Map((d.profiles ?? []).map((p) => [p.id, p])),
-    world: d.world ?? [],
-  };
+  const data = parseSeason(page);
   seasonCache.set(season, data);
   return data;
 }
 
-/** The ranking table of one season, class, gender and discipline (criteria edition of the season). */
-export function seasonRanking(data: SeasonData, season: string, rankClass: RankClass, gender: Gender, discipline: Discipline): RankingRow[] {
-  const worldRank = new Map(data.world.filter((w) => w.discipline === discipline).map((w) => [w.climber_id, Number(w.position)]));
-  return computeRanking({ criteria: criteriaForSeason(season).criteria, worldRank, rankClass, gender, discipline, rounds: data.rounds, ageClass: data.ageClass, tooYoung: data.tooYoung, intl: data.intl,
-    adjustments: data.adjustments, climberGender: new Map([...data.profiles].map(([id, p]) => [id, p.gender])) });
+/** A season from this visit's cache, else from the database. */
+export const seasonData = (season: string) => (seasonCache.has(season) ? Promise.resolve(seasonCache.get(season)!) : loadSeason(season));
+
+/** A table computed in the browser (the fallback while a table isn't stored). */
+export async function computedTable(season: string, rankClass: RankClass, gender: Gender, discipline: Discipline): Promise<RankingTable | null> {
+  const data = await seasonData(season);
+  return data && rankingTable(data, season, rankClass, gender, discipline);
+}
+
+export interface RankingPage {
+  /** Seasons with ranked competitions, newest first. */
+  seasons: string[];
+  /** The season asked for, or the newest. */
+  season: string | null;
+  /** The stored table, or null when not stored (yet). */
+  table: RankingTable | null;
+}
+
+/** ranking_page(): the season list and the stored table, in one request. */
+export async function loadRankingPage(season: string | null, rankClass: RankClass, gender: Gender, discipline: Discipline | 'speed'): Promise<RankingPage | null> {
+  const { data, error } = await supabase.rpc('ranking_page', {
+    p_first_season: FIRST_SEASON, p_season: season, p_class: rankClass, p_gender: gender, p_discipline: discipline,
+  });
+  if (error || !data) return null;
+  const d = data as { seasons?: string[] | null; season?: string | null; table?: { rows: TableRow[]; meta: RankingTable['meta'] } | null };
+  return {
+    seasons: d.seasons ?? [],
+    season: d.season ?? null,
+    table: d.table && discipline !== 'speed' ? { rank_class: rankClass, gender, discipline, rows: d.table.rows, meta: d.table.meta } : null,
+  };
+}
+
+/** The top of the stored senior tables of the given seasons (home_rankings()): season → tables. Seasons without
+ *  stored tables are missing from the map; null when the request failed. */
+export async function loadHomeRankings(seasons: string[], top: number): Promise<Map<string, { gender: Gender; discipline: Discipline; rows: TableRow[] }[]> | null> {
+  const { data, error } = await supabase.rpc('home_rankings', { p_seasons: seasons, p_top: top });
+  if (error || !data) return null;
+  const out = new Map<string, { gender: Gender; discipline: Discipline; rows: TableRow[] }[]>();
+  for (const t of data as { season: string; gender: Gender; discipline: Discipline; rows: TableRow[] }[]) {
+    if (!out.has(t.season)) out.set(t.season, []);
+    out.get(t.season)!.push({ gender: t.gender, discipline: t.discipline, rows: t.rows });
+  }
+  return out;
 }
 
 /** Ranking points as the tables show them (whole numbers plain, else up to two decimals). */
