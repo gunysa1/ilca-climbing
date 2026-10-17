@@ -8,6 +8,11 @@ import {
   type RankingRow, type RoundPlacing,
 } from './rankings.ts';
 
+/** Version of the ranking code (this file, rankings.ts, criteria.ts), stored with the tables: the pages take
+ *  only tables of their own version (else they compute), and the build redoes tables of another version.
+ *  Bump it with every change to the three files (rankingTables.test.ts pins their hash per version). */
+export const RANKING_CODE_VERSION = 1;
+
 export interface SeasonProfile {
   id: string;
   full_name: string;

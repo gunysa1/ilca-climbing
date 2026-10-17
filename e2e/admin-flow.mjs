@@ -1,6 +1,8 @@
 // Drives the admin UI end to end as a signed-in admin (see e2e/run.sh).
 import { execFileSync } from 'node:child_process';
+import { isDeepStrictEqual } from 'node:util';
 import { chromium } from 'playwright';
+import { parseSeason, RANKING_CODE_VERSION, rankingTable } from '../src/lib/rankingTables.ts';
 import { buildDue } from '../supabase/functions/rankings-build/build.ts';
 import { jwt } from './jwt.mjs';
 
@@ -36,17 +38,57 @@ const step = (name) => console.log(`- ${name}`);
 
 /** What the two cron jobs do: refresh the rankings cache (postgres), then the rankings-build edge function's
  *  build code (Node runs the same TypeScript) with the service role, through PostgREST. */
+const rest = (role) => {
+  const key = jwt(secret, role);
+  return { rpc: async (fn, args = {}) => {
+    const res = await fetch(`${api}/rest/v1/rpc/${fn}`, { method: 'POST', body: JSON.stringify(args),
+      headers: { apikey: key, authorization: `Bearer ${key}`, 'content-type': 'application/json' } });
+    const text = await res.text();
+    const body = text ? JSON.parse(text) : null;
+    return res.ok ? { data: body, error: null } : { data: null, error: { message: body?.message ?? res.statusText } };
+  } };
+};
 async function buildRankingTables() {
   execFileSync('psql', ['-h', '127.0.0.1', '-p', process.env.E2E_PGPORT, '-U', 'postgres', '-d', 'app', '-v', 'ON_ERROR_STOP=1', '-qc',
     'select public.refresh_rankings_cache()']);
-  const key = jwt(secret, 'service_role');
-  const db = { rpc: async (fn, args = {}) => {
-    const res = await fetch(`${api}/rest/v1/rpc/${fn}`, { method: 'POST', body: JSON.stringify(args),
-      headers: { apikey: key, authorization: `Bearer ${key}`, 'content-type': 'application/json' } });
-    const body = await res.json();
-    return res.ok ? { data: body, error: null } : { data: null, error: { message: body.message ?? res.statusText } };
-  } };
-  return buildDue(db);
+  // the cron job's calls, one after the other, until nothing is due (a few seasons per call)
+  const sum = { built: [], skipped: [] };
+  for (let i = 0; i < 20; i++) {
+    const r = await buildDue(rest('service_role'));
+    sum.built.push(...r.built);
+    sum.skipped.push(...r.skipped);
+    if (r.remaining === 0) break;
+  }
+  return sum;
+}
+/** Every stored table of every season equals the browser's computation from the season's data (anon), and
+ *  home_rankings() equals the top 3 (topOfRanking: rank <= 3) of the computed senior tables. */
+async function checkStoredTables() {
+  const anon = rest('anon');
+  const res = await fetch(`${api}/rest/v1/ranking_tables?select=season,rank_class,gender,discipline,rows,meta,code_version`,
+    { headers: { apikey: jwt(secret, 'anon') } });
+  const stored = await res.json();
+  const seasons = [...new Set(stored.map((t) => t.season))];
+  if (!seasons.length) problems.push('no stored ranking tables');
+  let compared = 0;
+  for (const season of seasons) {
+    const data = parseSeason((await anon.rpc('season_rankings', { p_season: season })).data);
+    const mine = stored.filter((t) => t.season === season);
+    if (mine.length !== 16) problems.push(`${season}: ${mine.length} stored tables, not 16`);
+    for (const t of mine) {
+      const c = rankingTable(data, season, t.rank_class, t.gender, t.discipline);
+      const want = JSON.parse(JSON.stringify({ rows: c.rows, meta: c.meta, code_version: RANKING_CODE_VERSION }));
+      if (!isDeepStrictEqual({ rows: t.rows, meta: t.meta, code_version: t.code_version }, want)) problems.push(`stored table differs: ${season} ${t.rank_class} ${t.gender} ${t.discipline}`);
+      compared++;
+    }
+    const home = (await anon.rpc('home_rankings', { p_version: RANKING_CODE_VERSION, p_seasons: [season], p_top: 3 })).data;
+    for (const g of ['male', 'female']) for (const d of ['boulder', 'lead']) {
+      const top = JSON.parse(JSON.stringify(rankingTable(data, season, 'senior', g, d).rows.filter((r) => r.rank <= 3)));
+      const h = home.find((x) => x.gender === g && x.discipline === d);
+      if (!h || !isDeepStrictEqual(h.rows, top)) problems.push(`home_rankings differs: ${season} ${g} ${d}`);
+    }
+  }
+  console.log(`stored tables equal the computed ones: ${compared} tables, seasons ${seasons.join(', ')}`);
 }
 const expectText = async (p, text) => {
   try { await p.getByText(text, { exact: false }).first().waitFor({ timeout: 5000 }); }
@@ -511,6 +553,21 @@ const rankingShown = async (pg) => [await pg.locator('.edition-line').innerText(
   if (!built.built.includes('2026-27')) problems.push(`rankings build: ${JSON.stringify(built)}`);
   const again = await buildRankingTables();
   if (again.built.length || again.skipped.length) problems.push(`rankings build with nothing changed: ${JSON.stringify(again)}`);
+  await checkStoredTables();
+  await pub.close();
+}
+step('rankings: ranking_page() missing or failing: the season list and the table as before');
+{
+  const pub = await (await browser.newContext()).newPage();
+  const reqs = [];
+  pub.on('request', (r) => { if (r.url().includes('/rest/v1/')) reqs.push(r.url().split('/rest/v1/')[1].split('?')[0]); });
+  await pub.route('**/rest/v1/rpc/ranking_page*', (r) => r.fulfill({ status: 404, contentType: 'application/json',
+    body: '{"code":"PGRST202","message":"Could not find the function public.ranking_page"}' }));
+  await pub.goto(`${view}/rankings?c=senior&g=female&d=boulder`);
+  await pub.locator('table.rankings tbody tr').first().waitFor();
+  await pub.waitForLoadState('networkidle');
+  if (reqs.join() !== 'rpc/ranking_page,competitions,rpc/season_rankings') problems.push(`rankings requests (no ranking_page): ${reqs.join(', ')}`);
+  if (JSON.stringify(await rankingShown(pub)) !== JSON.stringify(rankingsComputed)) problems.push('rankings without ranking_page: a different table');
   await pub.close();
 }
 step('rankings and climber pages: one data request each');
@@ -556,6 +613,7 @@ await p.getByRole('button', { name: 'Save' }).first().click();
 await p.waitForTimeout(500);
 // the cron jobs' next run: the changed season's cache and tables
 if (!(await buildRankingTables()).built.includes('2026-27')) problems.push('rankings build after the round closed: 2026-27 not rebuilt');
+await checkStoredTables();
 {
   const home = await page('en', { width: 1280, height: 900 }, null);
   await home.goto(`${view}/`);

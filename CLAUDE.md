@@ -23,7 +23,8 @@ view only, no sign-in; `src/apps/viewer`) and the **staff** app (sign-in; judge,
   `ranking_adjustments`, `world_rankings`; the last three admin-entered or tool-loaded). Tests: the criteria document's worked examples; validated against ILCA's published
   2024-25 youth bouldering ranking. The `rankings-build` edge function runs the same code (via the pure
   `src/lib/rankingTables.ts`; imports there carry `.ts` for Deno) and stores finished tables in `ranking_tables`;
-  after changing the ranking code redeploy it and rebuild (docs/operations.md). A new table the build reads needs the `rankings_cache_*` triggers
+  changing rankings.ts / criteria.ts / rankingTables.ts means bumping `RANKING_CODE_VERSION` (a test pins the
+  hash), redeploying the function and POSTing `{"all": true}` (docs/operations.md). A new table the build reads needs the `rankings_cache_*` triggers
   (migration 033); a migration changing scoring or the build must queue a full rebuild (docs/operations.md).
 - Identity: profiles exist without accounts. `profiles.user_id` links a login (only via `link_account()`);
   policies use `my_profile_id()`, never `auth.uid()` = profile id. Client code uses `useAuth().profileId`.

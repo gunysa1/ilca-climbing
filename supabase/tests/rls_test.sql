@@ -1001,61 +1001,75 @@ select pg_temp.assert(:rebuilt > 0
 reset role;
 select pg_temp.assert(not exists (select 1 from ranking_tables), 'no ranking tables before the first build');
 select pg_temp.login(null);
-select pg_temp.assert(ranking_page('2023-24', null, 'senior', 'female', 'boulder') ->> 'table' is null
-  and (ranking_page('2023-24', null, 'senior', 'female', 'boulder') ->> 'season')
+select pg_temp.assert(ranking_page(1, '2023-24', null, 'senior', 'female', 'boulder') ->> 'table' is null
+  and (ranking_page(1, '2023-24', null, 'senior', 'female', 'boulder') ->> 'season')
       is not distinct from (select max(season) from competitions where series <> 'other' and season >= '2023-24')
-  and (select array_agg(s order by s desc) from json_array_elements_text(ranking_page('2023-24', null, 'senior', 'female', 'boulder') -> 'seasons') s)
+  and (select array_agg(s order by s desc) from json_array_elements_text(ranking_page(1, '2023-24', null, 'senior', 'female', 'boulder') -> 'seasons') s)
       is not distinct from (select array_agg(distinct season order by season desc) from competitions where series <> 'other' and season >= '2023-24'),
   'ranking_page before a build: the seasons (newest first) and no table');
 select pg_temp.denied($$select * from ranking_tables_due()$$, 'anon lists the due seasons');
 select pg_temp.denied($$select ranking_tables_input('2026-27')$$, 'anon reads a season''s cached payload through the build input');
-select pg_temp.denied($$select store_ranking_tables('2026-27', now(), '[]')$$, 'anon stores ranking tables');
-select pg_temp.denied($$insert into ranking_tables (season, rank_class, gender, discipline, rows, meta, source_built_at)
-  values ('2026-27', 'senior', 'female', 'boulder', '[]', '{}', now())$$, 'anon writes ranking tables');
+select pg_temp.denied($$select store_ranking_tables('2026-27', now(), 1, '[]')$$, 'anon stores ranking tables');
+select pg_temp.denied($$select ranking_tables_invalidate()$$, 'anon invalidates ranking tables');
+select pg_temp.denied($$insert into ranking_tables (season, rank_class, gender, discipline, rows, meta, source_built_at, code_version)
+  values ('2026-27', 'senior', 'female', 'boulder', '[]', '{}', now(), 1)$$, 'anon writes ranking tables');
 select pg_temp.login('00000000-0000-0000-0000-00000000000a');
 select pg_temp.denied($$select * from ranking_tables_due()$$, 'admin lists the due seasons (only the function does)');
-select pg_temp.denied($$select store_ranking_tables('2026-27', now(), '[]')$$, 'admin stores ranking tables directly');
-select pg_temp.denied($$insert into ranking_tables (season, rank_class, gender, discipline, rows, meta, source_built_at)
-  values ('2026-27', 'senior', 'female', 'boulder', '[]', '{}', now())$$, 'admin writes ranking tables');
+select pg_temp.denied($$select store_ranking_tables('2026-27', now(), 1, '[]')$$, 'admin stores ranking tables directly');
+select pg_temp.denied($$select ranking_tables_invalidate()$$, 'admin invalidates ranking tables directly');
+select pg_temp.denied($$insert into ranking_tables (season, rank_class, gender, discipline, rows, meta, source_built_at, code_version)
+  values ('2026-27', 'senior', 'female', 'boulder', '[]', '{}', now(), 1)$$, 'admin writes ranking tables');
 reset role;
+select array_agg(season order by season desc)::text as cached from season_rankings_cache \gset
 set role service_role;
-select pg_temp.assert((select array_agg(season order by season) from ranking_tables_due())
-  = (select array_agg(season order by season) from ranking_tables_due(true)), 'service role: every cached season is due before a build');
+select pg_temp.assert((select array_agg(season) from ranking_tables_due(1))::text = :'cached'
+  and (select array_agg(season) from ranking_tables_due()) = (select array_agg(season) from ranking_tables_due(1)),
+  'service role: every cached season is due before a build, newest first');
 select pg_temp.assert(ranking_tables_input('2026-27') -> 'payload' is not null
   and ranking_tables_input('2031-32') is null, 'service role: the build input of a cached season (null for none)');
-select pg_temp.denied($$insert into ranking_tables (season, rank_class, gender, discipline, rows, meta, source_built_at)
-  values ('2026-27', 'senior', 'female', 'boulder', '[]', '{}', now())$$, 'service role writes ranking tables directly');
-select pg_temp.assert(store_ranking_tables('2026-27', (ranking_tables_input('2026-27') ->> 'built_at')::timestamptz, $$[
+select pg_temp.denied($$insert into ranking_tables (season, rank_class, gender, discipline, rows, meta, source_built_at, code_version)
+  values ('2026-27', 'senior', 'female', 'boulder', '[]', '{}', now(), 1)$$, 'service role writes ranking tables directly');
+select (ranking_tables_input('2026-27') ->> 'built_at')::timestamptz as src \gset
+select pg_temp.assert(store_ranking_tables('2026-27', :'src', 1, $$[
   {"rank_class": "senior", "gender": "female", "discipline": "boulder", "meta": {"criteria": "ilca2027", "provisional": true},
    "rows": [{"rank": 1, "climber_id": "a"}, {"rank": 2, "climber_id": "b"}, {"rank": 3, "climber_id": "c"}, {"rank": 3, "climber_id": "d"}, {"rank": 5, "climber_id": "e"}]},
   {"rank_class": "senior", "gender": "male", "discipline": "lead", "meta": {}, "rows": []},
   {"rank_class": "U17", "gender": "female", "discipline": "boulder", "meta": {}, "rows": [{"rank": 1, "climber_id": "y"}]}]$$),
   'service role stores a season''s tables');
-select pg_temp.assert(not exists (select 1 from ranking_tables_due() where season = '2026-27')
-  and exists (select 1 from ranking_tables_due(true) where season = '2026-27'),
-  'a stored season is no longer due (all: every season)');
-select pg_temp.assert(not store_ranking_tables('2026-27', '2000-01-01', '[]'),
-  'a build from an older payload does not replace newer tables');
-select pg_temp.denied($$select store_ranking_tables('2026-27', now(), '[{"rank_class": "U9", "gender": "female", "discipline": "boulder", "meta": {}, "rows": []}]')$$,
+select pg_temp.assert(not exists (select 1 from ranking_tables_due(1) where season = '2026-27')
+  and not exists (select 1 from ranking_tables_due() where season = '2026-27')
+  and exists (select 1 from ranking_tables_due(2) where season = '2026-27'),
+  'a stored season is no longer due for its code version; another version finds it due');
+select pg_temp.assert(not store_ranking_tables('2026-27', '2000-01-01', 1, '[]')
+  and not store_ranking_tables('2026-27', '2000-01-01', 2, '[]'),
+  'a build from an older payload does not replace newer tables (whatever its version)');
+select pg_temp.denied($$select store_ranking_tables('2026-27', now(), 1, '[{"rank_class": "U9", "gender": "female", "discipline": "boulder", "meta": {}, "rows": []}]')$$,
   'store refuses an unknown class');
-select pg_temp.denied($$select store_ranking_tables('2026-27', now(), '[{"rank_class": "U17", "gender": "female", "discipline": "boulder", "meta": {}, "rows": {}}]')$$,
+select pg_temp.denied($$select store_ranking_tables('2026-27', now(), 1, '[{"rank_class": "U17", "gender": "female", "discipline": "boulder", "meta": {}, "rows": {}}]')$$,
   'store refuses rows that are not an array');
-select pg_temp.denied($$select store_ranking_tables('2026-27', now(), '{}')$$, 'store refuses tables that are not an array');
+select pg_temp.denied($$select store_ranking_tables('2026-27', now(), 1, '{}')$$, 'store refuses tables that are not an array');
+select pg_temp.denied($$select store_ranking_tables('2026-27', now(), 0, '[]')$$, 'store refuses a code version below 1');
+select pg_temp.denied($$select store_ranking_tables('2026-27', null, 1, '[]')$$, 'store refuses a missing source');
 reset role;
 select pg_temp.assert((select count(*) from ranking_tables where season = '2026-27') = 3
-  and (select source_built_at from ranking_tables where season = '2026-27' limit 1) = (select built_at from season_rankings_cache where season = '2026-27'),
-  'the stored tables carry their payload''s built_at; the refused stores changed nothing');
+  and (select source_built_at from ranking_tables where season = '2026-27' limit 1) = (select built_at from season_rankings_cache where season = '2026-27')
+  and (select bool_and(code_version = 1) from ranking_tables),
+  'the stored tables carry their payload''s built_at and code version; the refused stores changed nothing');
 select pg_temp.login(null);
-select pg_temp.assert(ranking_page('2023-24', '2026-27', 'senior', 'female', 'boulder') #>> '{table,rows,3,climber_id}' = 'd'
-  and ranking_page('2023-24', '2026-27', 'senior', 'female', 'boulder') #>> '{table,meta,criteria}' = 'ilca2027'
-  and ranking_page('2023-24', '2026-27', 'senior', 'female', 'boulder') ->> 'season' = '2026-27'
-  and ranking_page('2023-24', '2026-27', 'U19', 'female', 'boulder') ->> 'table' is null
-  and ranking_page('2023-24', '2026-27', 'senior', 'female', 'speed') ->> 'table' is null,
+select pg_temp.assert(ranking_page(1, '2023-24', '2026-27', 'senior', 'female', 'boulder') #>> '{table,rows,3,climber_id}' = 'd'
+  and ranking_page(1, '2023-24', '2026-27', 'senior', 'female', 'boulder') #>> '{table,meta,criteria}' = 'ilca2027'
+  and ranking_page(1, '2023-24', '2026-27', 'senior', 'female', 'boulder') ->> 'season' = '2026-27'
+  and ranking_page(1, '2023-24', '2026-27', 'U19', 'female', 'boulder') ->> 'table' is null
+  and ranking_page(1, '2023-24', '2026-27', 'senior', 'female', 'speed') ->> 'table' is null,
   'anon: ranking_page returns the stored table (null for one not stored)');
+select pg_temp.assert(ranking_page(2, '2023-24', '2026-27', 'senior', 'female', 'boulder') ->> 'table' is null
+  and ranking_page(2, '2023-24', '2026-27', 'senior', 'female', 'boulder') ->> 'season' = '2026-27'
+  and not exists (select 1 from home_rankings(2, array['2026-27'])),
+  'a page of another code version gets no stored table (it computes)');
 select pg_temp.assert((select count(*) from ranking_tables) = 3, 'anon reads the ranking tables');
 select pg_temp.assert((select string_agg(gender || ' ' || discipline || ' ' || jsonb_array_length(rows), ', ' order by discipline, gender)
-  from home_rankings(array['2026-27', '2025-26'])) = 'female boulder 4, male lead 0'
-  and (select rows #>> '{3,climber_id}' from home_rankings(array['2026-27']) where discipline = 'boulder') = 'd',
+  from home_rankings(1, array['2026-27', '2025-26'])) = 'female boulder 4, male lead 0'
+  and (select rows #>> '{3,climber_id}' from home_rankings(1, array['2026-27']) where discipline = 'boulder') = 'd',
   'home_rankings: the top 3 of the stored senior tables (ties included)');
 select pg_temp.denied($$update ranking_tables set rows = '[]'$$, 'anon changes ranking tables');
 select pg_temp.denied($$delete from ranking_tables$$, 'anon deletes ranking tables');
@@ -1063,10 +1077,37 @@ select pg_temp.login('00000000-0000-0000-0000-000000000002');
 select pg_temp.assert((select count(*) from ranking_tables) = 3, 'a signed-in climber reads the ranking tables');
 select pg_temp.denied($$delete from ranking_tables$$, 'a signed-in climber deletes ranking tables');
 reset role;
+-- A newer code version replaces the tables of the same payload; an older one then cannot put its tables back.
+set role service_role;
+-- (one write per statement: a statement sees the data as it was when it started)
+select pg_temp.assert(store_ranking_tables('2026-27', :'src', 2, '[{"rank_class": "senior", "gender": "female", "discipline": "boulder", "meta": {}, "rows": []}]'),
+  'a newer code version replaces the tables of the same payload');
+select pg_temp.assert(not store_ranking_tables('2026-27', :'src', 1, '[]'), 'the older version''s build of the same payload is refused');
+select pg_temp.assert(exists (select 1 from ranking_tables_due(1) where season = '2026-27')
+  and not exists (select 1 from ranking_tables_due() where season = '2026-27'),
+  'due: for the older version yes; for pg_cron (the newest stored version) no');
+reset role;
+select pg_temp.assert((select count(*) from ranking_tables) = 1 and (select code_version from ranking_tables) = 2,
+  'the newer version''s tables stay');
+-- {"all": true}: every season due again, the tables still served meanwhile
+set role service_role;
+select ranking_tables_invalidate();
+select pg_temp.assert(exists (select 1 from ranking_tables_due(2) where season = '2026-27')
+  and exists (select 1 from ranking_tables_due() where season = '2026-27'),
+  'invalidate makes every stored season due');
+reset role;
+select pg_temp.assert((select count(*) from ranking_tables) = 1, 'invalidated tables are still served');
+set role service_role;
+select pg_temp.assert(store_ranking_tables('2026-27', :'src', 2, '[]'), 'an invalidated season takes the rebuild');
+reset role;
 -- a refresh that rebuilds the season makes it due again
+delete from ranking_tables;
+set role service_role;
+select pg_temp.assert(store_ranking_tables('2026-27', :'src', 1, '[]'), 'stored again');
+reset role;
 insert into rankings_cache_changes (season) values ('2026-27');
 select refresh_rankings_cache() as rebuilt \gset
-select pg_temp.assert(exists (select 1 from ranking_tables_due() where season = '2026-27'), 'a rebuilt payload makes its season due again');
+select pg_temp.assert(exists (select 1 from ranking_tables_due(1) where season = '2026-27'), 'a rebuilt payload makes its season due again');
 delete from ranking_tables;
 
 -- ---------------------------------------------------------------- round_page(): one call per round page
@@ -1276,10 +1317,10 @@ select pg_temp.assert(not has_table_privilege(r, 'public.ranking_tables', p), r 
 from unnest(array['anon', 'authenticated', 'service_role']) r, unnest(array['insert', 'update', 'delete', 'truncate']) p;
 select pg_temp.assert(not has_function_privilege(r, f, 'execute'), r || ' cannot execute ' || f)
 from unnest(array['anon', 'authenticated']) r,
-     unnest(array['public.ranking_tables_due(boolean)', 'public.ranking_tables_input(text)',
-                  'public.store_ranking_tables(text, timestamptz, jsonb)']) f;
+     unnest(array['public.ranking_tables_due(integer)', 'public.ranking_tables_input(text)', 'public.ranking_tables_invalidate()',
+                  'public.store_ranking_tables(text, timestamptz, integer, jsonb)']) f;
 select pg_temp.assert(not prosecdef, f || ' runs with the caller''s rights')
-from unnest(array['public.ranking_page(text, text, text, text, text)', 'public.home_rankings(text[], integer)']) f
+from unnest(array['public.ranking_page(integer, text, text, text, text, text)', 'public.home_rankings(integer, text[], integer)']) f
 join pg_proc on oid = f::regprocedure;
 select pg_temp.assert(not has_sequence_privilege(r, 'public.rankings_cache_changes_id_seq', p),
   r || ' cannot ' || p || ' the change log sequence')

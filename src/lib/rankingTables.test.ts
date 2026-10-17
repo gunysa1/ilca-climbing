@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import criteriaSource from './criteria.ts?raw';
 import { RANK_CLASSES } from './rankings';
-import { parseSeason, rankingTable, seasonRanking, seasonTables } from './rankingTables';
+import rankingsSource from './rankings.ts?raw';
+import { parseSeason, RANKING_CODE_VERSION, rankingTable, seasonRanking, seasonTables } from './rankingTables';
+import tablesSource from './rankingTables.ts?raw';
 import { seasonPayload } from './testdata/seasonPayload';
 
 describe('ranking tables', () => {
@@ -56,5 +59,21 @@ describe('ranking tables', () => {
   it('parses numerics that arrive as strings', () => {
     expect(data.adjustments[0].points).toBe(-10);
     expect(data.intl.find((r) => r.event_type === 'manual')!.points).toBe(42.5);
+  });
+});
+
+/** SHA-256 of the ranking code per RANKING_CODE_VERSION. Never edit an entry: a change to rankings.ts, criteria.ts
+ *  or rankingTables.ts bumps RANKING_CODE_VERSION and adds the new version's hash here. (Stored tables of another
+ *  version are not served: the pages compute until the rankings-build function, redeployed, rebuilds them.) */
+const CODE_HASHES: Record<number, string> = {
+  1: '7619fcb368fc6cca967aaa55e1075920339698a0eb428743154fed73ea33e0be',
+};
+
+describe('ranking code version', () => {
+  it('is bumped whenever the ranking code changes', async () => {
+    const bytes = new TextEncoder().encode([rankingsSource, criteriaSource, tablesSource].join('\0').replace(/\r\n/g, '\n'));
+    const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    expect(Math.max(...Object.keys(CODE_HASHES).map(Number)), 'RANKING_CODE_VERSION is the newest listed version').toBe(RANKING_CODE_VERSION);
+    expect(hash, `ranking code changed: bump RANKING_CODE_VERSION and add ${RANKING_CODE_VERSION + 1}: '<hash>' to CODE_HASHES`).toBe(CODE_HASHES[RANKING_CODE_VERSION]);
   });
 });

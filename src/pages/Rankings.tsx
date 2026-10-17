@@ -5,7 +5,8 @@ import { FavoriteStar } from '../components/FavoriteStar';
 import { localized, useI18n, type MsgKey } from '../lib/i18n';
 import { RANK_CLASSES, type Gender, type RankClass } from '../lib/rankings';
 import { criteriaForSeason, FIRST_YOUTH_SEASON } from '../lib/criteria';
-import { computedTable, fmtPoints, loadRankingPage, type RankingTable } from '../lib/seasonRankings';
+import { loadRankingsView } from '../lib/rankingsView';
+import { fmtPoints, rankingsLoaders, type RankingTable } from '../lib/seasonRankings';
 
 const CLASS_LABEL: Record<RankClass, MsgKey | null> = { senior: 'seniors', U21: null, U19: null, U17: null };
 
@@ -14,7 +15,8 @@ let seasonsCache: string[] | null = null;
 const tableCache = new Map<string, RankingTable>();
 
 /** National rankings (מדרג לאומי) per season, discipline, class and gender. One request (ranking_page(): the
- *  season list and the stored table); a table not stored yet is computed here from the season's data. */
+ *  season list and the stored table); a table not stored yet is computed here from the season's data
+ *  (rankingsView.ts, also when ranking_page() fails). */
 export function Rankings() {
   const { t, lang } = useI18n();
   const [params, setParams] = useSearchParams();
@@ -34,21 +36,14 @@ export function Rankings() {
     // a table seen before shows at once, then refreshes
     setTable(tableCache.get(key(season)) ?? null);
     setFailed(false);
-    const show = (s: string, tb: RankingTable) => { tableCache.set(key(s), tb); if (live) setTable(tb); };
-    void (async () => {
-      // without a season in the address the newest one comes back with the list (no second round trip)
-      const page = await loadRankingPage(asked, rankClass, gender, discipline);
+    // without a season in the address the newest one comes back with the list (no second round trip)
+    void loadRankingsView(rankingsLoaders, asked, rankClass, gender, discipline).then((v) => {
       if (!live) return;
+      if (v.seasons) { seasonsCache = v.seasons; setSeasons(v.seasons); }
+      if (v.table && v.season) { tableCache.set(key(v.season), v.table); setTable(v.table); return; }
       // a failed refresh keeps what is shown; a failed first load says so
-      if (!page) { if (!tableCache.has(key(season))) setFailed(true); return; }
-      seasonsCache = page.seasons;
-      setSeasons(page.seasons);
-      if (!page.season || discipline === 'speed') return;
-      if (page.table) { show(page.season, page.table); return; }
-      const computed = await computedTable(page.season, rankClass, gender, discipline);
-      if (computed) show(page.season, computed);
-      else if (live && !tableCache.has(key(page.season))) setFailed(true);
-    })();
+      if (discipline !== 'speed' && (v.season || !v.seasons) && !tableCache.has(key(v.season))) setFailed(true);
+    });
     return () => { live = false; };
     // (`season` follows from `asked` and the list: listing it would ask again when the list arrives)
   }, [asked, rankClass, gender, discipline]);

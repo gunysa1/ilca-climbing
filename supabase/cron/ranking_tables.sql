@@ -11,9 +11,10 @@
 --   select count(*), max(built_at) from public.ranking_tables;   -- 16 per cached season
 --   select * from public.ranking_tables_due();                     -- empty
 --
--- After a change to the ranking code (src/lib/rankings.ts, criteria.ts, rankingTables.ts): redeploy the function,
--- then rebuild every season: POST {"all": true} as an admin or with the secret, or
---   delete from public.ranking_tables;   -- every season is due again; the pages compute until rebuilt
+-- Each call builds at most two seasons (newest first); while more are due, the next minutes' calls continue.
+-- After a change to the ranking code (RANKING_CODE_VERSION bumped): deploy the function, then POST {"all": true}
+-- as an admin or with the secret: every season is due again (tables of the old version stay stored, but the new
+-- frontend computes until its version is built). Deploy and checks: docs/operations.md.
 --
 -- Rollback (the pages compute every table in the browser again, as before):
 --   select cron.unschedule('ranking-tables');

@@ -187,17 +187,41 @@ The rankings page and home read finished tables (`ranking_tables`, migration 035
 (class × gender × discipline) with the app's own ranking code (`src/lib/rankingTables.ts` → `rankings.ts`,
 `criteria.ts`) from the season's cached payload above, and stores them through `store_ranking_tables()`
 (service role only). Every minute pg_cron calls it when `ranking_tables_due()` lists a season whose payload
-is newer than its tables, so a change shows within about two minutes. A table not stored yet is computed in
-the browser, as before.
+is newer than its tables, so a change shows within about two minutes. Each call builds at most two seasons
+(`SEASONS_PER_CALL`, newest first: about 0.8 MB of JSON and 16 tables each, well inside the edge CPU limit);
+while more are due (e.g. after a profile edit, which changes every season) the next minutes' calls continue.
+A table not stored is computed in the browser, as before; so is everything when `ranking_page()` fails.
 
-Setup (once, after `db push` applied 035): generate a secret (`openssl rand -hex 32`), set it as the function's
-`RANKINGS_BUILD_SECRET` (`supabase secrets set`), deploy with `supabase functions deploy rankings-build`, then
-run `supabase/cron/ranking_tables.sql` in the SQL editor (its header creates the Vault secret).
+Code version: tables carry `RANKING_CODE_VERSION` (`src/lib/rankingTables.ts`). The pages take only tables of
+their own version, so a frontend deploy with changed ranking code computes in the browser until the function
+(same version) has rebuilt the tables; `src/lib/rankingTables.test.ts` fails when rankings.ts, criteria.ts or
+rankingTables.ts change without a version bump (it pins their hash per version).
 
-- After a change to the ranking code: redeploy the function, then rebuild every season (POST `{"all": true}`
-  with `x-sync-secret` or as an admin, or `delete from public.ranking_tables;` and wait a minute).
-- Check: `select season, count(*), max(built_at) from public.ranking_tables group by 1 order by 1;` (16 per
-  season) and `select * from public.ranking_tables_due();` (empty when up to date).
+Setup (once, after `db push` applied 035):
+1. `openssl rand -hex 32`, then
+   `npx -y supabase@2.121.0 secrets set RANKINGS_BUILD_SECRET=<value> --project-ref <ref>`.
+2. `npx -y supabase@2.121.0 functions deploy rankings-build --no-verify-jwt --use-api --project-ref <ref>`.
+   The function imports `src/lib/rankingTables.ts`, `rankings.ts` and `criteria.ts` from outside
+   `supabase/functions`: check that the upload list printed by the deploy includes those three files (if not,
+   the function fails at boot; don't schedule the cron job).
+3. Smoke tests (`<url>` = `https://<ref>.supabase.co/functions/v1/rankings-build`):
+   `curl -s -X POST <url> -d '{}'` → 401 `{"error":"unauthorized"}`;
+   `curl -s -X POST <url> -H "x-sync-secret: <value>" -H 'content-type: application/json' -d '{}'` →
+   `{"status":"ok","version":1,"built":[two seasons],"skipped":[],"remaining":N}`; repeat until `remaining` is 0
+   (or let the cron job do it).
+4. Run `supabase/cron/ranking_tables.sql` in the SQL editor (its header creates the Vault secret).
+
+- After a change to the ranking code (version bumped): deploy the frontend and the function, then POST
+  `{"all": true}` with `x-sync-secret` (or as an admin): every season becomes due (its tables still served)
+  and the cron job rebuilds two per minute. Until rebuilt, the new frontend computes in the browser.
+- Check: `select season, count(*), max(code_version), max(built_at) from public.ranking_tables group by 1 order by 1;`
+  (16 per season) and `select * from public.ranking_tables_due();` (empty when up to date).
+- A failing build: `ranking_tables_due()` stays non-empty and the cron job calls every minute. Look at
+  `select status, return_message, start_time from cron.job_run_details where command like '%rankings-build%' order by start_time desc limit 5;`
+  (pg_net only queues the call: a "succeeded" run there says nothing about the function), the function's HTTP
+  answers in `select status_code, content, created from net._http_response order by created desc limit 5;`,
+  and the function's logs in the dashboard (Edge Functions → rankings-build → Logs). Until fixed the pages
+  show the last stored tables (or compute).
 - Rollback: `select cron.unschedule('ranking-tables'); delete from public.ranking_tables;` (the pages compute
   every table in the browser again).
 
