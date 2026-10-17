@@ -158,12 +158,28 @@ Judge pads write through an outbox (`src/lib/saveQueue.ts`, pure and unit-tested
 `src/lib/judgeOutbox.ts`), persisted in localStorage per profile (`ilca.outbox.<profile id>`). Each
 tap queues the full result row, so only the latest row per climber and boulder is kept (a queued lock
 stays a lock); one request at a time, oldest first, a newer row for the row in flight after it, so the
-newest wins. Network errors, timeouts (15 s), 5xx, 408 and 429 retry with backoff (1 s … 30 s) and at
-once on `online` / the app becoming visible; other 4xx (RLS, locked by an admin, not a starter) go to a
-failed list the judge shows an admin. The pad shows unsent rows over the server's, a lock waits in the
-outbox while the pad moves on, and a claim that can't reach the server keeps the last answer (none yet:
-editable). To reopen without signal, the staff service worker caches the shell's scripts, and the
-roles, the judge's assignments and the last round pages opened on the pad are kept on the device.
+newest wins. Only the signed-in profile's queue sends, in one tab (Web Locks; the other tabs queue into
+the same storage and merge on the `storage` event).
+
+- Network errors, timeouts (15 s), 5xx, 408 and 429 retry with backoff (1 s … 30 s), and at once on
+  `online` / the app becoming visible; after 6 failures in a row an entry goes behind the others.
+- 401: the session is refreshed once; if that fails the queue pauses (rows kept) and asks the judge to
+  sign in again; it resumes on `SIGNED_IN` / `TOKEN_REFRESHED`.
+- A row that waited (a failed try, or queued over 30 s ago) is checked before it is sent: the climber
+  is claimed again (another judge holds them: failed, "held by …"), and the server row must still be
+  the one the pad started from (`updated_at`), or one of the judge's own writes whose answer was lost;
+  otherwise failed ("changed on the server meanwhile"), so an admin's correction is never overwritten.
+  Rows sent at once are not checked (as before the outbox: the last save wins).
+- Other 4xx (RLS, locked by an admin, not a starter) go to a failed list the judge shows an admin;
+  never retried. "Saved" shows only when the server answered.
+
+The server's answer to each save is kept with the outbox (`acked`): the pad shows the unsent row, else
+the newer of that answer and the round page (which may be an older copy kept for offline use); a lock
+waits in the outbox while the pad moves on; a claim that can't reach the server keeps the last answer
+(none yet: editable). To reopen without signal, the staff service worker caches the shell's scripts
+(pages: network first, the cached shell after 3.5 s), and the roles, the judge's assignments and the
+last round pages opened on the pad are kept on the device per profile. Signing out asks first while
+rows wait, keeps them for that judge's next sign-in, and removes the other copies.
 
 ## Migrations
 

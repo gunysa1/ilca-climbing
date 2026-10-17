@@ -1,32 +1,57 @@
 // The judge pad's outbox: every tap is queued here and sent in the background, so scoring goes on
-// through signal drops and a page reload. Pure: storage (localStorage) and the sender are injected
-// (src/lib/judgeOutbox.ts wires Supabase and the browser events).
+// through signal drops and a page reload. Pure: storage (localStorage), the sender and the checks are
+// injected (src/lib/judgeOutbox.ts wires Supabase and the browser events).
 //  * Each save is the FULL result row, so the outbox keeps only the latest row per climber and boulder.
 //  * One request at a time, oldest key first; a newer row for the key in flight is sent after it, so
-//    the newest always wins on the server.
-//  * Network / timeout / 5xx / 408 / 429: kept and retried with backoff (and at once on kick());
-//    any other 4xx (RLS, locked by an admin, not a starter, check violation): moved to `failed`.
+//    the newest always wins on the server. Only one tab per profile sends (the leader).
+//  * Network / timeout / 5xx / 408 / 429: kept and retried with backoff (and at once on kick()); after
+//    6 failures in a row an entry goes behind the others. 401: refresh the session once, else pause
+//    and ask to sign in again (rows kept). Any other 4xx (RLS, locked by an admin, not a starter,
+//    check violation): moved to `failed`, never retried.
+//  * A row that waited (a failed try, or queued over 30 s ago) is verified first: still this judge's
+//    climber, and the server row unchanged since the row the judge built on (`base`); else failed.
+//  * The server's answer to each save is kept (`acked`): the pad's base after a reload.
 
 export type ResultTable = 'boulder_results' | 'lead_results';
+type Row = Record<string, unknown>;
 
 export interface OutboxEntry {
   /** `<table>|<boulder_id>|<climber_id>` (outboxKey). */
   key: string;
+  /** This row's id (a newer row for the key gets a new one). */
+  id: string;
   table: ResultTable;
   /** The whole row to upsert (without `locked`; see lock). */
-  row: Record<string, unknown>;
+  row: Row;
   /** Lock the result with this row. Sticky: a later row for the same key keeps it. */
   lock: boolean;
   /** When the key was first queued (ms). */
   queuedAt: number;
+  /** Failed tries of this key so far. */
+  tries: number;
+  /** updated_at of the server row the judge built on; null: there was none; undefined: unknown (first format). */
+  base?: string | null;
+  /** Rows sent for this key whose answer was lost (network): they may be on the server. */
+  inDoubt?: Row[];
   /** For the failed-results notice: who and where. */
   meta?: { climber: string; boulder: number };
 }
-export interface FailedEntry extends OutboxEntry { error: string }
-export interface OutboxSnapshot { pending: OutboxEntry[]; failed: FailedEntry[] }
+/** `held`: another judge holds the climber (error: their name); `changed`: changed on the server meanwhile. */
+export type FailCode = 'held' | 'changed';
+export interface FailedEntry extends OutboxEntry { error: string; code?: FailCode }
+/** The server's row as returned by a save, and when it came (ms). */
+export interface Acked { row: Row; at: number }
+interface Stored { pending: OutboxEntry[]; failed: FailedEntry[]; acked: Record<string, Acked> }
+export interface OutboxSnapshot extends Stored {
+  /** Paused: the session is gone; the judge must sign in again (rows kept). */
+  needsSignIn: boolean;
+  /** Storage refused a write: unsent rows live only in memory (a reload loses them). */
+  storageFailed: boolean;
+}
 export type KeyState = 'saved' | 'pending' | 'failed';
-/** `status` is the HTTP status; 0 for a network failure or timeout. */
-export type SendResult = { ok: true } | { ok: false; status: number; message: string };
+/** `status` is the HTTP status; 0 for a network failure or timeout. `row`: the server's row. */
+export type SendResult = { ok: true; row?: Row } | { ok: false; status: number; message: string; code?: string };
+export type AuthRefresh = 'ok' | 'signed-out' | 'offline';
 type StorageLike = { getItem(key: string): string | null; setItem(key: string, value: string): void };
 
 export const outboxKey = (table: ResultTable, boulderId: string, climberId: string) => `${table}|${boulderId}|${climberId}`;
@@ -34,33 +59,71 @@ export const outboxStorageKey = (profileId: string) => `ilca.outbox.${profileId}
 
 /** Worth retrying: no answer (network, timeout), a server error, 408 or 429. */
 export const isTransient = (status: number) => status === 0 || status === 408 || status === 429 || status >= 500;
+/** Not signed in (expired or missing session): never a reason to drop a row. */
+export const isAuthFailure = (r: SendResult) => !r.ok && (r.status === 401 || r.code === 'PGRST301');
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 15000, 30000];
 /** Wait before the next try after `failures` failures in a row (1 s … 30 s). */
 export const retryDelay = (failures: number) => RETRY_DELAYS_MS[Math.min(Math.max(failures, 1), RETRY_DELAYS_MS.length) - 1];
+/** Queued longer than this before its send: checked first. */
+const WAITED_MS = 30_000;
+/** Failures in a row after which an entry lets the others go first. */
+const MOVE_BACK_AFTER = 6;
+const ACKED_KEEP = 500;
+const IN_DOUBT_KEEP = 5;
 
 export function keyState(snap: OutboxSnapshot, key: string): KeyState {
   if (snap.pending.some((e) => e.key === key)) return 'pending';
   return snap.failed.some((e) => e.key === key) ? 'failed' : 'saved';
 }
 
+/** The server confirmed a save for this key at or after `since` (ms): only then "saved". */
+export const ackedSince = (snap: OutboxSnapshot, key: string, since: number) => (snap.acked[key]?.at ?? -1) >= since;
+
+const time = (v: unknown) => (typeof v === 'string' ? Date.parse(v) : NaN);
+
+/** The newer row by updated_at; equal or unknown: the server's. */
+export function latestRow<T extends { updated_at?: unknown }>(acked: T | undefined, server: T | undefined): T | undefined {
+  if (!acked || !server) return acked ?? server;
+  return time(acked.updated_at) > time(server.updated_at) ? acked : server;
+}
+
+const IDS = new Set(['boulder_id', 'climber_id', 'round_id']);
+const sameData = (row: Row, server: Row) => Object.keys(row).every((k) => IDS.has(k) || (row[k] ?? null) === (server[k] ?? null));
+
+/** A waited row would overwrite someone else's change: the server row is not the one the judge built
+ *  on, nor one of the judge's own writes (whose answer may have been lost). */
+export function conflict(entry: OutboxEntry, server: Row | null): boolean {
+  if (entry.base === undefined) return false;
+  if (!server) return entry.base !== null;
+  if (entry.base !== null && time(server.updated_at) === time(entry.base)) return false;
+  return ![entry.row, ...(entry.inDoubt ?? [])].some((r) => sameData(r, server));
+}
+
 const TABLES: readonly string[] = ['boulder_results', 'lead_results'];
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isObject = (v: unknown): v is Row => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isEntry = (v: unknown): v is OutboxEntry => isObject(v) && typeof v.key === 'string' && TABLES.includes(v.table as string)
   && isObject(v.row) && typeof v.lock === 'boolean' && typeof v.queuedAt === 'number' && (v.meta === undefined || isObject(v.meta));
+// First format: no id or tries.
+const upgrade = <T extends OutboxEntry>(e: T): T => ({ ...e, id: typeof e.id === 'string' ? e.id : `${e.key}@${e.queuedAt}`,
+  tries: typeof e.tries === 'number' ? e.tries : 0 });
 
 /** Stored outbox; anything malformed is dropped. */
-export function parseOutbox(raw: string | null): OutboxSnapshot {
+export function parseOutbox(raw: string | null): Stored {
   try {
     const v: unknown = JSON.parse(raw ?? 'null');
-    if (!isObject(v)) return { pending: [], failed: [] };
+    if (!isObject(v)) return { pending: [], failed: [], acked: {} };
     const list = (x: unknown) => (Array.isArray(x) ? x : []);
+    const acked = isObject(v.acked)
+      ? Object.fromEntries(Object.entries(v.acked).filter(([, a]) => isObject(a) && isObject(a.row) && typeof a.at === 'number')) as Record<string, Acked>
+      : {};
     return {
-      pending: list(v.pending).filter(isEntry),
-      failed: list(v.failed).filter((e): e is FailedEntry => isEntry(e) && typeof (e as FailedEntry).error === 'string'),
+      pending: list(v.pending).filter(isEntry).map(upgrade),
+      failed: list(v.failed).filter((e): e is FailedEntry => isEntry(e) && typeof (e as FailedEntry).error === 'string').map(upgrade),
+      acked,
     };
   } catch {
-    return { pending: [], failed: [] };
+    return { pending: [], failed: [], acked: {} };
   }
 }
 
@@ -69,8 +132,19 @@ export interface SaveQueueOptions {
   /** null: memory only. */
   storage: StorageLike | null;
   send: (entry: OutboxEntry) => Promise<SendResult>;
+  /** Waited rows: may this row still go (claim, server row unchanged)? A failure is classified like a send's. */
+  verify?: (entry: OutboxEntry) => Promise<SendResult>;
+  /** After a 401: refresh the session. */
+  refreshAuth?: () => Promise<AuthRefresh>;
+  /** The queue's profile is the one signed in (else pause, rows kept). */
+  isCurrent?: () => boolean;
+  /** This tab sends (one tab per profile); others only queue. Default true. */
+  leader?: boolean;
   now?: () => number;
 }
+
+let ids = 0;
+const newId = () => `${Date.now().toString(36)}-${(ids++).toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 export class SaveQueue {
   private snap: OutboxSnapshot;
@@ -79,11 +153,11 @@ export class SaveQueue {
   private failures = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private leader: boolean;
 
   constructor(private opts: SaveQueueOptions) {
-    let raw: string | null = null;
-    try { raw = opts.storage?.getItem(opts.storageKey) ?? null; } catch { /* storage unavailable: start empty */ }
-    this.snap = parseOutbox(raw);
+    this.leader = opts.leader ?? true;
+    this.snap = { ...this.read(), needsSignIn: false, storageFailed: false };
   }
 
   /** Same object until something changes (useSyncExternalStore). */
@@ -95,74 +169,165 @@ export class SaveQueue {
   };
 
   /** The unsent row for a key, if any (the judge's work the server doesn't have yet). */
-  pendingRow(key: string): Record<string, unknown> | undefined {
+  pendingRow(key: string): Row | undefined {
     return this.snap.pending.find((e) => e.key === key)?.row;
   }
 
-  /** Queue a row (replacing an unsent one for the same key, in its place) and start sending. */
-  enqueue(entry: Omit<OutboxEntry, 'queuedAt'>) {
-    const pending = [...this.snap.pending];
-    const at = pending.findIndex((e) => e.key === entry.key);
-    if (at >= 0) pending[at] = { ...entry, lock: pending[at].lock || entry.lock, queuedAt: pending[at].queuedAt };
-    else pending.push({ ...entry, queuedAt: (this.opts.now ?? Date.now)() });
-    // A new row for a failed key is a new try.
-    this.commit({ pending, failed: this.snap.failed.filter((e) => e.key !== entry.key) });
+  /** Queue a row (replacing an unsent one for the same key, in its place) and start sending.
+   *  `base`: updated_at of the row the pad shows (null: none); the newer acked row wins. */
+  enqueue(entry: Pick<OutboxEntry, 'key' | 'table' | 'row' | 'lock' | 'meta' | 'base'>) {
+    this.mutate((s) => {
+      const pending = [...s.pending];
+      const at = pending.findIndex((e) => e.key === entry.key);
+      if (at >= 0) {
+        const old = pending[at];
+        pending[at] = { ...old, ...entry, id: newId(), lock: old.lock || entry.lock, base: old.base };
+      } else {
+        const acked = s.acked[entry.key]?.row.updated_at;
+        const base = typeof acked === 'string' && (entry.base == null || time(acked) > time(entry.base)) ? acked : entry.base;
+        pending.push({ ...entry, base, id: newId(), queuedAt: this.now(), tries: 0 });
+      }
+      // A new row for a failed key is a new try.
+      return { ...s, pending, failed: s.failed.filter((e) => e.key !== entry.key) };
+    });
     void this.flush();
   }
 
-  /** Retry now (back online, app visible again) instead of waiting for the backoff. */
+  /** Retry now (back online, app visible again, another tab queued) instead of waiting for the backoff. */
   kick() {
-    if (this.stopped) return;
     void this.flush();
+  }
+
+  /** Signed in again (or the token was refreshed): send what waited. */
+  resume() {
+    if (this.snap.needsSignIn) this.set({ ...this.snap, needsSignIn: false });
+    this.kick();
+  }
+
+  /** This tab became (or stopped being) the one that sends. */
+  setLeader(leader: boolean) {
+    this.leader = leader;
+    if (leader) this.kick();
+  }
+
+  /** Another tab wrote the outbox (`storage` event): take it over and send what's new. */
+  adopt() {
+    this.set({ ...this.snap, ...this.read() }, false);
+    this.kick();
   }
 
   /** The judge read the failed notice: forget one failed row, or all of them. */
   dismiss(key?: string) {
-    this.commit({ ...this.snap, failed: key ? this.snap.failed.filter((e) => e.key !== key) : [] });
+    this.mutate((s) => ({ ...s, failed: key ? s.failed.filter((e) => e.key !== key) : [] }));
   }
 
-  /** No more sending (tests: the page went away). */
+  /** No more sending (sign-out, another profile, the page went away). Rows stay stored. */
   stop() {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
   }
 
-  private commit(next: OutboxSnapshot) {
+  private now() { return (this.opts.now ?? Date.now)(); }
+
+  /** What storage holds (another tab may have written it); memory when storage can't be trusted. */
+  private read(): Stored {
+    const { storage, storageKey } = this.opts;
+    if (!storage || this.snap?.storageFailed) return this.snap ?? { pending: [], failed: [], acked: {} };
+    try {
+      const raw = storage.getItem(storageKey);
+      return raw === null && this.snap ? this.snap : parseOutbox(raw);
+    } catch {
+      return this.snap ?? { pending: [], failed: [], acked: {} };
+    }
+  }
+
+  private mutate(fn: (s: OutboxSnapshot) => OutboxSnapshot) {
+    const r = this.read();
+    this.set(fn({ ...this.snap, pending: r.pending, failed: r.failed, acked: r.acked }));
+  }
+
+  private set(next: OutboxSnapshot, write = true) {
+    if (write && this.opts.storage && !next.storageFailed) {
+      const { pending, failed, acked } = next;
+      try { this.opts.storage.setItem(this.opts.storageKey, JSON.stringify({ pending, failed, acked })); }
+      catch { next = { ...next, storageFailed: true }; } // full or blocked: memory only
+    }
     this.snap = next;
-    try { this.opts.storage?.setItem(this.opts.storageKey, JSON.stringify(next)); } catch { /* full or blocked: memory only */ }
     for (const l of this.listeners) l();
   }
 
+  private async call(fn: (e: OutboxEntry) => Promise<SendResult>, entry: OutboxEntry): Promise<SendResult> {
+    try { return await fn(entry); }
+    catch (e) { return { ok: false, status: 0, message: String(e) }; }
+  }
+
   private async flush() {
-    if (this.flushing || this.stopped) return;
+    if (this.flushing || this.stopped || !this.leader || this.snap.needsSignIn) return;
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     this.flushing = true;
+    let refreshed = false;
     try {
-      while (!this.stopped && this.snap.pending.length) {
+      while (!this.stopped && this.leader) {
         const entry = this.snap.pending[0];
-        let result: SendResult;
-        try { result = await this.opts.send(entry); }
-        catch (e) { result = { ok: false, status: 0, message: String(e) }; }
+        if (!entry) break;
+        if (this.opts.isCurrent && !this.opts.isCurrent()) break; // another account: kept for its owner
+        const waited = entry.tries > 0 || this.now() - entry.queuedAt > WAITED_MS;
+        let result: SendResult = waited && this.opts.verify ? await this.call(this.opts.verify, entry) : { ok: true };
+        let sent = false; // the row went out (its answer may be lost)
+        if (result.ok) { sent = true; result = await this.call(this.opts.send, entry); }
+        if (isAuthFailure(result)) {
+          const auth = refreshed || !this.opts.refreshAuth ? 'signed-out' : await this.opts.refreshAuth();
+          refreshed = true;
+          if (auth === 'ok') continue;
+          if (auth === 'signed-out') { this.set({ ...this.snap, needsSignIn: true }, false); break; }
+          result = { ok: false, status: 0, message: 'offline' };
+        }
         // A newer row for this key arrived while it was in flight: it replaced `entry` in place
         // and is sent next (whatever happened to the older one).
-        const replaced = this.snap.pending.find((e) => e.key === entry.key) !== entry;
+        const replaced = this.snap.pending.find((e) => e.key === entry.key)?.id !== entry.id;
         if (result.ok) {
           this.failures = 0;
-          if (!replaced) this.commit({ ...this.snap, pending: this.snap.pending.filter((e) => e !== entry) });
+          refreshed = false;
+          const ackRow = result.row;
+          this.mutate((s) => {
+            const acked = ackRow ? keepLatest({ ...s.acked, [entry.key]: { row: ackRow, at: this.now() } }) : s.acked;
+            const ua = ackRow?.updated_at;
+            const pending = replaced
+              ? s.pending.map((e) => (e.key === entry.key && typeof ua === 'string' ? { ...e, base: ua, inDoubt: undefined } : e))
+              : s.pending.filter((e) => e.id !== entry.id);
+            return { ...s, pending, acked };
+          });
         } else if (isTransient(result.status)) {
           this.failures++;
-          if (!this.stopped) this.timer = setTimeout(() => { this.timer = null; void this.flush(); }, retryDelay(this.failures));
-          return;
-        } else if (!replaced) {
-          this.commit({
-            pending: this.snap.pending.filter((e) => e !== entry),
-            failed: [...this.snap.failed.filter((e) => e.key !== entry.key), { ...entry, error: result.message }],
+          const lost = sent && result.status === 0 && result.message !== 'offline'; // the row may have landed
+          this.mutate((s) => {
+            let pending = s.pending.map((e) => (e.key !== entry.key ? e : {
+              ...e, tries: e.tries + 1, inDoubt: lost ? [...(e.inDoubt ?? []), entry.row].slice(-IN_DOUBT_KEEP) : e.inDoubt,
+            }));
+            const stuck = pending.find((e) => e.key === entry.key);
+            // Stuck on this entry: let the others go first; it stays queued.
+            if (stuck && stuck.tries % MOVE_BACK_AFTER === 0 && pending.length > 1) pending = [...pending.filter((e) => e !== stuck), stuck];
+            return { ...s, pending };
           });
+          if (!this.stopped) this.timer = setTimeout(() => { this.timer = null; void this.flush(); }, retryDelay(this.failures));
+          break;
+        } else if (!replaced) {
+          const code = result.code === 'held' || result.code === 'changed' ? result.code : undefined;
+          this.mutate((s) => ({
+            ...s,
+            pending: s.pending.filter((e) => e.id !== entry.id),
+            failed: [...s.failed.filter((e) => e.key !== entry.key), { ...entry, error: result.message, ...(code ? { code } : {}) }],
+          }));
         }
       }
     } finally {
       this.flushing = false;
     }
   }
+}
+
+function keepLatest(acked: Record<string, Acked>): Record<string, Acked> {
+  const all = Object.entries(acked);
+  return all.length <= ACKED_KEEP ? acked : Object.fromEntries(all.sort((a, b) => b[1].at - a[1].at).slice(0, ACKED_KEEP));
 }

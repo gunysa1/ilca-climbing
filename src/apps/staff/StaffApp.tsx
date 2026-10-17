@@ -3,6 +3,7 @@ import { BrowserRouter, Link, NavLink, Outlet, Route, Routes } from 'react-route
 import { RequireRole } from '../../components/RequireRole';
 import { AuthProvider, useAuth } from '../../lib/auth';
 import { I18nProvider, useI18n } from '../../lib/i18n';
+import { forgetJudgeDevice, outboxFor, useOutboxOwner } from '../../lib/judgeOutbox';
 import { supabase, supabaseConfigured } from '../../lib/supabase';
 import { CompetitionPage } from '../../pages/CompetitionPage';
 import { JudgeBoulder, JudgeHome, OutboxBadge } from '../../pages/Judge';
@@ -62,7 +63,15 @@ const VIEWER_URL = import.meta.env.VITE_VIEWER_URL as string | undefined;
 
 function StaffLayout() {
   const { t, lang, setLang } = useI18n();
-  const { session, hasRole } = useAuth();
+  const { session, hasRole, profileId } = useAuth();
+  useOutboxOwner();
+  // Unsent results stay on the phone (for this judge's next sign-in); the pad's other copies go.
+  const signOut = () => {
+    const unsent = profileId ? outboxFor(profileId).snapshot().pending.length : 0;
+    if (unsent && !window.confirm(`${unsent} ${t('pendingSignOut')}`)) return;
+    if (session) forgetJudgeDevice(profileId, session.user.id);
+    void supabase.auth.signOut();
+  };
   return (
     <>
       <header className="topbar staff">
@@ -80,7 +89,7 @@ function StaffLayout() {
             {session && <OutboxBadge />}
             <button className="link" onClick={() => setLang(lang === 'he' ? 'en' : 'he')}>{lang === 'he' ? 'EN' : 'עב'}</button>
             {VIEWER_URL && <a className="muted small" href={VIEWER_URL}>{t('viewerApp')}</a>}
-            {session && <button className="link" onClick={() => supabase.auth.signOut()}>{t('logout')}</button>}
+            {session && <button className="link" onClick={signOut}>{t('logout')}</button>}
           </div>
         </div>
       </header>

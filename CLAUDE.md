@@ -37,7 +37,7 @@ docs/guide-he.md (judges/admins, Hebrew), docs/reference-analysis.md.
 Done: viewer + staff apps; judge invites (email or share link) and account deletion (edge
 functions); "on the wall" marking; men / women switch; one-request round pages (`round_page`); IFSC 2025 / classic / lead scoring with tie-breaks (SQL + TS); start
 lists, advancement, qualification groups, age classes; judge pad (one climber at a time, claims
-stale after 30 s, locking); appeals; PDF print; admin (competitions, CSV roster, corrections +
+stale after 30 s, locking; offline outbox: results wait on the phone and are sent by themselves); appeals; PDF print; admin (competitions, CSV roster, corrections +
 audit, people/roles, rankings inputs); national rankings per the ILCA 2025 criteria (validated
 against ILCA's published 2023-24 / 2024-25 tables); LogLig history 2020-21 to 2025-26 (80
 competitions, 99.6% of ranks identical); live mirror of the temporary app (tools/tempapp).
@@ -55,7 +55,7 @@ pg_cron + Vault; admin "run now" on the rankings admin page) adds new IFSC resul
 Hosting: Cloudflare Pages builds both apps on every push to main (settings in the committed `.env`):
 https://ilca-climbing.pages.dev (viewer), https://ilca-climbing-staff.pages.dev (staff); both noindex
 until the public launch. Pushing to main publishes. The old Seoul project was deleted 2026-10-17; sign-up is off in Frankfurt.
-Open work: first event fully on these apps (dry run: docs/dry-run-2026-10.md); offline retry queue for the judge pad; admin
+Open work: first event fully on these apps (dry run: docs/dry-run-2026-10.md); admin
 screen for qualification groups; merging duplicate climber profiles; speed discipline; calendar;
 notifications.
 

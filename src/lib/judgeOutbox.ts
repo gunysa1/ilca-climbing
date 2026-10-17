@@ -1,41 +1,129 @@
 // The signed-in judge's outbox (src/lib/saveQueue.ts) wired to Supabase and the browser: one queue
-// per profile for the whole app, persisted in localStorage, retried at once when the browser comes
-// back online or the app is shown again.
-import { useSyncExternalStore } from 'react';
+// per profile, persisted in localStorage, retried at once when the browser comes back online or the
+// app is shown again. Only the signed-in profile's queue runs, and in one tab only (Web Locks); the
+// other tabs queue into the same storage and pick up changes from the `storage` event.
+import { isAuthRetryableFetchError } from '@supabase/supabase-js';
+import { useEffect, useSyncExternalStore } from 'react';
 import { useAuth } from './auth';
-import { outboxStorageKey, SaveQueue, type OutboxEntry, type OutboxSnapshot, type SendResult } from './saveQueue';
+import { conflict, outboxStorageKey, SaveQueue, type AuthRefresh, type OutboxEntry, type OutboxSnapshot, type SendResult } from './saveQueue';
 import { supabase } from './supabase';
 import { LEAD_COLUMNS, RESULT_COLUMNS } from './types';
 
 /** A request that hangs (weak signal) is given up after this and retried. */
 const SEND_TIMEOUT_MS = 15_000;
+const timeout = () => AbortSignal.timeout(SEND_TIMEOUT_MS);
+const columns = (e: OutboxEntry) => (e.table === 'boulder_results' ? RESULT_COLUMNS : LEAD_COLUMNS);
+type Failure = { message: string; code?: string } | null;
+const failed = (error: NonNullable<Failure>, status: number): SendResult => ({ ok: false, status, message: error.message, code: error.code });
 
 async function send(entry: OutboxEntry): Promise<SendResult> {
-  const { error, status } = await supabase.from(entry.table)
+  const { data, error, status } = await supabase.from(entry.table)
     .upsert({ ...entry.row, ...(entry.lock ? { locked: true } : {}) }, { onConflict: 'boulder_id,climber_id' })
-    .select(entry.table === 'boulder_results' ? RESULT_COLUMNS : LEAD_COLUMNS)
-    .abortSignal(AbortSignal.timeout(SEND_TIMEOUT_MS));
-  return error ? { ok: false, status, message: error.message } : { ok: true };
+    .select(columns(entry))
+    .abortSignal(timeout());
+  if (error) return failed(error, status);
+  return { ok: true, row: ((data ?? []) as unknown as Record<string, unknown>[])[0] };
+}
+
+/** A row that waited: still this judge's climber (claim again), and the server row unchanged since
+ *  the row the judge built on? Never silently overwrite an admin's or another judge's change. */
+function verifier(profileId: string) {
+  return async (entry: OutboxEntry): Promise<SendResult> => {
+    const r = entry.row as { boulder_id: string; climber_id: string; round_id: string };
+    const claim = await supabase.rpc('claim_climber', { p_round: r.round_id, p_boulder: r.boulder_id, p_climber: r.climber_id }).abortSignal(timeout());
+    if (claim.error) return failed(claim.error, claim.status);
+    const holder = ((claim.data ?? []) as { judge_id: string; judge_name: string }[])[0];
+    if (holder && holder.judge_id !== profileId) return { ok: false, status: 409, code: 'held', message: holder.judge_name };
+    const { data, error, status } = await supabase.from(entry.table).select(columns(entry))
+      .eq('boulder_id', r.boulder_id).eq('climber_id', r.climber_id).abortSignal(timeout()).maybeSingle();
+    if (error) return failed(error, status);
+    if (conflict(entry, data as Record<string, unknown> | null)) return { ok: false, status: 409, code: 'changed', message: 'changed on the server' };
+    return { ok: true };
+  };
+}
+
+async function refreshAuth(): Promise<AuthRefresh> {
+  const { data, error } = await supabase.auth.refreshSession();
+  if (data.session) return 'ok';
+  return error && isAuthRetryableFetchError(error) ? 'offline' : 'signed-out';
 }
 
 function storage(): Storage | null {
   try { return window.localStorage; } catch { return null; }
 }
 
-const queues = new Map<string, SaveQueue>();
+interface Running { queue: SaveQueue; dispose: () => void }
+const queues = new Map<string, Running>();
+/** The signed-in profile (useOutboxOwner): only its queue sends. */
+let currentProfile: string | null = null;
 
 export function outboxFor(profileId: string): SaveQueue {
-  let q = queues.get(profileId);
-  if (q) return q;
-  const queue = new SaveQueue({ storageKey: outboxStorageKey(profileId), storage: storage(), send });
-  queues.set(profileId, queue);
-  window.addEventListener('online', () => queue.kick());
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') queue.kick(); });
+  const running = queues.get(profileId);
+  if (running) return running.queue;
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  const key = outboxStorageKey(profileId);
+  const queue = new SaveQueue({
+    storageKey: key, storage: storage(), send, verify: verifier(profileId), refreshAuth,
+    isCurrent: () => currentProfile === profileId, leader: !locks,
+  });
+  const online = () => queue.kick();
+  const visible = () => { if (document.visibilityState === 'visible') queue.kick(); };
+  const stored = (e: StorageEvent) => { if (e.key === key) queue.adopt(); };
+  window.addEventListener('online', online);
+  document.addEventListener('visibilitychange', visible);
+  window.addEventListener('storage', stored);
+  // One tab per profile sends: the one holding the lock (held until the tab closes or the queue stops).
+  const abort = new AbortController();
+  let release = () => {};
+  locks?.request(key, { signal: abort.signal }, () => new Promise<void>((resolve) => { release = resolve; queue.setLeader(true); }))
+    .catch(() => { /* aborted: stopped before getting the lock */ });
+  queues.set(profileId, { queue, dispose: () => {
+    queue.stop();
+    window.removeEventListener('online', online);
+    document.removeEventListener('visibilitychange', visible);
+    window.removeEventListener('storage', stored);
+    abort.abort();
+    release();
+  } });
   queue.kick(); // rows left from before a reload
   return queue;
 }
 
-const EMPTY: OutboxSnapshot = { pending: [], failed: [] };
+let watchingAuth = false;
+/** The signed-in profile changed (sign-in, sign-out, another account): stop the other profiles'
+ *  queues (their rows stay stored until that judge signs in again) and run this one. */
+function setOutboxProfile(profileId: string | null) {
+  currentProfile = profileId;
+  for (const [id, running] of queues) if (id !== profileId) { running.dispose(); queues.delete(id); }
+  if (profileId) outboxFor(profileId).kick();
+  if (!watchingAuth) {
+    watchingAuth = true;
+    // Outside the callback: Supabase calls inside onAuthStateChange can deadlock.
+    supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') setTimeout(() => { for (const r of queues.values()) r.queue.resume(); }, 0);
+    });
+  }
+}
+
+/** Mount once in the staff app: binds the outbox to the signed-in profile. */
+export function useOutboxOwner() {
+  const { profileId } = useAuth();
+  useEffect(() => { setOutboxProfile(profileId); }, [profileId]);
+}
+
+/** What the judge pad keeps on the device besides the outbox. */
+export const judgeRoundsKey = (profileId: string) => `ilca.judgeRounds.${profileId}`;
+export const judgeAssignmentsKey = (profileId: string) => `ilca.judgeAssignments.${profileId}`;
+
+/** Sign-out: forget the pad's copies (rounds, assignments, roles); never an outbox with unsent rows. */
+export function forgetJudgeDevice(profileId: string | null, userId: string) {
+  try {
+    if (profileId) { localStorage.removeItem(judgeRoundsKey(profileId)); localStorage.removeItem(judgeAssignmentsKey(profileId)); }
+    localStorage.removeItem(`ilca.auth.${userId}`);
+  } catch { /* storage unavailable */ }
+}
+
+const EMPTY: OutboxSnapshot = { pending: [], failed: [], acked: {}, needsSignIn: false, storageFailed: false };
 const noSubscribe = () => () => {};
 const emptySnapshot = () => EMPTY;
 

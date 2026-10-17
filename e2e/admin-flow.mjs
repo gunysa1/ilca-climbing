@@ -233,7 +233,8 @@ step('judge pad offline: taps wait on the phone, survive a reload, are sent once
   await jp.locator('.pad-status').getByText('Waiting to send').waitFor();
   await jp.locator('.outbox-badge').getByText('1 waiting').waitFor();
   await jp.screenshot({ path: `${out}/judge-offline-en.png` });
-  await jp.reload();                                                 // offline: from the service worker
+  const reloaded = await jp.reload();                                // offline: from the service worker
+  if (!reloaded?.fromServiceWorker()) problems.push('offline reload was not served by the service worker');
   await jp.locator('.pad-head').getByText(climber).waitFor();
   if ((await jp.locator('.stepper-value').innerText()).trim() !== '2') problems.push('offline reload: the pad lost the unsent attempts');
   await jp.locator('.pad-status').getByText('Waiting to send').waitFor();
@@ -249,6 +250,44 @@ step('judge pad offline: taps wait on the phone, survive a reload, are sent once
   const after = await (await fetch(`${api}/rest/v1/boulder_results?boulder_id=eq.${boulder3}&select=attempts,locked`,
     { headers: { Authorization: `Bearer ${session.access_token}` } })).json();
   if (JSON.stringify(after) !== '[{"attempts":2,"locked":false}]') problems.push(`after going online the server has ${JSON.stringify(after)}`);
+
+  step('judge pad offline: a lock waits on the phone, the pad moves on; sent once back online');
+  await jp.context().setOffline(true);
+  await jp.getByRole('button', { name: /Next · lock/ }).click();
+  await jp.getByRole('dialog').getByRole('button', { name: 'Yes, lock' }).click();
+  await jp.getByText(/2 \/ 3 · locked 1/).waitFor();                 // the next climber; counted as locked here
+  await jp.locator('.outbox-badge').getByText('1 waiting').waitFor();
+  await jp.context().setOffline(false);
+  await jp.locator('.outbox-badge').waitFor({ state: 'detached' });
+  const rest = (path, init = {}) => fetch(`${api}/rest/v1/${path}`, { ...init,
+    headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json', ...init.headers } })
+    .then(async (r) => ({ status: r.status, body: JSON.parse((await r.text()) || 'null') })).then((r) => (r.status < 300 ? r.body : r));
+  const locked = await rest(`boulder_results?boulder_id=eq.${boulder3}&select=attempts,locked`);
+  if (JSON.stringify(locked) !== '[{"attempts":2,"locked":true}]') problems.push(`offline lock: the server has ${JSON.stringify(locked)}`);
+
+  step('judge pad: an admin changed the result while the judge was offline: not overwritten, the judge is told');
+  const second = (await jp.locator('.pad-head h2').innerText()).trim();
+  await jp.getByRole('button', { name: /On the wall/ }).waitFor();
+  await jp.context().setOffline(true);
+  await jp.getByRole('button', { name: 'Add attempt' }).click();
+  await jp.locator('.pad-status').getByText('Waiting to send').waitFor();
+  const roundOf = new URL(jp.url()).pathname.split('/')[2];
+  const starters = await rest(`round_starters?round_id=eq.${roundOf}&select=climber_id,profile:profiles(full_name)`);
+  const secondId = starters.find((s) => s.profile.full_name === second)?.climber_id;
+  const added = await rest('boulder_results', { method: 'POST',                    // the admin, meanwhile (updated_by isn't readable: no representation)
+    body: JSON.stringify({ boulder_id: boulder3, climber_id: secondId, round_id: roundOf, attempts: 3, locked: true }) });
+  if (added !== null) throw new Error(`admin insert failed: ${JSON.stringify(added)}`);
+  await jp.context().setOffline(false);
+  const failure = jp.locator('.outbox-failed', { hasText: "1 results weren't saved" });
+  await failure.getByText(second).waitFor({ timeout: 10000 });
+  await failure.getByText('changed on the server meanwhile').waitFor();
+  await jp.locator('.pad-status').getByText(/Not saved/).waitFor();
+  await jp.screenshot({ path: `${out}/judge-failed-en.png` });
+  const kept = await rest(`boulder_results?boulder_id=eq.${boulder3}&climber_id=eq.${secondId}&select=attempts,locked`);
+  if (JSON.stringify(kept) !== '[{"attempts":3,"locked":true}]') problems.push(`the admin's change was overwritten: ${JSON.stringify(kept)}`);
+  await failure.getByRole('button', { name: 'Dismiss' }).click();
+  await failure.waitFor({ state: 'detached' });
+  if ((await jp.locator('.pad-status').innerText()).trim()) problems.push(`after dismissing a failure the pad says "${await jp.locator('.pad-status').innerText()}"`);
   await jp.getByRole('link', { name: /Boulders/ }).click();
   await jp.getByRole('link', { name: 'Boulder 2' }).waitFor();
 }
