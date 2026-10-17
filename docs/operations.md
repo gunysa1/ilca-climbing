@@ -189,8 +189,7 @@ Check what the project's Supabase plan backs up (project settings → Database �
 large imports, export the affected tables (`supabase db dump --linked --data-only -t …`). Dumps
 contain personal data (minors' birth dates): keep them out of git and delete them after use.
 
-The previous project in Seoul (`rkuuzforzfjbdnybddwb`) holds a copy as of 2026-10-15; delete it once
-Frankfurt has run without problems for a while.
+The previous project in Seoul (`rkuuzforzfjbdnybddwb`) was deleted on 2026-10-17.
 
 ## Moving the database to another Supabase project
 

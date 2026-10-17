@@ -54,9 +54,8 @@ pg_cron + Vault; admin "run now" on the rankings admin page) adds new IFSC resul
 
 Hosting: Cloudflare Pages builds both apps on every push to main (settings in the committed `.env`):
 https://ilca-climbing.pages.dev (viewer), https://ilca-climbing-staff.pages.dev (staff); both noindex
-until the public launch. Pushing to main publishes. The old Seoul project `rkuuzforzfjbdnybddwb` is a
-backup as of 2026-10-15, to delete later (with the user's OK).
-Open work: first event fully on these apps; offline retry queue for the judge pad; admin
+until the public launch. Pushing to main publishes. The old Seoul project was deleted 2026-10-17; sign-up is off in Frankfurt.
+Open work: first event fully on these apps (dry run: docs/dry-run-2026-10.md); offline retry queue for the judge pad; admin
 screen for qualification groups; merging duplicate climber profiles; speed discipline; calendar;
 notifications.
 
