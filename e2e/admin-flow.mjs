@@ -284,10 +284,9 @@ await intlForm.getByLabel('Place').fill('5');
 await intlForm.getByLabel('Field size').fill('57');
 await intlForm.getByLabel('Last round').selectOption('final');
 await intlForm.getByRole('button', { name: 'Add' }).click();
-await p.locator('tr', { hasText: 'WC Bern' }).getByText('200').waitFor();
+await p.locator('tr', { hasText: 'WC Bern' }).waitFor(); // 2026-27 uses the ILCA 2027 edition: per-event senior points are 0
 await p.goto(`${view}/rankings?season=2026-27&c=senior&g=female&d=boulder`);
-const noa = p.locator('tr', { hasText: 'נועה לוי' });
-await noa.locator('.ranking-part', { hasText: '200' }).waitFor();
+await p.locator('.edition-line', { hasText: /^(Per|לפי) / }).filter({ hasText: 'אמות מידה לנבחרות 2027' }).waitFor();
 await p.screenshot({ path: `${out}/rankings-en.png`, fullPage: true });
 
 step('two apps: the viewer is view-only, the staff app needs sign-in');

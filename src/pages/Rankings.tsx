@@ -23,6 +23,7 @@ interface SeasonData {
   intl: IntlResult[];
   adjustments: (Adjustment & { season: string })[];
   profiles: Map<string, Profile & { gender: Gender | null }>;
+  world: { climber_id: string; discipline: string; position: number; as_of: string }[];
 }
 
 const CLASS_LABEL: Record<RankClass, MsgKey | null> = { senior: 'seniors', U21: null, U19: null, U17: null };
@@ -48,15 +49,17 @@ export function Rankings() {
     if (!season) return;
     setData(null);
     (async () => {
-      const [rounds, { data: ages }, { data: young }, { data: intl }, { data: adjustments }] = await Promise.all([
+      const [rounds, { data: ages }, { data: young }, { data: intl }, { data: adjustments }, { data: world }] = await Promise.all([
         // season_ranking_rounds() ranks only the season's rounds (the ranking_rounds view ranks every round)
         allRows<RoundPlacing>((from, to) => supabase.rpc('season_ranking_rounds', { p_season: season }).range(from, to)),
         supabase.rpc('season_age_classes', { p_season: season }),
         supabase.rpc('season_senior_too_young', { p_season: season }),
         supabase.from('international_results').select('*').eq('season', season),
         supabase.from('ranking_adjustments').select('*').eq('season', season),
+        supabase.from('world_rankings').select('climber_id, discipline, position, as_of').eq('season', season),
       ]);
-      const ids = [...new Set([...(rounds ?? []), ...(intl ?? [])].map((r) => r.climber_id as string))];
+      const worldRows = (world ?? []) as SeasonData['world'];
+      const ids = [...new Set([...(rounds ?? []), ...(intl ?? []), ...worldRows].map((r) => r.climber_id as string))];
       const profiles = new Map<string, Profile & { gender: Gender | null }>();
       for (let i = 0; i < ids.length; i += 150) {
         const { data: ps } = await supabase.from('profiles').select('id, full_name, full_name_he, club, country, gender').in('id', ids.slice(i, i + 150));
@@ -69,16 +72,22 @@ export function Rankings() {
         intl: (intl ?? []).map((r) => ({ ...r, points: r.points == null ? null : Number(r.points) })) as IntlResult[],
         adjustments: (adjustments ?? []).map((a) => ({ ...a, points: Number(a.points) })) as SeasonData['adjustments'],
         profiles,
+        world: worldRows,
       });
     })();
   }, [season]);
 
   const rows = useMemo(() => {
     if (!data || !season || discipline === 'speed') return [];
-    return computeRanking({ criteria: criteriaForSeason(season).criteria, rankClass, gender, discipline, rounds: data.rounds, ageClass: data.ageClass, tooYoung: data.tooYoung, intl: data.intl,
+    const worldRank = new Map(data.world.filter((w) => w.discipline === discipline).map((w) => [w.climber_id, Number(w.position)]));
+    return computeRanking({ criteria: criteriaForSeason(season).criteria, worldRank, rankClass, gender, discipline, rounds: data.rounds, ageClass: data.ageClass, tooYoung: data.tooYoung, intl: data.intl,
       adjustments: data.adjustments, climberGender: new Map([...data.profiles].map(([id, p]) => [id, p.gender])) });
   }, [data, season, rankClass, gender, discipline]);
 
+  const edition = season ? criteriaForSeason(season) : null;
+  // the world ranking is fixed on 1 January of the season's second year; earlier (or no) rows are provisional
+  const provisional = !!(edition && season && data && edition.criteria.seniorIntl === 'world_ranking'
+    && (data.world.length === 0 || data.world.some((w) => w.as_of < `${Number(season.slice(0, 4)) + 1}-01-01`)));
   const youth = rankClass !== 'senior';
   const genderLabel = (g: Gender) => t(youth ? (g === 'male' ? 'boys' : 'girls') : (g === 'male' ? 'men' : 'women'));
 
@@ -91,6 +100,14 @@ export function Rankings() {
             <button key={s} role="tab" aria-selected={s === season} className={`chip ${s === season ? 'selected' : ''}`} onClick={() => set('season', s)}>{s}</button>
           ))}
         </div>
+      )}
+      {edition && (
+        <p className="muted small edition-line">
+          {t('criteriaLine')}{' '}
+          {edition.criteria.url ? <a href={edition.criteria.url} target="_blank" rel="noreferrer"><bdi>{edition.criteria.title}</bdi></a> : <bdi>{edition.criteria.title}</bdi>}
+          {edition.assumed && <> · {t('criteriaAssumed')}</>}
+          {provisional && <> · {t('worldRankProvisional')}</>}
+        </p>
       )}
       <div className="chips" role="tablist">
         {RANK_CLASSES.map((c) => (
@@ -128,7 +145,7 @@ export function Rankings() {
                         <span className="ranking-parts">
                           {r.events.map((e) => (
                             <span key={e.competition_id} className={`ranking-part${e.counted ? '' : ' dropped'}`} title={e.label}>
-                              {e.kind === 'intl' ? '🌍 ' : ''}{e.place ? <>{e.place}<small> · {fmt(e.points)}</small></> : fmt(e.points)}
+                              {e.kind === 'intl' ? '🌍 ' : e.kind === 'world' ? '🌐 ' : ''}{e.place ? <>{e.place}<small> · {fmt(e.points)}</small></> : fmt(e.points)}
                             </span>
                           ))}
                           {r.championship && (

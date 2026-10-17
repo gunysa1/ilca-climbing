@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { localized, useI18n } from '../../lib/i18n';
 import {
-  RANK_CLASSES, seniorIntlPoints, youthBonusPoints, type Adjustment, type IntlEventType, type IntlResult,
+  RANK_CLASSES, seniorIntlPoints, type Adjustment, type IntlEventType, type IntlResult,
 } from '../../lib/rankings';
+import { criteriaForSeason } from '../../lib/criteria';
 import { seasonOf } from '../../lib/season';
 import { supabase } from '../../lib/supabase';
 import type { Profile } from '../../lib/types';
@@ -17,6 +18,12 @@ type IntlRow = IntlResult & { id: string; season: string };
 type AdjustmentRow = Adjustment & { id: string; season: string };
 
 /** Season ranking inputs that aren't ILCA competitions: international results and adjustments. */
+/** Points of an international result under the criteria edition of its season. */
+function editionPoints(r: IntlResult & { season: string }) {
+  const c = criteriaForSeason(r.season).criteria;
+  return Math.max(c.seniorIntl === 'per_event' ? seniorIntlPoints(r) : 0, c.youthBonus(r));
+}
+
 export function AdminRankings() {
   const { t, lang } = useI18n();
   const [season, setSeason] = useState(() => seasonOf(new Date()));
@@ -72,7 +79,7 @@ export function AdminRankings() {
                       : ` · ${r.place}/${r.field_size} · ${t(r.reached)}`}
                   </span>
                 </td>
-                <td className="score">{r.event_type === 'manual' ? r.points : Math.max(seniorIntlPoints(r), youthBonusPoints(r))}</td>
+                <td className="score">{r.event_type === 'manual' ? r.points : editionPoints(r)}</td>
                 <td><button className="link danger" onClick={() => run(supabase.from('international_results').delete().eq('id', r.id))}>{t('delete')}</button></td>
               </tr>
             ))}
