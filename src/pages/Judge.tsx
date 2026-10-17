@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { localized, useI18n } from '../lib/i18n';
-import { judgeAssignmentsKey, judgeRoundsKey, useOutbox } from '../lib/judgeOutbox';
+import { judgeAssignmentsKey, judgeRoundsKey, trackOpenPad, useOutbox } from '../lib/judgeOutbox';
 import { formatHeight } from '../lib/lead';
 import { resultKey, useRoundData, type LeadRow, type Starter } from '../lib/roundData';
 import { ackedSince, isTransient, keyState, latestRow, outboxKey, type FailedEntry, type OutboxEntry, type OutboxSnapshot, type ResultTable } from '../lib/saveQueue';
@@ -95,9 +95,10 @@ function useClaim(roundId: string, boulderId: string, climberId: string, enabled
   }, [roundId, boulderId, climberId]);
   useEffect(() => {
     if (!enabled) return;
+    const closed = trackOpenPad(boulderId, climberId); // the outbox keeps its hands off this claim
     void claim();
     const beat = setInterval(() => void claim(), CLAIM_BEAT_MS);
-    return () => { clearInterval(beat); void supabase.rpc('release_claim', { p_boulder: boulderId, p_climber: climberId }); };
+    return () => { closed(); clearInterval(beat); void supabase.rpc('release_claim', { p_boulder: boulderId, p_climber: climberId }); };
   }, [claim, boulderId, climberId, enabled]);
   // On the wall (public "climbing now"): only when the judge marks it (set_on_wall), never by opening.
   const [onWall, setOnWall] = useState(false);

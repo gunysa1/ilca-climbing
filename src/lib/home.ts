@@ -43,8 +43,17 @@ export function parseLive(raw: unknown): HomeLiveRound[] {
  * (who is on the wall, as on the round page), rarely otherwise (a round that goes live later appears). */
 export const HOME_LIVE_POLL_MS = 5000;
 export const HOME_IDLE_POLL_MS = 60000;
-export const homePollDue = (now: number, last: number, anyLive: boolean) =>
-  now - last >= (anyLive ? HOME_LIVE_POLL_MS : HOME_IDLE_POLL_MS) - 250; // timer jitter
+/** After failed requests the wait is 5 s, doubling to the idle 60 s (failures = how many in a row). */
+export const homeRetryMs = (failures: number) => Math.min(HOME_LIVE_POLL_MS * 2 ** Math.max(failures - 1, 0), HOME_IDLE_POLL_MS);
+export const homePollDue = (now: number, last: number, anyLive: boolean, failures = 0) =>
+  now - last >= (failures > 0 ? homeRetryMs(failures) : anyLive ? HOME_LIVE_POLL_MS : HOME_IDLE_POLL_MS) - 250; // timer jitter
+
+/** True when a competition that was live is not any more: it belongs in another list (results or
+ * upcoming), which only the whole page (home_page()) knows. */
+export const liveCompetitionEnded = (before: HomeLiveRound[], after: HomeLiveRound[]) => {
+  const now = new Set(after.map((r) => r.competition.id));
+  return before.some((r) => !now.has(r.competition.id));
+};
 
 /** The page with a fresh live part (home_page(true)); a competition that is live now isn't "upcoming". */
 export function withLive(home: HomeData, live: HomeLiveRound[]): HomeData {
