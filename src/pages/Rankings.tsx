@@ -6,6 +6,7 @@ import { localized, useI18n, type MsgKey } from '../lib/i18n';
 import {
   computeRanking, RANK_CLASSES, type Adjustment, type Gender, type IntlResult, type RankClass, type RoundPlacing,
 } from '../lib/rankings';
+import { criteriaForSeason } from '../lib/criteria';
 import { allRows } from '../lib/allRows';
 import { supabase } from '../lib/supabase';
 import type { Profile } from '../lib/types';
@@ -73,10 +74,10 @@ export function Rankings() {
   }, [season]);
 
   const rows = useMemo(() => {
-    if (!data || discipline === 'speed') return [];
-    return computeRanking({ rankClass, gender, discipline, rounds: data.rounds, ageClass: data.ageClass, tooYoung: data.tooYoung, intl: data.intl,
+    if (!data || !season || discipline === 'speed') return [];
+    return computeRanking({ criteria: criteriaForSeason(season).criteria, rankClass, gender, discipline, rounds: data.rounds, ageClass: data.ageClass, tooYoung: data.tooYoung, intl: data.intl,
       adjustments: data.adjustments, climberGender: new Map([...data.profiles].map(([id, p]) => [id, p.gender])) });
-  }, [data, rankClass, gender, discipline]);
+  }, [data, season, rankClass, gender, discipline]);
 
   const youth = rankClass !== 'senior';
   const genderLabel = (g: Gender) => t(youth ? (g === 'male' ? 'boys' : 'girls') : (g === 'male' ? 'men' : 'women'));

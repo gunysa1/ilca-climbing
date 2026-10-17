@@ -9,6 +9,10 @@
 // Ties in an event share the average of the points of the places they cover (2 decimals). Ties in
 // the ranking: the (youth) championship place breaks them, otherwise the rank is shared.
 // Only climbers with points > 0 are listed. Admin adjustments (disciplinary deductions) apply last.
+// The criteria edition (src/lib/criteria.ts) is a parameter: ILCA 2027 replaces the senior international
+// events by the world ranking position, changes the youth bonus and drops open events from U17.
+
+import type { Criteria } from './criteria';
 
 export type Discipline = 'boulder' | 'lead';
 export type Series = 'premier_league' | 'premier_league_u17' | 'israeli_championship' | 'youth_championship' | 'other';
@@ -193,13 +197,13 @@ export function youthBonusPoints(r: IntlResult): number {
 
 export interface Adjustment { climber_id: string; discipline: Discipline; rank_class: RankClass | null; points: number; note: string }
 
-export interface EventScore { competition_id: string; label: string; starts_on: string; place: number; points: number; counted: boolean; kind: 'league' | 'intl' }
+export interface EventScore { competition_id: string; label: string; starts_on: string; place: number; points: number; counted: boolean; kind: 'league' | 'intl' | 'world' }
 
 export interface RankingRow {
   climber_id: string;
   rank: number;
   total: number;
-  /** League (and for seniors international) events, with the best 2 marked counted. */
+  /** League (and for seniors international or world ranking) events, with the best 2 marked counted. */
   events: EventScore[];
   championship: { place: number; points: number } | null;
   bonus: number;
@@ -207,6 +211,8 @@ export interface RankingRow {
 }
 
 export interface RankingInput {
+  /** The criteria edition of the season (`criteriaForSeason`). */
+  criteria: Criteria;
   rankClass: RankClass;
   gender: Gender;
   discipline: Discipline;
@@ -216,6 +222,8 @@ export interface RankingInput {
   /** Climbers below the senior minimum age this season (`season_senior_too_young`): not in the senior ranking. */
   tooYoung?: Set<string>;
   intl: IntlResult[];
+  /** World ranking position per climber in this discipline and season (editions with `seniorIntl: 'world_ranking'`). */
+  worldRank?: Map<string, number>;
   adjustments: Adjustment[];
   /** Profile gender, when known (places international-only climbers in the right table). */
   climberGender?: Map<string, Gender | null>;
@@ -236,7 +244,7 @@ function pools(rows: RoundPlacing[], pick: (r: RoundPlacing) => boolean): Map<st
 }
 
 export function computeRanking(input: RankingInput): RankingRow[] {
-  const { rankClass, gender, discipline } = input;
+  const { rankClass, gender, discipline, criteria } = input;
   const rows = input.rounds.filter((r) => r.discipline === discipline && (r.gender === gender));
   const youth = rankClass !== 'senior';
   const inClass = (id: string) => youth ? input.ageClass.get(id) === rankClass : !input.tooYoung?.has(id);
@@ -254,8 +262,8 @@ export function computeRanking(input: RankingInput): RankingRow[] {
   const leagueSeries: Series[] = rankClass === 'U17' ? ['premier_league_u17', 'premier_league'] : ['premier_league'];
   const leaguePools = pools(rows, (r) => leagueSeries.includes(r.series) && (
     rankClass === 'U17'
-      // U17: the U17 league, and open league events that include U17 ("גברים+ U17")
-      ? r.series === 'premier_league_u17' || /U\s?17/i.test(r.category)
+      // U17: the U17 league, and (2025) open league events that include U17 ("גברים+ U17")
+      ? r.series === 'premier_league_u17' || (criteria.u17OpenEvents && /U\s?17/i.test(r.category))
       : !youthOnly(r.category)));
   for (const [, pool] of leaguePools) {
     for (const p of ownPlaces(eventPlaces(pool))) {
@@ -277,15 +285,25 @@ export function computeRanking(input: RankingInput): RankingRow[] {
     }
   }
 
-  // International results.
+  // International results. Seniors: points per event (2025), or one event for the world ranking
+  // position (2027; the international events are then shown with 0 points).
+  const perEvent = criteria.seniorIntl === 'per_event';
   for (const r of input.intl) {
     if (r.discipline !== discipline || !inClass(r.climber_id)) continue;
     if (youth) {
-      const b = youthBonusPoints(r);
+      const b = criteria.youthBonus(r);
       if (b > 0 || (r.event_type !== 'manual' && YOUTH_INTL.includes(r.event_type))) get(r.climber_id).bonus += b;
     } else if (SENIOR_INTL.includes(r.event_type) || (r.event_type === 'manual' && r.for_class === 'senior')) {
       get(r.climber_id).events.push({ competition_id: r.id ?? r.event_name, label: r.event_name, starts_on: r.starts_on,
-        place: r.place ?? 0, points: seniorIntlPoints(r), counted: false, kind: 'intl' });
+        place: r.place ?? 0, points: perEvent ? seniorIntlPoints(r) : 0, counted: false, kind: 'intl' });
+    }
+  }
+  if (!youth && !perEvent) {
+    for (const [id, position] of input.worldRank ?? []) {
+      const points = criteria.worldRankingPoints(position);
+      if (points <= 0 || !inClass(id)) continue;
+      get(id).events.push({ competition_id: 'world-ranking', label: 'דירוג עולמי ' + position, starts_on: '',
+        place: position, points, counted: false, kind: 'world' });
     }
   }
 
@@ -300,7 +318,8 @@ export function computeRanking(input: RankingInput): RankingRow[] {
     // the climber must belong to this ranking's gender (pools are per gender; international rows are not)
     const g = input.climberGender?.get(climber_id);
     if (g ? g !== gender : !rows.some((r) => r.climber_id === climber_id)) continue;
-    const best = [...e.events].sort((a, b) => b.points - a.points).slice(0, 2);
+    // best 2 (at most one world ranking event, so it replaces the weaker league event); 0 points never count
+    const best = [...e.events].filter((x) => x.points > 0).sort((a, b) => b.points - a.points).slice(0, 2);
     for (const ev of best) ev.counted = true;
     e.events.sort((a, b) => a.starts_on.localeCompare(b.starts_on));
     const adjustment = adj.get(climber_id) ?? 0;

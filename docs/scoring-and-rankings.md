@@ -105,12 +105,30 @@ U17 = E-16…E-15.
 - The season of an international event is its calendar year: the 24/25 ranking counts the events
   of 2024 (the criteria's worked examples). Checked against ILCA's 24/25 youth bouldering bonus:
   18 of 19 climbers identical.
-- 2026-27 follows ILCA's 2027 criteria, not yet built: seniors get points for their world ranking
-  (1-10: 400, 11-20: 300, 21-30: 200, 31-40: 100) in place of the weaker league event, instead of
-  points per international event; youth score only the World Youth Championships (final 60, podium
-  100) and European Youth Championships (40, 60). No IFSC results are imported for 2026-27 yet.
 - Seniors are ranked from 2023-24 on; youth from 2024-25 on (earlier youth leagues were organised
   differently).
+
+### Editions
+
+Each season is computed with one edition of the criteria (`src/lib/criteria.ts`,
+`criteriaForSeason()`); a season without a document of its own is *assumed* to follow the latest
+earlier one.
+
+| Edition | Seasons |
+|---|---|
+| ILCA 2025 (`ilca2025`) | 2023-24, 2024-25, 2025-26 (assumed) |
+| ILCA 2027 (`ilca2027`) | 2026-27 |
+
+ILCA 2027 differs from 2025 in three points:
+
+- Seniors: no points per international event. Instead one event for the climber's world ranking
+  position in the discipline (1-10: 400, 11-20: 300, 21-30: 200, 31-40: 100), which replaces the
+  weaker league event in the best 2. International events are still listed, with 0 points.
+- Youth bonus: only the World Youth Championships (final 60, podium 100) and the European Youth
+  Championships (final 40, podium 60), with no field-size minimum. European Youth Cups score 0.
+- U17: the U17 league only; open events that include U17 ("גברים+ U17") no longer count.
+
+No IFSC results or world rankings are imported for 2026-27 yet.
 
 ### Validation
 
