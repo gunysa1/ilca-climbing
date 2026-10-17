@@ -85,6 +85,9 @@ export interface HistoryRow {
   round_id: string;
 }
 
+/** The history columns the climber page reads (climber_page() returns only these; SQL climber_page_entry). */
+export type HistoryEntry = Omit<HistoryRow, 'climber_id' | 'tops' | 'zones' | 'top_attempts' | 'zone_attempts' | 'points'>;
+
 /** Columns of boulder_results readable by clients (updated_by is admin-only). round_page() (SQL) returns
  *  the same columns for results, totals and lead results: keep them in sync. */
 export const RESULT_COLUMNS = 'boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt, locked, updated_at';

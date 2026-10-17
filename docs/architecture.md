@@ -89,6 +89,16 @@ its previous payload until the refresh (at most about a minute); a season not bu
 in the caller's context. The refresh deletes only the changes it read before building, so a write
 during a build stays pending. The ranking is still computed in the browser (`src/lib/rankings.ts`).
 
+`climber_page` serves stored history rows (migration 036) the same way, per round: the build
+(`climber_cache_build(rounds)`, every starter's row of the given rounds, from `round_history_for`) runs
+as the anon role in `refresh_climber_cache()` (pg_cron every minute, `supabase/cron/climber_cache.sql`),
+statement triggers on results, start lists, routes, rounds, categories and competitions append the
+rounds they touch to `climber_cache_changes`, and a changed round serves its previous rows until the
+refresh. While any round a climber started in has not been built, their page is built live in the
+caller's context. The history carries only the columns the page reads (`climber_page_entry`). The
+viewer starts the climber page's chunk and request together when the app is opened on a climber page
+(`lib/climberPage.ts`), and otherwise fetches the chunk after load.
+
 The viewer opens on a home page (`/`, `src/pages/Home.tsx`): continue watching, rounds live now (with
 who is on the wall), the next 3 published competitions (not live yet),
 the 3 latest finished ones with each category's winners (rank 1 of its last round, ties all shown),
@@ -234,3 +244,4 @@ rows wait, keeps them for that judge's next sign-in, and removes the other copie
 | 20261017000030 | home page RPCs `home_page(live_only)` (live rounds and who is on the wall, upcoming, latest with winners) and `favorites_page(climbers)` |
 | 20261017000031 | IFSC sync: `international_results.ifsc_event_id`/`ifsc_dcat_id`, `ifsc_pending`, `ifsc_dismissed`, `ifsc_sync_runs` (admins only), `profiles.ifsc_id` set only by admins or the service role, one profile per IFSC athlete |
 | 20261017000033 | rankings cache: `season_rankings_cache` (anon-built payload per season, closed table), `rankings_cache_changes` (pending changes from statement triggers), `season_rankings_build` (former body), `refresh_rankings_cache()` (pg_cron, `supabase/cron/rankings_cache.sql`); `season_rankings` serves the stored payload |
+| 20261017000036 | climber page cache: index `boulder_results (round_id, climber_id)` (RLS ran on every round's results of each starter); `climber_cache_rounds` / `climber_cache_entries` (anon-built history rows per round, closed tables), `climber_cache_changes` (statement triggers), `refresh_climber_cache(budget)` (pg_cron, `supabase/cron/climber_cache.sql`), `round_history_for(rounds)`, `climber_page_entry`; `climber_page` serves the stored rows, history with the page's columns only |

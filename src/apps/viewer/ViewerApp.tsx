@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, NavLink, Outlet, Route, Routes } from 'react-router-dom';
+import { prefetchClimberRoute } from '../../lib/climberPage';
 import { I18nProvider, useI18n } from '../../lib/i18n';
 import { supabaseConfigured } from '../../lib/supabase';
 import { CompetitionPage } from '../../pages/CompetitionPage';
@@ -7,7 +8,9 @@ import { Home } from '../../pages/Home';
 import { Live } from '../../pages/Live';
 import { RoundResults } from '../../pages/RoundResults';
 
-const Climber = lazy(() => import('../../pages/Climber').then((m) => ({ default: m.Climber })));
+const loadClimber = () => import('../../pages/Climber');
+const Climber = lazy(() => loadClimber().then((m) => ({ default: m.Climber })));
+prefetchClimberRoute(location.pathname, loadClimber);
 const Favorites = lazy(() => import('../../pages/Favorites').then((m) => ({ default: m.Favorites })));
 const Rankings = lazy(() => import('../../pages/Rankings').then((m) => ({ default: m.Rankings })));
 const Search = lazy(() => import('../../pages/Search').then((m) => ({ default: m.Search })));

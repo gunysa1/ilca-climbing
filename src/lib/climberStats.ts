@@ -1,7 +1,7 @@
 // A climber's results per event (competition + category + discipline) and summary stats, from
 // public.climber_history rows. Used by the public climber page and the "my history" / coach views.
 import { disciplineOfFormat, type Discipline } from './discipline';
-import type { HistoryRow } from './types';
+import type { HistoryEntry } from './types';
 
 const ROUND_ORDER = { qualification: 0, semifinal: 1, final: 2 } as const;
 
@@ -15,17 +15,17 @@ export interface ClimberEvent {
   category_he: string | null;
   discipline: Discipline;
   /** Rounds the climber started, in order. */
-  rounds: HistoryRow[];
+  rounds: HistoryEntry[];
   /** Rank in the last round the climber was ranked in (their result in the event), or null. */
   placing: number | null;
-  reached: HistoryRow['round'] | null;
+  reached: HistoryEntry['round'] | null;
   /** Field size of that round. */
   field: number | null;
 }
 
 /** Group history rows into events, newest first. */
-export function climberEvents(rows: HistoryRow[]): ClimberEvent[] {
-  const groups = new Map<string, HistoryRow[]>();
+export function climberEvents(rows: HistoryEntry[]): ClimberEvent[] {
+  const groups = new Map<string, HistoryEntry[]>();
   for (const r of rows) {
     const key = `${r.competition_id}|${r.category}|${disciplineOfFormat(r.discipline)}`;
     groups.set(key, [...(groups.get(key) ?? []), r]);
