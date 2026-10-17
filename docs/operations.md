@@ -180,6 +180,31 @@ Setup (once, after `db push` applied 033): run `supabase/cron/rankings_cache.sql
   select public.refresh_rankings_cache();
   ```
 
+### Climber page cache (pg_cron `climber-cache`)
+
+The climber page reads stored history rows per round (`climber_cache_entries`, migration 036). Every
+minute pg_cron runs `select public.refresh_climber_cache()`, which rebuilds, as the anon role, the rounds
+whose data changed since the last run (results, start lists, routes, rounds, categories, competitions)
+and any round not built yet, for up to about 20 s (the rest waits for the next minute). Until then a
+changed round shows its previous rows (at most about a minute old); a climber with a round never built
+gets the live build (slower, always correct).
+
+Setup (once, after `db push` applied 036): run `supabase/cron/climber_cache.sql` in the SQL editor (its
+header checks `pg_has_role('postgres', 'anon', 'SET')` and runs the first build by hand).
+
+- Force a refresh now: `select public.refresh_climber_cache('5 minutes');` (returns the number of rounds built).
+- Force a full rebuild (after a migration that changes scoring or the stored rows, which no trigger
+  notices): `insert into public.climber_cache_changes (round_id) values (null);` then the refresh.
+- Check: `select count(*), count(*) filter (where stale), max(built_at) from public.climber_cache_rounds;`,
+  `select count(*) from public.climber_cache_changes;` (pending; 0 right after a refresh) and
+  `select pg_size_pretty(pg_total_relation_size('public.climber_cache_entries'));`;
+  failed runs: `select * from cron.job_run_details where command like '%climber_cache%' order by start_time desc limit 5;`
+- Rollback: `select cron.unschedule('climber-cache'); delete from public.climber_cache_rounds;`
+  (without built rounds `climber_page` builds live, as before 036).
+- Emergency switch for event day: as for the rankings cache, with the triggers `climber_cache_ins`,
+  `climber_cache_upd`, `climber_cache_del` on `boulder_results` and `lead_results`; afterwards re-enable
+  them and force a full rebuild.
+
 ### IFSC international results (`tools/ifsc`, backfills)
 
 The manual tools below are now for backfills (older seasons, one-off checks); the daily sync keeps the

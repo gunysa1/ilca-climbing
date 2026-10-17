@@ -996,6 +996,154 @@ select pg_temp.assert(:rebuilt > 0
   and json_array_length((select payload from season_rankings_cache where season = '2026-27') -> 'rounds') = 0,
   'a season whose competitions moved away is rebuilt empty');
 
+-- ---------------------------------------------------------------- climber page cache (migration 036)
+-- Everything above ran on the live fallback (no round built yet). The refresh builds as anon.
+reset role;
+select pg_temp.assert(not exists (select 1 from climber_cache_rounds) and exists (select 1 from climber_cache_changes),
+  'before the first refresh: no built rounds, writes left pending changes');
+select pg_temp.login(null);
+select pg_temp.assert(climber_history_cached('00000000-0000-0000-0000-000000000001') is null
+  and climber_history_cached('60000000-0000-0000-0000-00000000000a') is null,
+  'a climber whose rounds were not built yet has no stored history (climber_page builds live)');
+select climber_page('00000000-0000-0000-0000-000000000001')::text as live_noa,
+       climber_page('60000000-0000-0000-0000-00000000000a')::text as live_lead \gset
+select pg_temp.assert(json_array_length(:'live_noa'::json -> 'history') > 0 and json_array_length(:'live_lead'::json -> 'history') > 0
+  and :'live_noa' !~ '"tops"' and :'live_noa' !~ '"points"' and :'live_noa' !~ '"climber_id"' and :'live_noa' ~ '"starters"',
+  'climber_page history: only the columns the page reads');
+-- the stored rows carry the same starters count as climber_history_for (one row per visible starter)
+select pg_temp.assert(not exists (
+  select h.round_id, h.climber_id, h.starters from climber_history_for(array['00000000-0000-0000-0000-000000000001'::uuid]) h
+  except select r.round_id, r.climber_id, r.starters from round_history_for(array(select round_id from round_starters)) r),
+  'round_history_for returns climber_history_for''s rows (ranks and starters counts)');
+-- The refresh runs in a session carrying an admin's JWT claims: it still builds as anon.
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+reset role;
+select refresh_climber_cache() as built \gset
+select pg_temp.assert(:built = (select count(*) from rounds) and not exists (select 1 from climber_cache_changes)
+  and not exists (select 1 from climber_cache_rounds where stale)
+  and (select count(*) from climber_cache_rounds) = (select count(*) from rounds),
+  'refresh_climber_cache builds every round and clears the pending changes');
+select pg_temp.assert(refresh_climber_cache() = 0, 'refresh_climber_cache: nothing pending, nothing built');
+select pg_temp.login(null);
+select pg_temp.assert(climber_page('00000000-0000-0000-0000-000000000001')::text = :'live_noa'
+  and climber_page('60000000-0000-0000-0000-00000000000a')::text = :'live_lead'
+  and climber_history_cached('00000000-0000-0000-0000-000000000001') is not null,
+  'climber_page from the stored rows equals the live build (boulder and lead)');
+create temp table anon_build as select round_id, climber_id, entry::text as entry from climber_cache_build(array(select id from rounds));
+reset role;
+select pg_temp.assert(not exists (select round_id, climber_id, entry::text from climber_cache_entries except select * from anon_build)
+  and not exists (select * from anon_build except select round_id, climber_id, entry::text from climber_cache_entries)
+  and exists (select 1 from anon_build),
+  'the stored rows are exactly what anon gets from the invoker build');
+-- climber_page serves the stored rows (a marker row proves it), to everyone.
+update climber_cache_entries set entry = '{"marker": true, "competition_id": "10000000-0000-0000-0000-000000000001"}'
+  where climber_id = '00000000-0000-0000-0000-000000000001' and round_id = '30000000-0000-0000-0000-000000000001';
+select pg_temp.login(null);
+select pg_temp.assert(climber_page('00000000-0000-0000-0000-000000000001')::text ~ '"marker"', 'anon: climber_page returns the stored rows');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert(climber_page('00000000-0000-0000-0000-000000000001')::text ~ '"marker"', 'admin: climber_page returns the same stored rows');
+reset role;
+-- A draft competition with a live round and a result: staff see it, the stored rows never do.
+insert into rounds (id, category_id, kind, status) values ('3e000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000002', 'qualification', 'live');
+insert into boulders (id, round_id, number) values ('4e000000-0000-0000-0000-000000000003', '3e000000-0000-0000-0000-000000000003', 1);
+insert into round_starters (round_id, climber_id) values ('3e000000-0000-0000-0000-000000000003', '60000000-0000-0000-0000-0000000000e1')
+  on conflict do nothing;
+insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt)
+  values ('4e000000-0000-0000-0000-000000000003', '60000000-0000-0000-0000-0000000000e1', '3e000000-0000-0000-0000-000000000003', 1, 1, 1);
+select pg_temp.login(null);
+select pg_temp.assert(climber_history_cached('60000000-0000-0000-0000-0000000000e1') is null
+  and json_array_length(climber_page('60000000-0000-0000-0000-0000000000e1') -> 'history') = 0,
+  'a new round not built yet: climber_page builds live (and anon sees nothing of the draft)');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert(exists (select 1 from climber_cache_build(array['3e000000-0000-0000-0000-000000000003'::uuid])),
+  'admin''s own build includes the draft round (the fixture is visible to staff)');
+reset role;  -- postgres, still with the admin's claims
+select refresh_climber_cache() as built \gset
+select pg_temp.assert(:built > 0 and exists (select 1 from climber_cache_rounds where round_id = '3e000000-0000-0000-0000-000000000003')
+  and not exists (select 1 from climber_cache_entries where round_id = '3e000000-0000-0000-0000-000000000003'
+                  or climber_id = '60000000-0000-0000-0000-0000000000e1' or entry::text ~ '10000000-0000-0000-0000-000000000002'
+                  or entry::text ~ '20000000-0000-0000-0000-000000000002'),
+  'the stored rows hold nothing of a draft competition (built, with no rows)');
+select pg_temp.assert(not exists (select 1 from climber_cache_entries
+  where entry::text ~* 'birth|asthma|050-|2009-05-01|1990-01-01|2010-01-01|Secret draft|full_name|club'),
+  'the stored rows hold no profile or private data');
+select pg_temp.assert(not exists (select 1 from climber_cache_entries e join rounds r on r.id = e.round_id where r.status = 'planned'),
+  'the stored rows hold no planned round');
+select pg_temp.login(null);
+select pg_temp.assert(climber_history_cached('60000000-0000-0000-0000-0000000000e1')::text = '[]'
+  and climber_page('60000000-0000-0000-0000-0000000000e1')::text !~ '10000000-0000-0000-0000-000000000002',
+  'once built, the draft round serves nothing');
+-- Publishing it (a competition write) marks the competition's rounds; the refresh rebuilds them.
+reset role;
+update competitions set status = 'published' where id = '10000000-0000-0000-0000-000000000002';
+select pg_temp.assert((select array_agg(distinct round_id) from climber_cache_changes) = '{3e000000-0000-0000-0000-000000000003}',
+  'a competition write marks its rounds (only)');
+select refresh_climber_cache() as built \gset
+select pg_temp.login(null);
+select pg_temp.assert(:built = 1 and climber_page('60000000-0000-0000-0000-0000000000e1')::text ~ '10000000-0000-0000-0000-000000000002'
+  and json_array_length(climber_page('60000000-0000-0000-0000-0000000000e1') -> 'history') = 1,
+  'a published draft appears on the climber page after the refresh');
+reset role;
+update competitions set status = 'draft' where id = '10000000-0000-0000-0000-000000000002';
+select refresh_climber_cache() as built \gset
+select pg_temp.login(null);
+select pg_temp.assert(:built = 1 and json_array_length(climber_page('60000000-0000-0000-0000-0000000000e1') -> 'history') = 0,
+  'back to draft: gone from the stored rows after the refresh');
+-- Deleting the round deletes its stored rows with the next refresh.
+reset role;
+delete from boulder_results where round_id = '3e000000-0000-0000-0000-000000000003';
+delete from rounds where id = '3e000000-0000-0000-0000-000000000003';
+select refresh_climber_cache() as built \gset
+select pg_temp.assert(not exists (select 1 from climber_cache_rounds where round_id = '3e000000-0000-0000-0000-000000000003')
+  and not exists (select 1 from climber_cache_changes), 'a deleted round leaves the cache');
+-- A result write marks its round (only); until the refresh, the stale rows are served.
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+update boulder_results set attempts = attempts where round_id = '30000000-0000-0000-0000-000000000001';
+reset role;
+select pg_temp.assert((select array_agg(distinct round_id) from climber_cache_changes) = '{30000000-0000-0000-0000-000000000001}',
+  'a write to boulder_results marks its round changed');
+select pg_temp.login(null);
+select pg_temp.assert(climber_page('00000000-0000-0000-0000-000000000001')::text ~ '"marker"',
+  'a changed round serves its stored rows until the refresh');
+reset role;
+select refresh_climber_cache() as built \gset
+select pg_temp.login(null);
+select pg_temp.assert(:built = 1 and climber_page('00000000-0000-0000-0000-000000000001')::text = :'live_noa',
+  'the refresh rebuilds only the changed round');
+reset role;
+update categories set name = name where id = '20000000-0000-0000-0000-000000000001';
+select pg_temp.assert((select array_agg(round_id order by round_id) from climber_cache_changes)
+  = (select array_agg(id order by id) from rounds where category_id = '20000000-0000-0000-0000-000000000001'),
+  'a category write marks its rounds');
+delete from climber_cache_changes;
+update round_starters set group_label = group_label where round_id = '99999999-0000-0000-0000-000000000009';
+update profiles set club = club where id = '60000000-0000-0000-0000-00000000000a';
+select pg_temp.assert(not exists (select 1 from climber_cache_changes), 'an empty statement and a profile write mark nothing');
+-- anon and non-admin writes that change no row mark nothing (anon is refused outright).
+select pg_temp.login('00000000-0000-0000-0000-000000000002');
+do $$
+declare t text; c text;
+begin
+  for t, c in values ('competitions', 'name'), ('categories', 'name'), ('rounds', 'kind'), ('boulders', 'number'),
+                     ('boulder_results', 'attempts'), ('lead_results', 'hold'), ('round_starters', 'start_order'),
+                     ('round_totals', 'tops') loop
+    begin execute format('update public.%I set %I = %I', t, c, c); exception when insufficient_privilege then null; end;
+    begin execute format('delete from public.%I', t); exception when insufficient_privilege then null; end;
+  end loop;
+end $$;
+reset role;
+select pg_temp.assert(not exists (select 1 from climber_cache_changes), 'non-admin writes that change no row mark nothing');
+-- Everything stale (a truncate, or by hand after a migration): served stale, rebuilt within the budget, oldest
+-- never-built first. A zero budget builds one batch per call.
+insert into climber_cache_changes (round_id) values (null);
+select refresh_climber_cache('0 seconds') as built \gset
+select pg_temp.assert(:built = (select count(*) from rounds) and not exists (select 1 from climber_cache_rounds where stale),
+  'every round rebuilt (one batch holds them all here)');
+select pg_temp.login(null);
+select pg_temp.assert(climber_page('00000000-0000-0000-0000-000000000001')::text = :'live_noa'
+  and climber_page('60000000-0000-0000-0000-00000000000a')::text = :'live_lead', 'after a full rebuild: the same pages');
+reset role;
+
 -- ---------------------------------------------------------------- round_page(): one call per round page
 select pg_temp.login(null);
 select pg_temp.assert(
@@ -1214,6 +1362,32 @@ select pg_temp.assert(not exists (
   r || ' cannot truncate any public table') from unnest(array['anon', 'authenticated', 'service_role']) r;
 select pg_temp.assert(not has_function_privilege(r, 'public.refresh_rankings_cache()', 'execute'),
   r || ' cannot execute refresh_rankings_cache') from unnest(array['anon', 'authenticated', 'service_role']) r;
+-- Climber page cache: the stored rows are anon's view; only the refresh (pg_cron, postgres) writes them.
+select pg_temp.assert(not has_table_privilege(r, t, p), r || ' cannot ' || p || ' ' || t)
+from unnest(array['anon', 'authenticated', 'service_role']) r,
+     unnest(array['public.climber_cache_rounds', 'public.climber_cache_entries', 'public.climber_cache_changes']) t,
+     unnest(array['select', 'insert', 'update', 'delete', 'truncate']) p;
+select pg_temp.assert(not has_sequence_privilege(r, 'public.climber_cache_changes_id_seq', p),
+  r || ' cannot ' || p || ' the climber cache change log sequence')
+from unnest(array['anon', 'authenticated', 'service_role']) r, unnest(array['usage', 'select', 'update']) p;
+select pg_temp.assert(not has_function_privilege(r, f, 'execute'), r || ' cannot execute ' || f)
+from unnest(array['anon', 'authenticated', 'service_role']) r,
+     unnest(array['public.refresh_climber_cache(interval)', 'public.climber_cache_touch()']) f;
+select pg_temp.login(null);
+select pg_temp.denied($$select * from climber_cache_entries$$, 'anon reads the climber cache');
+select pg_temp.denied($$insert into climber_cache_changes (round_id) values (null)$$, 'anon marks the climber cache');
+select pg_temp.denied($$select refresh_climber_cache()$$, 'anon refreshes the climber cache');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.denied($$update climber_cache_entries set entry = '{}'$$, 'admin writes the climber cache');
+select pg_temp.denied($$delete from climber_cache_rounds$$, 'admin clears the built rounds');
+select pg_temp.denied($$select refresh_climber_cache()$$, 'admin refreshes the climber cache');
+reset role;
+select pg_temp.assert(not prosecdef, f || ' runs with the caller''s rights (RLS as the caller)')
+from unnest(array['public.climber_page(uuid)', 'public.climber_cache_build(uuid[])', 'public.round_history_for(uuid[])',
+                  'public.refresh_climber_cache(interval)']) f
+join pg_proc on oid = f::regprocedure;
+select pg_temp.assert(prosecdef, 'climber_history_cached reads the closed cache tables')
+from pg_proc where oid = 'public.climber_history_cached(uuid)'::regprocedure;
 select pg_temp.login(null);
 select pg_temp.denied($$select * from season_rankings_cache$$, 'anon reads the rankings cache');
 select pg_temp.denied($$insert into season_rankings_cache (season, payload) values ('2030-31', '{}')$$, 'anon writes the rankings cache');
