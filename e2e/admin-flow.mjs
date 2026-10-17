@@ -53,6 +53,8 @@ step('home page with nothing live: no "Live now"; menu link to the competitions 
   await home.waitForLoadState('networkidle');
   if (await home.locator('.home-live').count()) problems.push('home shows "Live now" with nothing live');
   if (reqs.join() !== 'rpc/home_page,rpc/season_rankings') problems.push(`home requests (empty): ${reqs.join(', ')}`);
+  await home.waitForTimeout(6000); // nothing live: the live part is asked again only after 60 s
+  if (reqs.filter((r) => r === 'rpc/home_page').length !== 1) problems.push(`home polls with nothing live: ${reqs.join(', ')}`);
   await home.locator('.nav').getByRole('link', { name: 'Competitions' }).click();
   await home.waitForURL(/\/competitions$/);
   await home.locator('h1', { hasText: 'Competitions' }).waitFor();
@@ -165,7 +167,12 @@ step('home page with a live round: "Live now" with who is on the wall, refreshed
 {
   const home = await page('en', { width: 1280, height: 900 }, null);
   const reqs = [];
-  home.on('request', (r) => { if (r.url().includes('/rest/v1/')) reqs.push(r.url().split('/rest/v1/')[1].split('?')[0]); });
+  const bodies = [];
+  home.on('request', (r) => {
+    if (!r.url().includes('/rest/v1/')) return;
+    reqs.push(r.url().split('/rest/v1/')[1].split('?')[0]);
+    if (r.url().includes('rpc/home_page')) bodies.push(r.postData() ?? '');
+  });
   const t0 = Date.now();
   await home.goto(`${view}/`);
   const live = home.locator('.home-live');
@@ -174,11 +181,12 @@ step('home page with a live round: "Live now" with who is on the wall, refreshed
   await live.locator('.home-card', { hasText: 'Israeli Cup #2' }).getByText('Senior Women · Qualification').waitFor();
   await live.locator('.on-wall-item', { hasText: 'מאיה גל' }).waitFor();
   if ((await live.getByRole('link', { name: /Israeli Cup #2/ }).getAttribute('href')) !== `/round/${roundId}`) problems.push('live round card does not link to the round');
-  await home.locator('.cards').getByText('Israeli Cup #2').waitFor(); // published, starts 2026-11-20: upcoming
   await home.screenshot({ path: `${out}/home-live-en.png`, fullPage: true });
   const n = reqs.filter((r) => r === 'rpc/home_page').length;
   await home.waitForTimeout(5600);
   if (reqs.filter((r) => r === 'rpc/home_page').length <= n) problems.push('home does not refresh while a round is live');
+  if (bodies.slice(1).some((b) => !b.includes('p_live_only'))) problems.push(`home refresh asks for the whole page: ${bodies.join(' | ')}`);
+  if (await home.locator('.cards').getByText('Israeli Cup #2').count()) problems.push('a live competition is also listed under upcoming');
   const he390 = await page('he', { width: 390, height: 844 }, null);
   await he390.goto(`${view}/`);
   await he390.locator('.home-live').getByRole('heading', { name: 'עכשיו בשידור' }).waitFor();
