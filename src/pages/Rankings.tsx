@@ -144,7 +144,10 @@ export function Rankings() {
                         <Link className="athlete" to={`/climber/${r.climber_id}?d=${discipline}`}>{p ? localized(lang, p.full_name, p.full_name_he) : '?'}</Link>
                         {p?.club && <span className="athlete-meta">{p.club}</span>}
                         <span className="ranking-parts">
-                          {r.events.map((e) => {
+                          {r.events
+                            // 2027 criteria: international events earn nothing per event (the world ranking does), so they aren't listed
+                            .filter((e) => !(e.kind === 'intl' && e.points === 0 && edition?.criteria.seniorIntl === 'world_ranking'))
+                            .map((e) => {
                             const cls = `ranking-part${e.counted ? '' : ' dropped'}`;
                             const body = <>{e.kind === 'intl' ? '🌍 ' : e.kind === 'world' ? '🌐 ' : ''}{e.place ? <>{e.place}<small> · {fmt(e.points)}</small></> : fmt(e.points)}</>;
                             // ILCA league events link to their competition; international ones have no page here
