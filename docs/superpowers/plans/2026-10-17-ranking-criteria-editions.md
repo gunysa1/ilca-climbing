@@ -142,14 +142,35 @@
 - [ ] **Step 3: Docs** in `docs/operations.md`: run with today's date during the season (provisional), again with `2027-01-01` once that date has passed.
 - [ ] **Step 4: Commit** — "tools/ifsc: world ranking positions; import 2026 results".
 
-### Task 6: Live rollout (only after the user confirms)
+### Task 6: Live rollout (only after the user confirms; after Tasks 7-8)
 
-- [ ] **Step 1:** `npx -y supabase@2.121.0 db push --linked --dry-run` — expect only `20261017000028_world_rankings.sql`; then apply.
+- [ ] **Step 1:** `npx -y supabase@2.121.0 db push --linked --dry-run` — expect `20261017000028_world_rankings.sql` and `20261017000029_page_rpcs.sql`; then apply.
 - [ ] **Step 2:** Load `world_ranking.sql` for 2026-27 (provisional, today's date) and the 2026 IFSC results (`to_sql.py`).
 - [ ] **Step 3:** Compare 2023-24, 2024-25 and 2025-26 tables before/after: identical. Show the user the 2026-27 senior and youth tables.
 - [ ] **Step 4:** `git push origin main`; delete the private exports in `OUT`.
 
-### Task 7: Climber page — ranked vs unranked competitions
+### Task 7: Fast rankings and climber pages
+
+Added 2026-10-17 at the user's request ("the rankings and the personal rankings pages load slow"). Measured on the live site: rankings 2024-25 shows content after 3.6 s — `season_ranking_rounds` in two sequential pages (0.9 s + 0.6 s, ~660 KB), then three sequential `profiles` chunks; climber page 1.9 s — `profiles` then `climber_history_for`, one after the other.
+
+**Files:**
+- Create: `supabase/migrations/20261017000029_page_rpcs.sql`
+- Modify: `supabase/tests/rls_test.sql`, `src/pages/Rankings.tsx`, `src/pages/Climber.tsx`, `src/components/History.tsx`, `src/lib/supabaseViewer.ts` only if the lite client needs the new RPC names (check how `round_page` is called)
+
+**Interfaces:**
+- Produces:
+  - `public.season_rankings(p_season text) returns json`, `security invoker`, stable: `{ rounds: <season_ranking_rounds rows>, age_classes: <season_age_classes rows>, too_young: <season_senior_too_young ids>, intl: <international_results rows>, adjustments: <ranking_adjustments rows>, world: <world_rankings rows>, profiles: [{id, full_name, full_name_he, club, country, gender}] for every climber in rounds/intl/world }` — one request, no 1000-row cap (a json scalar). Granted to anon, authenticated. Same pattern as `round_page` (`20261015000025_round_page.sql`).
+  - `public.climber_page(p_climber uuid) returns json`, `security invoker`: `{ profile: {id, full_name, full_name_he, club, country, gender} | null, history: <climber_history_for(array[p_climber]) rows>, competitions: [{id, season, series}] for the history's competitions }`.
+  - Client: Rankings keeps an in-memory cache per season (like the round page cache) so switching back is instant; Climber page renders from one `climber_page` call.
+
+- [ ] **Step 1: RLS assertions:** anon gets `season_rankings('2026-27')` with the same rounds as `season_ranking_rounds('2026-27')` and no birth dates anywhere in the json; draft competitions stay invisible; `climber_page` for a climber returns profile + history and nothing for an unknown id (`profile` null).
+- [ ] **Step 2:** Migration; `npm run test:db` — PASS.
+- [ ] **Step 3:** Rankings.tsx and Climber/History use the RPCs; `useClimberHistory` keeps working for its other callers (my history, coach view).
+- [ ] **Step 4: Measure** with a Playwright script against the local build (`npm run build:viewer` + preview pointed at the live project) or after deploy: rankings content < 1.5 s, climber page < 1 s. Put the numbers in the report.
+- [ ] **Step 5: Run** `npm run typecheck && npm test && npm run build && npm run test:db && npm run test:e2e` — PASS.
+- [ ] **Step 6: Commit** — "Rankings and climber pages: one request each".
+
+### Task 8: Climber page — ranked vs unranked competitions
 
 Added 2026-10-17 at the user's request: "I want there to be a difference between comps that are included in the rankings and ones that are not important when viewing a person's rankings."
 
@@ -159,8 +180,8 @@ Added 2026-10-17 at the user's request: "I want there to be a difference between
 - Modify: `e2e/admin-flow.mjs` (the climber page step, if one exists; otherwise the rankings step's climber link) to assert the tag
 
 **Interfaces:**
-- Consumes: `competitions.series` / `competitions.season` (public columns; `series = 'other'` or `season is null` = not ranked).
-- Produces: each history event knows `ranked: boolean` (one extra request: `competitions` `id, season, series` for the events' competition ids, chunked by 150 like `Rankings.tsx`); i18n keys `rankedEvent` ({he: 'נספרת במדרג', en: 'Counts for the rankings'}), `unrankedEvent` ({he: 'לא נספרת במדרג', en: 'Not ranked'}).
+- Consumes: `climber_page(p_climber)` from Task 7 — its `competitions` (`id, season, series`; `series = 'other'` or `season` null = not ranked).
+- Produces: each history event knows `ranked: boolean` (no extra request); i18n keys `rankedEvent` ({he: 'נספרת במדרג', en: 'Counts for the rankings'}), `unrankedEvent` ({he: 'לא נספרת במדרג', en: 'Not ranked'}).
 
 - [ ] **Step 1:** Ranked events show a small `rankedEvent` tag next to the title; unranked events are visually muted (class `event-unranked`, lower contrast) with the `unrankedEvent` label. Stats stay over all events. Works in both themes and at 390px.
 - [ ] **Step 2:** e2e: the seeded ranked competition shows `נספרת במדרג` on the climber page.
