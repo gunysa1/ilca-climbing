@@ -4,7 +4,7 @@
 -- SQL editor as postgres, after `db push` applied migration 033.
 --
 -- Before scheduling, check that postgres may act as anon and run the first build by hand (~0.7 s per season):
---   select pg_has_role('postgres', 'anon', 'member');   -- must be true
+--   select pg_has_role('postgres', 'anon', 'SET');      -- must be true (postgres may SET ROLE anon)
 --   select public.refresh_rankings_cache();             -- the number of seasons built
 --
 -- Force a full rebuild (e.g. after a migration that changes scoring or the payload):

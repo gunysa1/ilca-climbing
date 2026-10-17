@@ -144,7 +144,7 @@ international results, adjustments, world rankings) and any season not stored ye
 a changed season shows its previous payload (at most about a minute old).
 
 Setup (once, after `db push` applied 033): run `supabase/cron/rankings_cache.sql` in the SQL editor
-(its header checks `pg_has_role('postgres', 'anon', 'member')` and runs the first build by hand).
+(its header checks `pg_has_role('postgres', 'anon', 'SET')` and runs the first build by hand).
 
 - Force a refresh now: `select public.refresh_rankings_cache();` (returns the number of seasons rebuilt).
 - Force a full rebuild (after a migration that changes scoring, the build or the payload, which no
@@ -154,6 +154,19 @@ Setup (once, after `db push` applied 033): run `supabase/cron/rankings_cache.sql
   failed runs: `select * from cron.job_run_details where command like '%rankings%' order by start_time desc limit 5;`
 - Rollback: `select cron.unschedule('rankings-cache'); delete from public.season_rankings_cache;`
   (without stored rows `season_rankings` builds live, as before 033).
+- Emergency switch for event day (if the result triggers ever slow the judge pad): stop marking on
+  result writes; the public rankings then keep the last stored payload.
+  ```sql
+  alter table public.boulder_results disable trigger rankings_cache_ins, disable trigger rankings_cache_upd, disable trigger rankings_cache_del;
+  alter table public.lead_results disable trigger rankings_cache_ins, disable trigger rankings_cache_upd, disable trigger rankings_cache_del;
+  ```
+  Afterwards re-enable and rebuild everything (the writes in between were not marked):
+  ```sql
+  alter table public.boulder_results enable trigger rankings_cache_ins, enable trigger rankings_cache_upd, enable trigger rankings_cache_del;
+  alter table public.lead_results enable trigger rankings_cache_ins, enable trigger rankings_cache_upd, enable trigger rankings_cache_del;
+  insert into public.rankings_cache_changes (season) values (null);
+  select public.refresh_rankings_cache();
+  ```
 
 ### IFSC international results (`tools/ifsc`, backfills)
 

@@ -28,8 +28,10 @@ create table public.rankings_cache_changes (
 alter table public.season_rankings_cache enable row level security;
 alter table public.rankings_cache_changes enable row level security;
 revoke all on public.season_rankings_cache, public.rankings_cache_changes from anon, authenticated, service_role;
+revoke all on sequence public.rankings_cache_changes_id_seq from anon, authenticated, service_role;
 
--- The former season_rankings() body (migration 029), unchanged. Security invoker: RLS as the caller, so
+-- The former season_rankings() body (migration 029), with every array in a fixed order (the client
+-- reads them into maps and sets; a fixed order makes payloads comparable). Security invoker: RLS as the caller, so
 -- executing it reveals nothing the caller could not read with the separate queries. anon keeps EXECUTE:
 -- the refresh runs it as anon, and season_rankings() runs it in the caller's context before the first refresh.
 create function public.season_rankings_build(p_season text) returns json
@@ -40,15 +42,16 @@ create function public.season_rankings_build(p_season text) returns json
        wr as (select * from public.world_rankings where season = p_season),
        ids as (select climber_id from rr union select climber_id from ic union select climber_id from wr)
   select json_build_object(
-    'rounds', coalesce((select json_agg(to_json(rr)) from rr), '[]'::json),
-    'age_classes', coalesce((select json_agg(to_json(a)) from public.season_age_classes(p_season) a), '[]'::json),
-    'too_young', coalesce((select json_agg(y.climber_id) from public.season_senior_too_young(p_season) y), '[]'::json),
-    'intl', coalesce((select json_agg(to_json(ic)) from ic), '[]'::json),
-    'adjustments', coalesce((select json_agg(to_json(adj)) from adj), '[]'::json),
-    'world', coalesce((select json_agg(to_json(wr)) from wr), '[]'::json),
+    'rounds', coalesce((select json_agg(to_json(rr) order by rr.competition_id, rr.category_id, rr.round, rr.climber_id) from rr), '[]'::json),
+    'age_classes', coalesce((select json_agg(to_json(a) order by a.climber_id) from public.season_age_classes(p_season) a), '[]'::json),
+    'too_young', coalesce((select json_agg(y.climber_id order by y.climber_id) from public.season_senior_too_young(p_season) y), '[]'::json),
+    'intl', coalesce((select json_agg(to_json(ic) order by ic.id) from ic), '[]'::json),
+    'adjustments', coalesce((select json_agg(to_json(adj) order by adj.id) from adj), '[]'::json),
+    'world', coalesce((select json_agg(to_json(wr) order by wr.climber_id, wr.discipline) from wr), '[]'::json),
     'profiles', coalesce((
       select json_agg(json_build_object('id', p.id, 'full_name', p.full_name, 'full_name_he', p.full_name_he,
-                                        'club', p.club, 'country', p.country, 'gender', p.gender))
+                                        'club', p.club, 'country', p.country, 'gender', p.gender)
+                        order by p.id)
       from public.profiles p where p.id in (select climber_id from ids)), '[]'::json));
 $$;
 revoke execute on function public.season_rankings_build(text) from public;
@@ -77,10 +80,12 @@ grant execute on function public.season_rankings(text) to anon, authenticated;
 -- Run by pg_cron as postgres (never exposed). Not security definer: set role is not allowed in one.
 create function public.refresh_rankings_cache() returns int
   language plpgsql set search_path = public as $$
-declare pending bigint[]; all_seasons boolean; me text := current_user; s text; v json; n int := 0;
+declare pending bigint[]; seasons text[]; all_seasons boolean; me text := current_user; s text; v json; n int := 0;
 begin
   if not pg_try_advisory_xact_lock(hashtext('public.refresh_rankings_cache')) then return 0; end if;
-  select coalesce(array_agg(id), '{}'), coalesce(bool_or(season is null), false) into pending, all_seasons
+  select coalesce(array_agg(id), '{}'), coalesce(array_agg(distinct season) filter (where season is not null), '{}'),
+         coalesce(bool_or(season is null), false)
+  into pending, seasons, all_seasons
   from rankings_cache_changes;
   for s in
     select x.season from (
@@ -90,7 +95,7 @@ begin
       union select season from world_rankings
       union select season from season_rankings_cache) x  -- a season whose last competition moved away: emptied
     where all_seasons
-       or x.season in (select ch.season from rankings_cache_changes ch where ch.id = any(pending))
+       or x.season = any(seasons)
        or not exists (select 1 from season_rankings_cache c where c.season = x.season)
     order by x.season
   loop
@@ -142,10 +147,16 @@ begin
   return null;
 end $$;
 
--- Competition structure, people, truncates: every season (rare writes; a name or birth date can count in any).
+-- Competition structure, people, truncates: every season (rare writes; a name or birth date can count in
+-- any). A statement that changed no row marks nothing (a truncate has no transition table: always marks).
 create function public.rankings_cache_touch_all() returns trigger
   language plpgsql security definer set search_path = public as $$
 begin
+  if tg_op = 'INSERT' or tg_op = 'UPDATE' then
+    if not exists (select 1 from new_rows) then return null; end if;
+  elsif tg_op = 'DELETE' then
+    if not exists (select 1 from old_rows) then return null; end if;
+  end if;
   insert into rankings_cache_changes (season) values (null);
   return null;
 end $$;
@@ -160,9 +171,11 @@ do $$
 declare t text; fn text;
 begin
   foreach t in array array['boulder_results', 'lead_results', 'round_starters', 'round_totals',
-                           'international_results', 'ranking_adjustments', 'world_rankings'] loop
-    fn := case when t in ('international_results', 'ranking_adjustments', 'world_rankings')
-               then 'rankings_cache_touch_seasons' else 'rankings_cache_touch_rounds' end;
+                           'international_results', 'ranking_adjustments', 'world_rankings',
+                           'competitions', 'categories', 'rounds', 'boulders', 'profiles', 'profile_private'] loop
+    fn := case when t in ('international_results', 'ranking_adjustments', 'world_rankings') then 'rankings_cache_touch_seasons'
+               when t in ('boulder_results', 'lead_results', 'round_starters', 'round_totals') then 'rankings_cache_touch_rounds'
+               else 'rankings_cache_touch_all' end;
     execute format('create trigger rankings_cache_ins after insert on public.%I referencing new table as new_rows
                       for each statement execute function public.%I()', t, fn);
     execute format('create trigger rankings_cache_upd after update on public.%I referencing old table as old_rows new table as new_rows
@@ -172,8 +185,9 @@ begin
     execute format('create trigger rankings_cache_trunc after truncate on public.%I
                       for each statement execute function public.rankings_cache_touch_all()', t);
   end loop;
-  foreach t in array array['competitions', 'categories', 'rounds', 'boulders', 'profiles', 'profile_private'] loop
-    execute format('create trigger rankings_cache_all after insert or update or delete or truncate on public.%I
-                      for each statement execute function public.rankings_cache_touch_all()', t);
-  end loop;
 end $$;
+
+-- Defence in depth: anon never writes (the viewer is view-only; RLS already refuses). Tables made later by
+-- postgres don't get the write privileges either.
+revoke insert, update, delete, truncate on all tables in schema public from anon;
+alter default privileges in schema public revoke insert, update, delete, truncate on tables from anon;

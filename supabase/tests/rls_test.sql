@@ -921,6 +921,13 @@ select season_rankings_build('2026-27')::text as anon_build \gset
 reset role;
 select pg_temp.assert((select payload::text from season_rankings_cache where season = '2026-27') = :'anon_build',
   'with a draft in the season the cache still equals anon''s build');
+-- Publishing it (a status change) reaches the cache with the next refresh.
+update competitions set status = 'published' where id = '10000000-0000-0000-0000-000000000002';
+select refresh_rankings_cache() as rebuilt \gset
+select pg_temp.assert(:rebuilt > 0 and payload::text ~ '10000000-0000-0000-0000-000000000002'
+  and payload::text ~ '60000000-0000-0000-0000-0000000000e1',
+  'a published draft appears in the cache after the refresh') from season_rankings_cache where season = '2026-27';
+update competitions set status = 'draft' where id = '10000000-0000-0000-0000-000000000002';
 delete from boulder_results where round_id = '3e000000-0000-0000-0000-000000000002';
 delete from round_starters where round_id = '3e000000-0000-0000-0000-000000000002';
 delete from rounds where id = '3e000000-0000-0000-0000-000000000002';
@@ -947,6 +954,38 @@ select pg_temp.assert((select array_agg(distinct season) from rankings_cache_cha
   'an empty statement marks nothing; world_rankings marks its own season');
 update profiles set club = club where id = '60000000-0000-0000-0000-00000000000a';
 select pg_temp.assert(exists (select 1 from rankings_cache_changes where season is null), 'a profile write marks every season');
+select refresh_rankings_cache() as rebuilt \gset
+-- Statements that change no row mark nothing: anon is refused outright (no write privilege), a signed-in
+-- non-admin's writes match no row under RLS.
+select pg_temp.login(null);
+select pg_temp.denied(format('update public.%I set %I = %I', t, c, c), 'anon writes ' || t)
+from (values ('competitions', 'name'), ('categories', 'name'), ('rounds', 'kind'), ('boulders', 'number'),
+             ('profiles', 'club'), ('profile_private', 'phone'), ('boulder_results', 'attempts'),
+             ('lead_results', 'hold'), ('round_starters', 'start_order'), ('round_totals', 'tops'),
+             ('international_results', 'place'), ('ranking_adjustments', 'points'), ('world_rankings', 'position')) v(t, c);
+select pg_temp.denied(format('delete from public.%I', t), 'anon deletes from ' || t)
+from unnest(array['competitions', 'categories', 'rounds', 'boulders', 'profiles', 'profile_private', 'boulder_results',
+                  'lead_results', 'round_starters', 'round_totals', 'international_results', 'ranking_adjustments',
+                  'world_rankings']) t;
+select pg_temp.login('00000000-0000-0000-0000-000000000002');
+do $$  -- (a write the role may not make at all is refused before any trigger: also fine)
+declare t text; c text;
+begin
+  for t, c in values ('competitions', 'name'), ('categories', 'name'), ('rounds', 'kind'), ('boulders', 'number'),
+                     ('boulder_results', 'attempts'), ('lead_results', 'hold'), ('round_starters', 'start_order'),
+                     ('round_totals', 'tops'), ('international_results', 'place'), ('ranking_adjustments', 'points'),
+                     ('world_rankings', 'position') loop
+    begin execute format('update public.%I set %I = %I', t, c, c); exception when insufficient_privilege then null; end;
+    begin execute format('delete from public.%I', t); exception when insufficient_privilege then null; end;
+  end loop;
+end $$;
+update profiles set club = club where id = '60000000-0000-0000-0000-00000000000a';  -- not her profile: no row
+update profile_private set phone = phone where id = '60000000-0000-0000-0000-00000000000a';
+delete from profiles where id = '60000000-0000-0000-0000-00000000000a';
+reset role;
+select pg_temp.assert(not exists (select 1 from rankings_cache_changes),
+  'anon and non-admin writes that change no row append nothing to rankings_cache_changes');
+insert into rankings_cache_changes (season) values (null);
 select refresh_rankings_cache() as rebuilt \gset
 select pg_temp.assert(:rebuilt = (select count(*) from season_rankings_cache) and not exists (select 1 from rankings_cache_changes),
   'every season rebuilt');
@@ -1157,6 +1196,17 @@ select pg_temp.assert(not has_table_privilege(r, t, p), r || ' cannot ' || p || 
 from unnest(array['anon', 'authenticated', 'service_role']) r,
      unnest(array['public.season_rankings_cache', 'public.rankings_cache_changes']) t,
      unnest(array['select', 'insert', 'update', 'delete', 'truncate']) p;
+select pg_temp.assert(not has_sequence_privilege(r, 'public.rankings_cache_changes_id_seq', p),
+  r || ' cannot ' || p || ' the change log sequence')
+from unnest(array['anon', 'authenticated', 'service_role']) r, unnest(array['usage', 'select', 'update']) p;
+-- anon never writes: no write privilege on any table or view in public, not even per column.
+select pg_temp.assert(not exists (
+  select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'f')
+    and (has_table_privilege('anon', c.oid, 'insert') or has_table_privilege('anon', c.oid, 'update')
+         or has_table_privilege('anon', c.oid, 'delete') or has_table_privilege('anon', c.oid, 'truncate')
+         or has_any_column_privilege('anon', c.oid, 'insert') or has_any_column_privilege('anon', c.oid, 'update'))),
+  'anon holds no write privilege on any public table');
 select pg_temp.assert(not has_function_privilege(r, 'public.refresh_rankings_cache()', 'execute'),
   r || ' cannot execute refresh_rankings_cache') from unnest(array['anon', 'authenticated', 'service_role']) r;
 select pg_temp.login(null);
