@@ -4,7 +4,7 @@ import { ContinueBar } from '../components/ContinueBar';
 import { FavoriteStar } from '../components/FavoriteStar';
 import { useFavorites } from '../lib/favorites';
 import {
-  favoritesLatest, homePollDue, parseHome, parseLive, topOfRanking, winnersByCategory, withLive, type HomeData,
+  favoritesLatest, homePollDue, liveCompetitionEnded, parseHome, parseLive, topOfRanking, winnersByCategory, withLive, type HomeData,
 } from '../lib/home';
 import { localized, useI18n, type MsgKey } from '../lib/i18n';
 import type { Discipline, Gender } from '../lib/rankings';
@@ -33,23 +33,34 @@ export function Home() {
     let stop = false;
     let busy = false;
     let last = Date.now();
+    let failures = 0; // requests failed in a row: retry sooner than the idle poll, backing off
+    let reload = false; // a live competition ended: fetch the whole page (results / upcoming lists)
     const run = (liveOnly: boolean) => {
       busy = true;
       last = Date.now();
       return supabase.rpc('home_page', liveOnly ? { p_live_only: true } : {}).then(({ data, error }) => {
         busy = false;
         if (stop) return;
-        if (error || !data) { if (!homeCache) setFailed(true); return; }
-        homeCache = liveOnly && homeCache ? withLive(homeCache, parseLive(data)) : parseHome(data);
+        if (error || !data) { failures++; if (!homeCache) setFailed(true); return; }
+        failures = 0;
+        if (liveOnly && homeCache) {
+          const live = parseLive(data);
+          reload = liveCompetitionEnded(homeCache.live, live);
+          homeCache = withLive(homeCache, live);
+        } else {
+          reload = false;
+          homeCache = parseHome(data);
+        }
         setHome(homeCache);
         setFailed(false);
-      }, () => { busy = false; if (!stop && !homeCache) setFailed(true); });
+      }, () => { busy = false; failures++; if (!stop && !homeCache) setFailed(true); });
     };
     void run(false);
     const timer = setInterval(() => {
       if (busy || document.visibilityState !== 'visible') return;
-      if (!homePollDue(Date.now(), last, (homeCache?.live.length ?? 0) > 0)) return;
-      void run(homeCache !== null); // the first load failed: try the whole page again
+      if (reload && failures === 0) { void run(false); return; } // a live competition ended: the whole page, at once
+      if (!homePollDue(Date.now(), last, (homeCache?.live.length ?? 0) > 0, failures)) return;
+      void run(homeCache !== null && !reload); // the first load failed: try the whole page again
     }, 1000);
     return () => { stop = true; clearInterval(timer); };
   }, []);
