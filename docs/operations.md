@@ -125,7 +125,8 @@ group with ILCA-published points), corrects `place`, `field_size` and `reached` 
 revised them (never `manual` rows; counted as "corrected"), links new athletes to a profile when the match is
 confident (birth date, gender, name; sets `profiles.ifsc_id`) and leaves the others in `ifsc_pending` for an
 admin, and refreshes the season's `world_rankings`: today's list until 1 January; during January the 1 January
-list daily, replaced only when IFSC revised it; after January the 1 January list once if never stored.
+list daily, replaced only when IFSC revised it; after January the 1 January list once if never stored, and
+again only for athletes linked in that run (their positions alone).
 
 Failures: all IFSC requests happen before the first write. If the season, league or event lists fail, or every
 category, athlete and world-list request fails (at least two), the run is `failed` and writes nothing; any success

@@ -240,22 +240,7 @@ export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { o
       gender: d.gender ?? null, birthday: d.birthday ?? null });
   }
 
-  // 3. World ranking (see worldDate): every list is asked (each counts for the outage check); one failing skips the
-  // world part.
-  const stored = await store.worldRows(season);
-  const wDate = worldDate(today, season, stored);
-  let worldIsr: WorldIsr[] | null = null;
-  if (wDate) {
-    const lists: (WorldIsr[] | null)[] = [];
-    for (const [dcat, discipline] of WORLD_DCATS) {
-      lists.push(await attempt(() => worldListOf(ifsc, dcat, discipline, wDate)
-        .catch((e) => { throw new Error(`world ranking skipped: ${message(e)}`); })));
-    }
-    if (lists.every((l) => l)) worldIsr = lists.flatMap((l) => l!);
-  }
-  if (tried >= 2 && sum.warnings.length === tried) throw new Error(`IFSC failing: every request failed (${sum.warnings[0]})`);
-
-  // 4. Matching (store reads only). A profile already linked, or claimed earlier in this run, is not matched again;
+  // 3. Matching (store reads only). A profile already linked, or claimed earlier in this run, is not matched again;
   // an athlete an admin ignored (or unlinked) is never linked by the sync, only suggested.
   const waiting = await store.pendingResults();
   const taken = new Set(linked.values());
@@ -272,6 +257,24 @@ export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { o
     pending.push({ ifsc_athlete_id: id, ...d, suggested_profile, score, results: athletes.get(id)!.rows });
   }
   const skip = { manual: await store.manualGroups(), dismissed: await store.dismissed() };
+
+  // 4. World ranking (see worldDate), after matching so the new links are known: every list is asked (each counts for
+  // the outage check); one failing skips the world part. Once the 1 January list is stored (February to August), it is
+  // read again only for athletes linked in this run, whose positions are written alone.
+  const stored = await store.worldRows(season);
+  const official = `${Number(season.slice(0, 4)) + 1}-01-01`;
+  const wDate = worldDate(today, season, stored);
+  const listDate = wDate ?? (newLinks.size ? official : null);
+  let worldIsr: WorldIsr[] | null = null;
+  if (listDate) {
+    const lists: (WorldIsr[] | null)[] = [];
+    for (const [dcat, discipline] of WORLD_DCATS) {
+      lists.push(await attempt(() => worldListOf(ifsc, dcat, discipline, listDate)
+        .catch((e) => { throw new Error(`world ranking skipped: ${message(e)}`); })));
+    }
+    if (lists.every((l) => l)) worldIsr = lists.flatMap((l) => l!);
+  }
+  if (tried >= 2 && sum.warnings.length === tried) throw new Error(`IFSC failing: every request failed (${sum.warnings[0]})`);
 
   // 5. Writes. A waiting row is cleared only once its results are in.
   for (const [id, profile] of newLinks) {
@@ -302,6 +305,12 @@ export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { o
     if (wDate === today || !sameWorld(stored, rows, wDate)) {
       await store.replaceWorld(season, rows, wDate);
       sum.world = rows.length;
+    }
+  } else if (listDate && worldIsr) {
+    for (const [id, profile] of newLinks) {
+      const rows = worldPositions(worldIsr, new Map([[id, profile]]));
+      await store.replaceWorldFor(season, profile, rows, listDate);
+      sum.world += rows.length;
     }
   }
   return sum;
