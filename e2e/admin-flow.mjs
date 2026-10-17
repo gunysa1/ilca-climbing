@@ -349,7 +349,7 @@ step('rankings admin: IFSC sync run and athlete to confirm; ignore hides the ath
 {
   const ifsc = p.locator('.ifsc-sync');
   await ifsc.getByRole('button', { name: 'Run now' }).waitFor();
-  await ifsc.locator('li', { hasText: '+3 · 1 · 1 · 80' }).waitFor();
+  await ifsc.locator('li', { hasText: '3 added · 1 linked · 1 to confirm · 80 world ranking' }).waitFor();
   const row = ifsc.locator('li', { hasText: 'Dana Suggestion' });
   await row.getByText('Dana Suggested').waitFor();
   await row.getByRole('button', { name: 'Confirm' }).waitFor();

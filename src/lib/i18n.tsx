@@ -305,6 +305,12 @@ const dict = {
   ifscConfirm: { he: 'אישור', en: 'Confirm' },
   ifscPickOther: { he: 'בחירת מטפס/ת אחר/ת', en: 'Pick another climber' },
   ifscIgnore: { he: 'לא מהנבחרת', en: 'Not on the team' },
+  ifscCounts: { he: '{added} נוספו · {linked} קושרו · {pending} לאישור · {world} בדירוג העולמי', en: '{added} added · {linked} linked · {pending} to confirm · {world} world ranking' },
+  ifscResults: { he: '{n} תוצאות', en: '{n} results' },
+  ifscSuggested: { he: 'הצעה: {name}', en: 'Suggested: {name}' },
+  ifscOk: { he: 'הצליח', en: 'OK' },
+  ifscFailed: { he: 'נכשל', en: 'Failed' },
+  ifscRunning: { he: 'רץ', en: 'Running' },
   ifscBusy: { he: 'עדכון כבר רץ, נסו שוב בעוד כמה דקות', en: 'A run is already going; try again in a few minutes' },
 } satisfies Record<string, Record<Lang, string>>;
 
