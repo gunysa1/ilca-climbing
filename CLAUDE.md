@@ -48,7 +48,9 @@ Live project `tsahkbtxjlgmebfmwkbq` (Frankfurt; moved from Seoul 2026-10-15): al
 user's explicit go-ahead. Seasons run September to August.
 
 Rankings follow criteria editions (`src/lib/criteria.ts`: ILCA 2025 for 2023-24..2025-26, ILCA 2027 for
-2026-27); IFSC world-ranking positions for 2026-27 live in `world_rankings` (`tools/ifsc/world_ranking.py`).
+2026-27); IFSC world-ranking positions for 2026-27 live in `world_rankings`. Edge function `ifsc-sync` (daily 03:00 UTC via
+pg_cron + Vault; admin "run now" on the rankings admin page) adds new IFSC results for Israeli athletes, refreshes
+`world_rankings` and leaves unclear athlete matches in `ifsc_pending`; `tools/ifsc` is for backfills.
 
 Hosting: Cloudflare Pages builds both apps on every push to main (settings in the committed `.env`):
 https://ilca-climbing.pages.dev (viewer), https://ilca-climbing-staff.pages.dev (staff); both noindex
@@ -59,7 +61,7 @@ screen for qualification groups; merging duplicate climber profiles; speed disci
 notifications.
 
 Decisions: results are public like IFSC; climbers have no sign-in page (view-only app); international
-results come from IFSC (tools/ifsc, 2023-24 to 2026-27; world_rankings for 2026-27, provisional until the 1.1.2027 list) where ILCA published no points, plus admin entries; LogLig test entries, simulations and
+results come from IFSC (tools/ifsc for 2023-24 to 2026-27, then `ifsc-sync` daily; world_rankings for 2026-27, provisional until the 1.1.2027 list) where ILCA published no points, plus admin entries; LogLig test entries, simulations and
 training camps are not imported.
 
 Local toolchain: Node 25 (REA needs Node 24 at `~/.nvm/versions/node/v24.22.0`), Postgres 16 under
