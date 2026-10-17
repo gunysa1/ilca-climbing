@@ -168,3 +168,20 @@
 - [ ] **Step 3:** One manual run (POST with the secret); show the user the run row (added/linked/pending) — expected: 0 or few new results (the history is already imported), ifsc ids filled on existing rows.
 - [ ] **Step 4:** Create the Vault secrets `project_url` and `ifsc_sync_secret`, apply `supabase/cron/ifsc_sync.sql`, confirm `cron.job` lists `ifsc-sync`.
 - [ ] **Step 5:** Push main; update CLAUDE.md status (automatic IFSC sync daily 03:00 UTC).
+
+### Task 8: Follow-ups (after rollout; from the final review's "declined to judge" list, added by the user 2026-10-17)
+
+Each item is small and independent; batch the UI ones into one dispatch.
+
+- [ ] **Un-ignore:** the admin IFSC box lists ignored athletes (collapsed) with **restore** (status back to `pending`).
+- [ ] **IFSC link in People admin:** show a profile's `ifsc_id` (link to `https://ifsc.results.info/athlete/{id}`) with **unlink** (admin; sets null) and edit.
+- [ ] **IFSC corrections:** for rows with `ifsc_event_id`/`ifsc_dcat_id` inside the 60-day window, update `place`, `field_size`, `reached` when IFSC changed them (never `manual` rows); count them in the run log (`updated`).
+- [ ] **Pending list detail:** show gender and the event names of the waiting results.
+- [ ] **Category link:** link to the category's results page instead of the event page, once the IFSC URL format for a category is verified (uses `ifsc_dcat_id`).
+- [ ] **Local date:** `today` = the date in Asia/Jerusalem, not UTC.
+- [ ] **Revised 1 January list:** during January, re-fetch `?date=<end year>-01-01` daily and replace when it differs from the stored rows; after January leave it alone.
+- [ ] **World ranking for a newly confirmed athlete:** the `{ athlete }` run also writes that athlete's world-ranking rows from the current list.
+- [ ] **Hard lock:** partial unique index on `ifsc_sync_runs (status) where status = 'running'`, so two runs can never start together (replace the soft check).
+- [ ] **Account deletion:** check `delete_account_profile` with a profile referenced only by `ifsc_pending.suggested_profile`; that reference should not keep the profile (it is `on delete set null`).
+- [ ] **Merging duplicate profiles (future work):** the merge must move `ifsc_id` to the kept profile (unique index), plus `ifsc_dismissed` and `suggested_profile` references.
+- [ ] **Birthdays in `ifsc_pending`:** clear `birthday` when an athlete is ignored (it was only needed for matching).
