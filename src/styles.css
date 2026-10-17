@@ -214,6 +214,10 @@ label.inline { display: inline-flex; gap: .35rem; align-items: center; font-weig
 .event-place { min-width: 2.2rem; text-align: center; font-size: 20px; font-weight: 700; line-height: 30px; }
 .event-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .event-title { font-weight: 700; color: var(--text-strong); }
+.rank-tag { white-space: nowrap; margin-inline-start: .5rem; vertical-align: middle; text-transform: none; letter-spacing: 0; font-weight: 600; }
+.rank-tag.counts { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
+.event-unranked .event-title, .event-unranked .event-place { color: var(--muted); font-weight: 600; }
+.event-unranked .event-rounds { opacity: .75; }
 .event-rounds { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .round-pill { font-size: 12px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--accent); }
 

@@ -11,7 +11,7 @@ import type { HistoryRow, Profile } from '../lib/types';
 export function Climber() {
   const { id } = useParams();
   const { t, lang } = useI18n();
-  const [page, setPage] = useState<{ id: string; profile: Profile | null; history: HistoryRow[] } | null>(null);
+  const [page, setPage] = useState<{ id: string; profile: Profile | null; history: HistoryRow[]; ranked: Map<string, boolean> } | null>(null);
   const [discipline, setDiscipline] = useDiscipline();
 
   useEffect(() => {
@@ -20,8 +20,10 @@ export function Climber() {
     // One request: public profile columns (private data lives in profile_private) and the history.
     supabase.rpc('climber_page', { p_climber: id }).then(({ data }) => {
       if (!live) return;
-      const d = data as { profile: Profile | null; history: HistoryRow[] } | null;
-      setPage({ id, profile: d?.profile ?? null, history: (d?.history ?? []).filter((r) => r.round_status !== 'planned') });
+      const d = data as { profile: Profile | null; history: HistoryRow[]; competitions: { id: string; season: string | null; series: string | null }[] } | null;
+      // ranked = counts for the national rankings: a series other than 'other' and a season
+      const ranked = new Map((d?.competitions ?? []).map((c) => [c.id, c.series !== 'other' && c.season != null] as const));
+      setPage({ id, profile: d?.profile ?? null, history: (d?.history ?? []).filter((r) => r.round_status !== 'planned'), ranked });
     });
     return () => { live = false; };
   }, [id]);
@@ -33,7 +35,7 @@ export function Climber() {
     <section className="with-bottom-bar">
       <h1>{localized(lang, profile.full_name, profile.full_name_he)} <FavoriteStar climberId={profile.id} name={profile.full_name} /></h1>
       {profile.club && <p className="muted climber-club">{profile.club}</p>}
-      <History climberId={id} discipline={discipline} rows={page!.history} />
+      <History climberId={id} discipline={discipline} rows={page!.history} ranked={page!.ranked} />
       <DisciplineBar value={discipline} onChange={setDiscipline} />
     </section>
   );

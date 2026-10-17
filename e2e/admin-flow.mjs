@@ -308,6 +308,8 @@ step('rankings and climber pages: one data request each');
   await pub.locator('.climber-stats, .muted').first().waitFor();
   console.log(`climber page: ${Date.now() - t0.v} ms, requests: ${reqs.join(', ')}`);
   if (reqs.join() !== 'rpc/climber_page') problems.push(`climber page requests: ${reqs.join(', ')}`);
+  if (!(await pub.getByText(/Counts for the rankings|נספרת במדרג/).count())) problems.push('climber page: ranked competition has no "counts for the rankings" tag');
+  await pub.screenshot({ path: `${out}/climber-en.png`, fullPage: true });
   await pub.close();
 }
 

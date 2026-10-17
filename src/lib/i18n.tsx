@@ -5,6 +5,8 @@ export type Lang = 'he' | 'en';
 const dict = {
   appName: { he: 'איגוד הטיפוס הישראלי', en: 'Israel Climbing' },
   live: { he: 'תוצאות חיות', en: 'Live results' },
+  rankedEvent: { he: 'נספרת במדרג', en: 'Counts for the rankings' },
+  unrankedEvent: { he: 'לא נספרת במדרג', en: 'Not ranked' },
   competitions: { he: 'תחרויות', en: 'Competitions' },
   judge: { he: 'שיפוט', en: 'Judge' },
   coach: { he: 'מאמן', en: 'Coach' },

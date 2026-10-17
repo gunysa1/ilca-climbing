@@ -28,7 +28,7 @@ export function useClimberHistory(climberId: string | undefined): HistoryRow[] |
  * Without a `discipline` prop it shows its own tabs (my history, coach view); the public climber
  * page passes the bottom-bar choice instead, and the rows it already loaded (climber_page).
  */
-export function History({ climberId, discipline, rows: preloaded }: { climberId: string; discipline?: Discipline; rows?: HistoryRow[] }) {
+export function History({ climberId, discipline, rows: preloaded, ranked }: { climberId: string; discipline?: Discipline; rows?: HistoryRow[]; ranked?: ReadonlyMap<string, boolean> }) {
   const { t } = useI18n();
   const loaded = useClimberHistory(preloaded ? undefined : climberId);
   const rows = preloaded ?? loaded;
@@ -48,12 +48,12 @@ export function History({ climberId, discipline, rows: preloaded }: { climberId:
           ))}
         </div>
       )}
-      <DisciplineResults events={events.filter((e) => e.discipline === current)} />
+      <DisciplineResults events={events.filter((e) => e.discipline === current)} ranked={ranked} />
     </>
   );
 }
 
-function DisciplineResults({ events }: { events: ClimberEvent[] }) {
+function DisciplineResults({ events, ranked }: { events: ClimberEvent[]; ranked?: ReadonlyMap<string, boolean> }) {
   const { t, lang } = useI18n();
   if (events.length === 0) return <p className="muted">{t('empty')}</p>;
   const s = climberStats(events);
@@ -66,11 +66,17 @@ function DisciplineResults({ events }: { events: ClimberEvent[] }) {
         <div className="stat medals"><span className="stat-value">🥇{s.gold} 🥈{s.silver} 🥉{s.bronze}</span><span className="muted">{t('podiums')}</span></div>
       </div>
       <ul className="event-list">
-        {events.map((e) => (
-          <li key={e.key} className="event">
+        {events.map((e) => {
+          // undefined = unknown (callers without the competitions list): no tag, no muting
+          const counts = ranked?.get(e.competition_id);
+          return (
+          <li key={e.key} className={`event${counts === false ? ' event-unranked' : ''}`}>
             <span className="event-place">{e.placing != null ? (MEDAL[e.placing] ?? e.placing) : '–'}</span>
             <span className="event-main">
-              <span className="event-title">{localized(lang, e.competition, e.competition_he)}</span>
+              <span className="event-title">
+                {localized(lang, e.competition, e.competition_he)}
+                {counts != null && <span className={`badge rank-tag${counts ? ' counts' : ''}`}>{t(counts ? 'rankedEvent' : 'unrankedEvent')}</span>}
+              </span>
               <span className="muted small">
                 {new Date(e.starts_on).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-GB')} · {localized(lang, e.category, e.category_he)}
                 {e.placing != null && e.field ? ` · ${e.placing}/${e.field}` : ''}
@@ -84,7 +90,8 @@ function DisciplineResults({ events }: { events: ClimberEvent[] }) {
               </span>
             </span>
           </li>
-        ))}
+          );
+        })}
       </ul>
     </>
   );
