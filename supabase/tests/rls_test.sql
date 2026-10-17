@@ -334,6 +334,8 @@ reset role;
 
 select pg_temp.login('00000000-0000-0000-0000-00000000000f');
 select pg_temp.assert(my_profile_id() = '50000000-0000-0000-0000-000000000001', 'linked account resolves its profile');
+select pg_temp.denied($$update profiles set ifsc_id = '99999' where id = my_profile_id()$$,
+  'a climber links their own profile to an IFSC athlete (the sync would import that athlete''s results)');
 select pg_temp.assert((select medical_notes from profile_private) = 'peanut allergy',
   'linked account reads its private data');
 select pg_temp.assert(
@@ -773,7 +775,9 @@ select pg_temp.assert((select status from ifsc_pending where ifsc_athlete_id = 4
   and (select added from ifsc_sync_runs) = 3
   and (select ifsc_id from profiles where id = '60000000-0000-0000-0000-00000000000a') = '4242',
   'admin writes and reads ifsc_pending / ifsc_sync_runs and sets profiles.ifsc_id');
-update international_results set ifsc_event_id = 1234, ifsc_dcat_id = 3;
+select pg_temp.denied($$update profiles set ifsc_id = '4242' where id = '00000000-0000-0000-0000-000000000001'$$,
+  'two profiles share one IFSC athlete');
+update international_results set ifsc_event_id = 1234, ifsc_dcat_id = 3 where event_name = 'EYC Imst';
 select pg_temp.login(null);
 select pg_temp.assert((select ifsc_event_id from international_results) = 1234
   and (select ifsc_dcat_id from international_results) = 3, 'public reads international_results.ifsc_event_id');
@@ -1037,7 +1041,7 @@ from unnest(array['anon', 'authenticated']) r,
      unnest(array['public.handle_new_user()', 'public.boulder_results_stamp()',
                   'public.boulder_results_check_registration()', 'public.registrations_sync_starters()',
                   'public.lead_results_stamp()',
-                  'public.rounds_seed_starters()']) f;
+                  'public.rounds_seed_starters()', 'public.profiles_ifsc_id_guard()']) f;
 select pg_temp.assert(has_function_privilege('authenticated', 'public.admin_accounts()', 'execute')
   and has_function_privilege('anon', 'public.has_role(public.app_role)', 'execute'),
   'admins (authenticated) keep admin RPCs; RLS helpers stay executable');

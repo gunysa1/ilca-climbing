@@ -38,3 +38,18 @@ create policy ifsc_sync_runs_admin on public.ifsc_sync_runs for all
   using (public.has_role('admin')) with check (public.has_role('admin'));
 revoke all on public.ifsc_pending, public.ifsc_sync_runs from anon, authenticated;
 grant select, insert, update, delete on public.ifsc_pending, public.ifsc_sync_runs to authenticated;
+
+-- profiles.ifsc_id now decides whose IFSC results the sync imports: only admins (or the sync's service
+-- role) set it, and one IFSC athlete is one profile.
+create function public.profiles_ifsc_id_guard() returns trigger language plpgsql set search_path = '' as $$
+begin
+  if new.ifsc_id is distinct from (case when tg_op = 'UPDATE' then old.ifsc_id end)
+     and current_user in ('anon', 'authenticated') and not public.has_role('admin') then
+    raise exception 'only admins set ifsc_id' using errcode = 'insufficient_privilege';
+  end if;
+  return new;
+end $$;
+revoke execute on function public.profiles_ifsc_id_guard() from public, anon, authenticated;
+create trigger profiles_ifsc_id_guard before insert or update of ifsc_id on public.profiles
+  for each row execute function public.profiles_ifsc_id_guard();
+create unique index profiles_ifsc_id_key on public.profiles (ifsc_id) where ifsc_id is not null;
