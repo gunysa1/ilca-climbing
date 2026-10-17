@@ -17,13 +17,13 @@ const KINDS = ['qualification', 'semifinal', 'final'] as const;
 type IntlRow = IntlResult & { id: string; season: string };
 type AdjustmentRow = Adjustment & { id: string; season: string };
 
-/** Season ranking inputs that aren't ILCA competitions: international results and adjustments. */
 /** Points of an international result under the criteria edition of its season. */
 function editionPoints(r: IntlResult & { season: string }) {
   const c = criteriaForSeason(r.season).criteria;
   return Math.max(c.seniorIntl === 'per_event' ? seniorIntlPoints(r) : 0, c.youthBonus(r));
 }
 
+/** Season ranking inputs that aren't ILCA competitions: international results and adjustments. */
 export function AdminRankings() {
   const { t, lang } = useI18n();
   const [season, setSeason] = useState(() => seasonOf(new Date()));

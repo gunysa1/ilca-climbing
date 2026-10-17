@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { DisciplineBar, useDiscipline } from '../components/DisciplineBar';
 import { FavoriteStar } from '../components/FavoriteStar';
 import { History } from '../components/History';
+import { FIRST_SEASON } from '../lib/criteria';
 import { localized, useI18n } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
 import type { HistoryRow, Profile } from '../lib/types';
@@ -21,8 +22,8 @@ export function Climber() {
     supabase.rpc('climber_page', { p_climber: id }).then(({ data }) => {
       if (!live) return;
       const d = data as { profile: Profile | null; history: HistoryRow[]; competitions: { id: string; season: string | null; series: string | null }[] } | null;
-      // ranked = counts for the national rankings: a series other than 'other' and a season
-      const ranked = new Map((d?.competitions ?? []).map((c) => [c.id, c.series !== 'other' && c.season != null] as const));
+      // ranked = counts for the national rankings: a series other than 'other' in a ranked season
+      const ranked = new Map((d?.competitions ?? []).map((c) => [c.id, c.series !== 'other' && c.season != null && c.season >= FIRST_SEASON] as const));
       setPage({ id, profile: d?.profile ?? null, history: (d?.history ?? []).filter((r) => r.round_status !== 'planned'), ranked });
     });
     return () => { live = false; };

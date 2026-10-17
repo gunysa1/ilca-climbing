@@ -16,9 +16,10 @@ view only, no sign-in; `src/apps/viewer`) and the **staff** app (sign-in; judge,
   Change both together; tests on both sides use the same cases (top on 3rd attempt = 24.8; tie-breaks:
   points, previous-round rank, top attempts, zone attempts; classic: T, Z, attempts, countback in finals;
   lead: time only in finals). Totals-only rounds (older LogLig history) read `round_totals`.
-- National rankings (ILCA criteria 2025) are computed only in `src/lib/rankings.ts` from the
-  `ranking_rounds` view, `season_age_classes()`, `international_results` and `ranking_adjustments`
-  (admin-entered). Tests: the criteria document's worked examples; validated against ILCA's published
+- National rankings follow criteria editions (`src/lib/criteria.ts`: ILCA 2025 for 2023-24..2025-26,
+  ILCA 2027 for 2026-27) and are computed only in `src/lib/rankings.ts` from `season_rankings`
+  (`season_ranking_rounds`, `season_age_classes`, `season_senior_too_young`, `international_results`,
+  `ranking_adjustments`, `world_rankings`; the last three admin-entered or tool-loaded). Tests: the criteria document's worked examples; validated against ILCA's published
   2024-25 youth bouldering ranking.
 - Identity: profiles exist without accounts. `profiles.user_id` links a login (only via `link_account()`);
   policies use `my_profile_id()`, never `auth.uid()` = profile id. Client code uses `useAuth().profileId`.

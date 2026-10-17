@@ -6,14 +6,9 @@ import { localized, useI18n, type MsgKey } from '../lib/i18n';
 import {
   computeRanking, RANK_CLASSES, type Adjustment, type Gender, type IntlResult, type RankClass, type RoundPlacing,
 } from '../lib/rankings';
-import { criteriaForSeason } from '../lib/criteria';
+import { criteriaForSeason, FIRST_SEASON, FIRST_YOUTH_SEASON } from '../lib/criteria';
 import { supabase } from '../lib/supabase';
 import type { Profile } from '../lib/types';
-
-/** Seasons ranked with these rules: seniors from 2023-24 (ILCA's published 23/24 senior rankings use the
- * same rules), youth from 2024-25 (earlier youth leagues were organised differently). */
-const FIRST_SEASON = '2023-24';
-const FIRST_YOUTH_SEASON = '2024-25';
 
 interface SeasonData {
   rounds: RoundPlacing[];
@@ -90,8 +85,9 @@ export function Rankings() {
 
   const edition = season ? criteriaForSeason(season) : null;
   // the world ranking is fixed on 1 January of the season's second year; earlier (or no) rows are provisional
-  const provisional = !!(edition && season && data && edition.criteria.seniorIntl === 'world_ranking'
-    && (data.world.length === 0 || data.world.some((w) => w.as_of < `${Number(season.slice(0, 4)) + 1}-01-01`)));
+  const usesWorld = !!(edition && season && data && edition.criteria.seniorIntl === 'world_ranking' && rankClass === 'senior');
+  const worldMissing = usesWorld && data!.world.length === 0;
+  const provisional = usesWorld && !worldMissing && data!.world.some((w) => w.as_of < `${Number(season!.slice(0, 4)) + 1}-01-01`);
   const youth = rankClass !== 'senior';
   const genderLabel = (g: Gender) => t(youth ? (g === 'male' ? 'boys' : 'girls') : (g === 'male' ? 'men' : 'women'));
 
@@ -110,6 +106,7 @@ export function Rankings() {
           {t('criteriaLine')}{' '}
           {edition.criteria.url ? <a href={edition.criteria.url} target="_blank" rel="noreferrer"><bdi>{edition.criteria.title}</bdi></a> : <bdi>{edition.criteria.title}</bdi>}
           {edition.assumed && <> · {t('criteriaAssumed')}</>}
+          {worldMissing && <> · {t('worldRankNotLoaded')}</>}
           {provisional && <> · {t('worldRankProvisional')}</>}
         </p>
       )}

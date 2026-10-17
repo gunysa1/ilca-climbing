@@ -128,6 +128,12 @@ ILCA 2027 differs from 2025 in three points:
   Championships (final 40, podium 60), with no field-size minimum. European Youth Cups score 0.
 - U17: the U17 league only; open events that include U17 ("גברים+ U17") no longer count.
 
+The world ranking is fixed on 1 January of the season's second year: until the 1 January list is
+loaded the page marks the positions *provisional* (and says so when none are loaded); from the
+1 January list they are official. The climber page tags only ILCA competitions as counting
+for the rankings (from 2023-24); international events, which score 0 for seniors in 2026-27, are
+never marked as counted.
+
 No IFSC results or world rankings are imported for 2026-27 yet.
 
 ### Validation

@@ -2,6 +2,11 @@ import { youthBonusPoints, type IntlResult } from './rankings';
 
 // One object per ILCA criteria document; rankings.ts takes the edition as a parameter.
 
+/** Seasons ranked with these rules: seniors from 2023-24 (ILCA's published 23/24 senior rankings use the
+ * same rules), youth from 2024-25 (earlier youth leagues were organised differently). */
+export const FIRST_SEASON = '2023-24';
+export const FIRST_YOUTH_SEASON = '2024-25';
+
 export type CriteriaId = 'ilca2025' | 'ilca2027';
 
 export interface Criteria {

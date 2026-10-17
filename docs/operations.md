@@ -124,14 +124,22 @@ table and athletes without a reliable match, and sets `profiles.ifsc_id`. Loaded
 results, 100 climbers. The exports hold birth dates: keep OUT outside git and delete it afterwards.
 
 World ranking positions (for the ILCA 2027 criteria, season 2026-27): export `id, ifsc_id` of profiles
-to OUT/profiles.json, then
+to OUT/profiles.json:
+
+```bash
+npx -y supabase@2.121.0 db query --linked "select id, ifsc_id from profiles where ifsc_id is not null" > OUT/profiles.json
+```
+
+then
 
 ```bash
 python3 -I tools/ifsc/world_ranking.py OUT 2026-27 $(date +%F)   # OUT/world_ranking.sql, lists unmatched ISR athletes
 ```
 
 It reads the IFSC world ranking (boulder and lead, men and women) on that date and writes one
-transaction of upserts into `world_rankings`. Run it during the season with today's date (provisional
+transaction that replaces the season's positions per discipline (delete, then insert: a climber missing
+from the list loses old points) in `world_rankings`. A date after 1 January of the season's second year is
+refused unless `--force` is passed, so the official list is not overwritten. Run it during the season with today's date (provisional
 positions) and again with `2027-01-01` once that date has passed: that sets the official position for
 2026-27. Load the SQL only with the user's go-ahead.
 

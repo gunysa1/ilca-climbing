@@ -42,7 +42,7 @@ competitions (season, series)
           └─ appeals (open|upheld|rejected) + appeal_details (reason, decision; admins only)
 profiles (climbers and staff; user_id links a login, optional) + profile_private (birth date, contact)
 user_roles (climber, coach, judge, admin), coach_athletes, coach_notes
-international_results, ranking_adjustments   -- national rankings inputs (admin-entered)
+international_results, ranking_adjustments, world_rankings   -- national rankings inputs (admin-entered; world_rankings by tools/ifsc/world_ranking.py)
 ```
 
 Climbers are profiles without accounts. A login is linked to a profile only through the admin
@@ -73,8 +73,10 @@ the rounds they need, tested to return exactly the views' rows:
 | `climber_history_for(climbers)` | `climber_history` |
 | `season_ranking_rounds(season)` | `ranking_rounds` |
 
-The API returns at most 1000 rows per request; the rankings page pages through
-`season_ranking_rounds`.
+The API returns at most 1000 rows per request, so the rankings page does not page: it loads one
+`season_rankings(season)` RPC (rounds, age classes, too-young seniors, international results,
+adjustments, world rankings and profiles in one JSON), and the climber page one `climber_page(climber)`
+RPC (profile, history and the competitions' series and season).
 
 A round page (results and judge pad) loads with one call, `round_page(round)`: the round, its
 category and competition, the competition's categories with their rounds (men / women switch),
@@ -162,3 +164,7 @@ judge pad subscribes to `judge_claims` of its boulder. Everything else loads on 
 | 20261015000023 | `delete_account_profile()` for the delete-account function (service role only) |
 | 20261015000024 | `delete_account_profile()` keeps a profile that any table references (from the foreign keys) |
 | 20261015000025 | `round_page(round)`: a round page in one request (round, categories, start list, results) |
+| 20261017000026 | `world_championship` event type for international results |
+| 20261017000027 | senior minimum age (`season_senior_too_young`) |
+| 20261017000028 | `world_rankings` (IFSC world-ranking position per climber, season, discipline) |
+| 20261017000029 | page RPCs `season_rankings(season)` and `climber_page(climber)`; NULL-array fix |
