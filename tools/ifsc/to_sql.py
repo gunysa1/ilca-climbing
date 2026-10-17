@@ -18,7 +18,6 @@ for x in r:
     mm = m[str(x['athlete_id'])]
     ok = mm['status'] in ('match', 'name-only') or str(x['athlete_id']) in ACCEPT_CHECK
     if not ok or not mm['profile_id']: skipped['no profile: ' + mm['ifsc']] += 1; continue
-    if x['season'] > '2025-26': skipped['2026-27 waits for the 2027 criteria'] += 1; continue
     if not x['event_type']: skipped['no ILCA table: ' + x['event']] += 1; continue
     if not x['place'] or not x['field_size']: skipped['no place'] += 1; continue
     cls = 'youth' if x['event_type'] in YOUTH else 'senior'

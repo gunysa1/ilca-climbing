@@ -46,6 +46,9 @@ Live project `tsahkbtxjlgmebfmwkbq` (Frankfurt; moved from Seoul 2026-10-15): al
 `db advisors --linked` after schema changes. Live writes (imports, data fixes) only with the
 user's explicit go-ahead. Seasons run September to August.
 
+Rankings follow criteria editions (`src/lib/criteria.ts`: ILCA 2025 for 2023-24..2025-26, ILCA 2027 for
+2026-27); IFSC world-ranking positions for 2026-27 live in `world_rankings` (`tools/ifsc/world_ranking.py`).
+
 Hosting: Cloudflare Pages builds both apps on every push to main (settings in the committed `.env`):
 https://ilca-climbing.pages.dev (viewer), https://ilca-climbing-staff.pages.dev (staff); both noindex
 until the public launch. Pushing to main publishes. The old Seoul project `rkuuzforzfjbdnybddwb` is a
