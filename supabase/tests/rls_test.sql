@@ -755,6 +755,28 @@ update world_rankings set position = 9 where climber_id = '60000000-0000-0000-00
 select pg_temp.login(null);
 select pg_temp.assert((select position from world_rankings where season = '2026-27' and discipline = 'lead') = 9,
   'admin adds and updates world rankings; public reads them');
+-- ifsc_pending / ifsc_sync_runs: admin only; ifsc_event_id public like the rest of international_results.
+select pg_temp.denied($$select * from ifsc_pending$$, 'anon reads pending IFSC athletes');
+select pg_temp.denied($$select * from ifsc_sync_runs$$, 'anon reads IFSC sync runs');
+select pg_temp.login('00000000-0000-0000-0000-000000000002');
+select pg_temp.denied($$select * from ifsc_pending$$, 'non-admin reads pending IFSC athletes');
+select pg_temp.denied($$select * from ifsc_sync_runs$$, 'non-admin reads IFSC sync runs');
+select pg_temp.denied($$insert into ifsc_pending (ifsc_athlete_id, firstname, lastname) values (1, 'A', 'B')$$, 'non-admin adds pending IFSC athletes');
+select pg_temp.denied($$insert into ifsc_sync_runs (status) values ('ok')$$, 'non-admin adds IFSC sync runs');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+insert into ifsc_pending (ifsc_athlete_id, firstname, lastname, suggested_profile, score, results)
+  values (4242, 'Test', 'Climber', '60000000-0000-0000-0000-00000000000a', 0.62, '[{"season":"2026-27"}]');
+insert into ifsc_sync_runs (status, added) values ('ok', 3);
+update ifsc_pending set status = 'ignored' where ifsc_athlete_id = 4242;
+update profiles set ifsc_id = '4242' where id = '60000000-0000-0000-0000-00000000000a';
+select pg_temp.assert((select status from ifsc_pending where ifsc_athlete_id = 4242) = 'ignored'
+  and (select added from ifsc_sync_runs) = 3
+  and (select ifsc_id from profiles where id = '60000000-0000-0000-0000-00000000000a') = '4242',
+  'admin writes and reads ifsc_pending / ifsc_sync_runs and sets profiles.ifsc_id');
+update international_results set ifsc_event_id = 1234, ifsc_dcat_id = 3;
+select pg_temp.login(null);
+select pg_temp.assert((select ifsc_event_id from international_results) = 1234
+  and (select ifsc_dcat_id from international_results) = 3, 'public reads international_results.ifsc_event_id');
 reset role;
 insert into profiles (id, full_name) values ('60000000-0000-0000-0000-0000000000f3', 'World Ranking Temp');
 insert into world_rankings (climber_id, season, discipline, position, as_of)
