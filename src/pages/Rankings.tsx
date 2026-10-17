@@ -3,47 +3,10 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { DisciplineBar, useDiscipline } from '../components/DisciplineBar';
 import { FavoriteStar } from '../components/FavoriteStar';
 import { localized, useI18n, type MsgKey } from '../lib/i18n';
-import {
-  computeRanking, RANK_CLASSES, type Adjustment, type Gender, type IntlResult, type RankClass, type RoundPlacing,
-} from '../lib/rankings';
+import { RANK_CLASSES, type Gender, type RankClass } from '../lib/rankings';
 import { criteriaForSeason, FIRST_SEASON, FIRST_YOUTH_SEASON } from '../lib/criteria';
+import { loadSeason, seasonCache, seasonRanking, type SeasonData } from '../lib/seasonRankings';
 import { supabase } from '../lib/supabase';
-import type { Profile } from '../lib/types';
-
-interface SeasonData {
-  rounds: RoundPlacing[];
-  ageClass: Map<string, RankClass>;
-  tooYoung: Set<string>;
-  intl: IntlResult[];
-  adjustments: (Adjustment & { season: string })[];
-  profiles: Map<string, Profile & { gender: Gender | null }>;
-  world: { climber_id: string; discipline: string; position: number; as_of: string }[];
-}
-
-/** Seasons already loaded in this visit: switching back shows them at once. */
-const seasonCache = new Map<string, SeasonData>();
-
-/** season_rankings(): everything one season's ranking needs, in one request. */
-async function loadSeason(season: string): Promise<SeasonData | null> {
-  const { data: page, error } = await supabase.rpc('season_rankings', { p_season: season });
-  if (error || !page) return null;
-  const d = (page ?? {}) as {
-    rounds?: RoundPlacing[]; age_classes?: { climber_id: string; age_class: RankClass }[]; too_young?: string[];
-    intl?: IntlResult[]; adjustments?: (Adjustment & { season: string })[]; world?: SeasonData['world'];
-    profiles?: (Profile & { gender: Gender | null })[];
-  };
-  const data: SeasonData = {
-    rounds: d.rounds ?? [],
-    ageClass: new Map((d.age_classes ?? []).map((a) => [a.climber_id, a.age_class])),
-    tooYoung: new Set(d.too_young ?? []),
-    intl: (d.intl ?? []).map((r) => ({ ...r, points: r.points == null ? null : Number(r.points) })),
-    adjustments: (d.adjustments ?? []).map((a) => ({ ...a, points: Number(a.points) })),
-    profiles: new Map((d.profiles ?? []).map((p) => [p.id, p])),
-    world: d.world ?? [],
-  };
-  seasonCache.set(season, data);
-  return data;
-}
 
 const CLASS_LABEL: Record<RankClass, MsgKey | null> = { senior: 'seniors', U21: null, U19: null, U17: null };
 
@@ -78,9 +41,7 @@ export function Rankings() {
 
   const rows = useMemo(() => {
     if (!data || !season || discipline === 'speed') return [];
-    const worldRank = new Map(data.world.filter((w) => w.discipline === discipline).map((w) => [w.climber_id, Number(w.position)]));
-    return computeRanking({ criteria: criteriaForSeason(season).criteria, worldRank, rankClass, gender, discipline, rounds: data.rounds, ageClass: data.ageClass, tooYoung: data.tooYoung, intl: data.intl,
-      adjustments: data.adjustments, climberGender: new Map([...data.profiles].map(([id, p]) => [id, p.gender])) });
+    return seasonRanking(data, season, rankClass, gender, discipline);
   }, [data, season, rankClass, gender, discipline]);
 
   const edition = season ? criteriaForSeason(season) : null;
