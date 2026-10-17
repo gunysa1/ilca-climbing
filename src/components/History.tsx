@@ -4,7 +4,7 @@ import { climberEvents, climberStats, type ClimberEvent } from '../lib/climberSt
 import { DISCIPLINES, type Discipline } from '../lib/discipline';
 import { localized, useI18n } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
-import type { HistoryRow } from '../lib/types';
+import type { HistoryEntry, HistoryRow } from '../lib/types';
 
 const DISC_KEY = { boulder: 'discBoulder', lead: 'discLead', speed: 'discSpeed' } as const;
 const MEDAL: Record<number, string> = { 1: '🥇', 2: '🥈', 3: '🥉' };
@@ -28,7 +28,7 @@ export function useClimberHistory(climberId: string | undefined): HistoryRow[] |
  * Without a `discipline` prop it shows its own tabs (my history, coach view); the public climber
  * page passes the bottom-bar choice instead, and the rows it already loaded (climber_page).
  */
-export function History({ climberId, discipline, rows: preloaded, ranked }: { climberId: string; discipline?: Discipline; rows?: HistoryRow[]; ranked?: ReadonlyMap<string, boolean> }) {
+export function History({ climberId, discipline, rows: preloaded, ranked }: { climberId: string; discipline?: Discipline; rows?: HistoryEntry[]; ranked?: ReadonlyMap<string, boolean> }) {
   const { t } = useI18n();
   const loaded = useClimberHistory(preloaded ? undefined : climberId);
   const rows = preloaded ?? loaded;

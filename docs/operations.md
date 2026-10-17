@@ -225,6 +225,47 @@ Setup (once, after `db push` applied 035):
 - Rollback: `select cron.unschedule('ranking-tables'); delete from public.ranking_tables;` (the pages compute
   every table in the browser again).
 
+### Climber page cache (pg_cron `climber-cache`)
+
+The climber page reads stored history rows of closed rounds (`climber_cache_entries`, migration 036);
+live rounds are always built live, so a judge's write shows at once. Every minute pg_cron runs
+`select public.refresh_climber_cache()`, which rebuilds, as the anon role, the rounds whose data changed
+since the last run (results, start lists, routes, rounds, categories, competitions) and any round not
+built yet, live rounds first, for up to about 20 s (the rest waits for the next minute). Until then a
+corrected closed round shows its previous rows (at most about a minute old). Unpublishing a competition
+hides its rows at once. A climber with a closed round never built, or any change pending for more than
+5 minutes (the job stopped), gets the live build: slower, always correct.
+
+Rollout (once): `db push` with 036 after 035, not during an event (the push builds an index on
+`boulder_results`, which blocks result writes briefly). Right after it, in the same sitting, run
+`supabase/cron/climber_cache.sql` in the SQL editor (it schedules the job; its header checks
+`pg_has_role('postgres', 'anon', 'SET')`), then `select public.refresh_climber_cache();` repeatedly
+until it returns 0, and after 2 minutes check `cron.job_run_details` (below).
+
+- Force a refresh now: `select public.refresh_climber_cache();` (returns the number of rounds built).
+- Force a full rebuild (after a migration that changes scoring or the stored rows, which no trigger
+  notices): `insert into public.climber_cache_changes (round_id) values (null);` then the refresh, repeated until 0.
+- Check: `select count(*), count(*) filter (where stale), max(built_at) from public.climber_cache_rounds;`,
+  `select count(*), min(at) from public.climber_cache_changes;` (pending; 0 right after a refresh) and
+  `select pg_size_pretty(pg_total_relation_size('public.climber_cache_entries'));`;
+  runs: `select status, return_message, start_time from cron.job_run_details where command like '%climber_cache%' order by start_time desc limit 5;`
+- Rollback (climber pages build live, as before 036): unschedule the job, disable the `climber_cache_*`
+  triggers on all eight tables and empty the cache; the statements are in `supabase/cron/climber_cache.sql`.
+- Emergency switch for event day (if the result triggers ever slow the judge pad): writes made while the
+  triggers are off are not marked, so the stored rows must go too (climber pages then build live):
+  ```sql
+  alter table public.boulder_results disable trigger climber_cache_ins, disable trigger climber_cache_upd, disable trigger climber_cache_del;
+  alter table public.lead_results disable trigger climber_cache_ins, disable trigger climber_cache_upd, disable trigger climber_cache_del;
+  delete from public.climber_cache_rounds;   -- the entries go with them
+  ```
+  Afterwards re-enable the triggers; the next refreshes rebuild every round (all are "never built").
+  ```sql
+  alter table public.boulder_results enable trigger climber_cache_ins, enable trigger climber_cache_upd, enable trigger climber_cache_del;
+  alter table public.lead_results enable trigger climber_cache_ins, enable trigger climber_cache_upd, enable trigger climber_cache_del;
+  -- the cron rebuilt rounds while the triggers were off, so corrections made meanwhile are unmarked: rebuild all
+  insert into public.climber_cache_changes (round_id) values (null);
+  ```
+
 ### IFSC international results (`tools/ifsc`, backfills)
 
 The manual tools below are now for backfills (older seasons, one-off checks); the daily sync keeps the
