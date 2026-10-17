@@ -866,8 +866,135 @@ select pg_temp.assert(climber_page('60000000-0000-0000-0000-00000000000a')::text
 select pg_temp.assert((climber_page('99999999-0000-0000-0000-000000000009') -> 'profile')::text = 'null'
   and json_array_length(climber_page('99999999-0000-0000-0000-000000000009') -> 'history') = 0,
   'climber_page: nothing for an unknown climber');
+
+-- ---------------------------------------------------------------- rankings cache (migration 033)
+-- Everything above ran on the live fallback (no cache rows yet). The refresh builds as anon.
+reset role;
+select pg_temp.assert(not exists (select 1 from season_rankings_cache) and exists (select 1 from rankings_cache_changes),
+  'before the first refresh: no cached seasons, writes left pending changes');
+-- (the refresh and the checks in separate statements: a statement sees the data as it was when it started)
+select refresh_rankings_cache() as rebuilt \gset
+select pg_temp.assert(:rebuilt > 0 and not exists (select 1 from rankings_cache_changes)
+  and exists (select 1 from season_rankings_cache where season = '2026-27'),
+  'refresh_rankings_cache builds every season and clears the pending changes');
+select pg_temp.assert(refresh_rankings_cache() = 0, 'refresh_rankings_cache: nothing pending, nothing rebuilt');
+select pg_temp.login(null);
+select season_rankings_build('2026-27')::text as anon_build \gset
+reset role;
+select pg_temp.assert((select payload::text from season_rankings_cache where season = '2026-27') = :'anon_build'
+  and json_array_length((select payload from season_rankings_cache where season = '2026-27') -> 'rounds') > 0,
+  'the cached payload is exactly what anon gets from the invoker build');
+-- season_rankings serves the stored row (a marker payload proves it), to everyone.
+update season_rankings_cache set payload = '{"marker": true}' where season = '2026-27';
+select pg_temp.login(null);
+select pg_temp.assert(season_rankings('2026-27') ->> 'marker' = 'true', 'anon: season_rankings returns the cached payload');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert(season_rankings('2026-27') ->> 'marker' = 'true', 'admin: season_rankings returns the same cached payload');
+reset role;
+update season_rankings_cache set payload = :'anon_build'::json where season = '2026-27';
+-- A draft competition in the season, with a live round and a result: staff see it, the cache never does,
+-- even when the refresh runs in a session carrying an admin's JWT claims.
+update competitions set season = '2026-27', series = 'premier_league' where id = '10000000-0000-0000-0000-000000000002';
+insert into rounds (id, category_id, kind, status) values ('3e000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002', 'qualification', 'live');
+insert into boulders (id, round_id, number) values ('4e000000-0000-0000-0000-000000000001', '3e000000-0000-0000-0000-000000000002', 1);
+insert into round_starters (round_id, climber_id) values ('3e000000-0000-0000-0000-000000000002', '60000000-0000-0000-0000-0000000000e1')
+  on conflict do nothing;
+insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt)
+  values ('4e000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-0000000000e1', '3e000000-0000-0000-0000-000000000002', 1, 1, 1);
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert(season_rankings_build('2026-27')::text ~ '10000000-0000-0000-0000-000000000002'
+  and season_rankings_build('2026-27')::text ~ '60000000-0000-0000-0000-0000000000e1',
+  'admin''s own build includes the draft competition (the fixture is visible to staff)');
+reset role;  -- postgres, still with the admin's claims
+select pg_temp.assert(current_setting('request.jwt.claim.sub') = '00000000-0000-0000-0000-00000000000a'
+  and refresh_rankings_cache() > 0, 'refresh with an admin''s claims in the session');
+select pg_temp.assert(payload::text !~ '3e000000-0000-0000-0000-000000000002'
+  and payload::text !~ '10000000-0000-0000-0000-000000000002' and payload::text !~ '20000000-0000-0000-0000-000000000002'
+  and payload::text !~ '60000000-0000-0000-0000-0000000000e1',
+  'the cache holds nothing of a draft competition (rounds, categories, its climbers'' profiles)')
+from season_rankings_cache where season = '2026-27';
+select pg_temp.assert(payload::text !~* 'birth' and payload::text !~ '2009-05-01' and payload::text !~ '1990-01-01'
+  and payload::text !~ '2010-01-01' and payload::text !~ '050-1111111' and payload::text !~ '050-2222222' and payload::text !~* 'asthma',
+  'the cache holds no birth dates or other private data') from season_rankings_cache;
+select pg_temp.login(null);
+select season_rankings_build('2026-27')::text as anon_build \gset
+reset role;
+select pg_temp.assert((select payload::text from season_rankings_cache where season = '2026-27') = :'anon_build',
+  'with a draft in the season the cache still equals anon''s build');
+-- Publishing it (a status change) reaches the cache with the next refresh.
+update competitions set status = 'published' where id = '10000000-0000-0000-0000-000000000002';
+select refresh_rankings_cache() as rebuilt \gset
+select pg_temp.assert(:rebuilt > 0 and payload::text ~ '10000000-0000-0000-0000-000000000002'
+  and payload::text ~ '60000000-0000-0000-0000-0000000000e1',
+  'a published draft appears in the cache after the refresh') from season_rankings_cache where season = '2026-27';
+update competitions set status = 'draft' where id = '10000000-0000-0000-0000-000000000002';
+delete from boulder_results where round_id = '3e000000-0000-0000-0000-000000000002';
+delete from round_starters where round_id = '3e000000-0000-0000-0000-000000000002';
+delete from rounds where id = '3e000000-0000-0000-0000-000000000002';
+update competitions set season = null, series = 'other' where id = '10000000-0000-0000-0000-000000000002';
+select refresh_rankings_cache() as rebuilt \gset
+select pg_temp.assert(:rebuilt > 0 and not exists (select 1 from rankings_cache_changes), 'refreshed after the cleanup');
+-- A result write marks its season (only) as changed; until the refresh, the old payload is served.
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+update boulder_results set attempts = attempts where round_id = '30000000-0000-0000-0000-000000000001';
+reset role;
+select pg_temp.assert((select array_agg(distinct season) from rankings_cache_changes) = '{2026-27}',
+  'a write to boulder_results marks its round''s season changed');
+update season_rankings_cache set payload = '{"marker": "stale"}' where season = '2026-27';
+select pg_temp.login(null);
+select pg_temp.assert(season_rankings('2026-27') ->> 'marker' = 'stale', 'a changed season serves the stored payload until the refresh');
+reset role;
+select refresh_rankings_cache() as rebuilt \gset
+select pg_temp.assert(:rebuilt = 1 and not exists (select 1 from rankings_cache_changes)
+  and (select payload::text from season_rankings_cache where season = '2026-27') = :'anon_build',
+  'the refresh rebuilds only the changed season');
+update round_starters set group_label = group_label where round_id = '99999999-0000-0000-0000-000000000009';
+update world_rankings set position = position where season = '2026-27';
+select pg_temp.assert((select array_agg(distinct season) from rankings_cache_changes) = '{2026-27}',
+  'an empty statement marks nothing; world_rankings marks its own season');
+update profiles set club = club where id = '60000000-0000-0000-0000-00000000000a';
+select pg_temp.assert(exists (select 1 from rankings_cache_changes where season is null), 'a profile write marks every season');
+select refresh_rankings_cache() as rebuilt \gset
+-- Statements that change no row mark nothing: anon is refused outright (no write privilege), a signed-in
+-- non-admin's writes match no row under RLS.
+select pg_temp.login(null);
+select pg_temp.denied(format('update public.%I set %I = %I', t, c, c), 'anon writes ' || t)
+from (values ('competitions', 'name'), ('categories', 'name'), ('rounds', 'kind'), ('boulders', 'number'),
+             ('profiles', 'club'), ('profile_private', 'phone'), ('boulder_results', 'attempts'),
+             ('lead_results', 'hold'), ('round_starters', 'start_order'), ('round_totals', 'tops'),
+             ('international_results', 'place'), ('ranking_adjustments', 'points'), ('world_rankings', 'position')) v(t, c);
+select pg_temp.denied(format('delete from public.%I', t), 'anon deletes from ' || t)
+from unnest(array['competitions', 'categories', 'rounds', 'boulders', 'profiles', 'profile_private', 'boulder_results',
+                  'lead_results', 'round_starters', 'round_totals', 'international_results', 'ranking_adjustments',
+                  'world_rankings']) t;
+select pg_temp.login('00000000-0000-0000-0000-000000000002');
+do $$  -- (a write the role may not make at all is refused before any trigger: also fine)
+declare t text; c text;
+begin
+  for t, c in values ('competitions', 'name'), ('categories', 'name'), ('rounds', 'kind'), ('boulders', 'number'),
+                     ('boulder_results', 'attempts'), ('lead_results', 'hold'), ('round_starters', 'start_order'),
+                     ('round_totals', 'tops'), ('international_results', 'place'), ('ranking_adjustments', 'points'),
+                     ('world_rankings', 'position') loop
+    begin execute format('update public.%I set %I = %I', t, c, c); exception when insufficient_privilege then null; end;
+    begin execute format('delete from public.%I', t); exception when insufficient_privilege then null; end;
+  end loop;
+end $$;
+update profiles set club = club where id = '60000000-0000-0000-0000-00000000000a';  -- not her profile: no row
+update profile_private set phone = phone where id = '60000000-0000-0000-0000-00000000000a';
+delete from profiles where id = '60000000-0000-0000-0000-00000000000a';
+reset role;
+select pg_temp.assert(not exists (select 1 from rankings_cache_changes),
+  'anon and non-admin writes that change no row append nothing to rankings_cache_changes');
+insert into rankings_cache_changes (season) values (null);
+select refresh_rankings_cache() as rebuilt \gset
+select pg_temp.assert(:rebuilt = (select count(*) from season_rankings_cache) and not exists (select 1 from rankings_cache_changes),
+  'every season rebuilt');
 reset role;
 update competitions set season = null, series = 'other' where id = '10000000-0000-0000-0000-000000000001';
+select refresh_rankings_cache() as rebuilt \gset
+select pg_temp.assert(:rebuilt > 0
+  and json_array_length((select payload from season_rankings_cache where season = '2026-27') -> 'rounds') = 0,
+  'a season whose competitions moved away is rebuilt empty');
 
 -- ---------------------------------------------------------------- round_page(): one call per round page
 select pg_temp.login(null);
@@ -1061,7 +1188,41 @@ from unnest(array['anon', 'authenticated']) r,
      unnest(array['public.handle_new_user()', 'public.boulder_results_stamp()',
                   'public.boulder_results_check_registration()', 'public.registrations_sync_starters()',
                   'public.lead_results_stamp()',
-                  'public.rounds_seed_starters()', 'public.profiles_ifsc_id_guard()']) f;
+                  'public.rounds_seed_starters()', 'public.profiles_ifsc_id_guard()',
+                  'public.rankings_cache_touch_rounds()', 'public.rankings_cache_touch_seasons()',
+                  'public.rankings_cache_touch_all()']) f;
+-- Rankings cache: the stored payload is anon's view; only the refresh (pg_cron, postgres) writes it.
+select pg_temp.assert(not has_table_privilege(r, t, p), r || ' cannot ' || p || ' ' || t)
+from unnest(array['anon', 'authenticated', 'service_role']) r,
+     unnest(array['public.season_rankings_cache', 'public.rankings_cache_changes']) t,
+     unnest(array['select', 'insert', 'update', 'delete', 'truncate']) p;
+select pg_temp.assert(not has_sequence_privilege(r, 'public.rankings_cache_changes_id_seq', p),
+  r || ' cannot ' || p || ' the change log sequence')
+from unnest(array['anon', 'authenticated', 'service_role']) r, unnest(array['usage', 'select', 'update']) p;
+-- anon never writes: no write privilege on any table or view in public, not even per column.
+select pg_temp.assert(not exists (
+  select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'f')
+    and (has_table_privilege('anon', c.oid, 'insert') or has_table_privilege('anon', c.oid, 'update')
+         or has_table_privilege('anon', c.oid, 'delete') or has_table_privilege('anon', c.oid, 'truncate')
+         or has_any_column_privilege('anon', c.oid, 'insert') or has_any_column_privilege('anon', c.oid, 'update'))),
+  'anon holds no write privilege on any public table');
+select pg_temp.assert(not has_function_privilege(r, 'public.refresh_rankings_cache()', 'execute'),
+  r || ' cannot execute refresh_rankings_cache') from unnest(array['anon', 'authenticated', 'service_role']) r;
+select pg_temp.login(null);
+select pg_temp.denied($$select * from season_rankings_cache$$, 'anon reads the rankings cache');
+select pg_temp.denied($$insert into season_rankings_cache (season, payload) values ('2030-31', '{}')$$, 'anon writes the rankings cache');
+select pg_temp.denied($$select refresh_rankings_cache()$$, 'anon refreshes the rankings cache');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.denied($$update season_rankings_cache set payload = '{}'$$, 'admin writes the rankings cache');
+select pg_temp.denied($$delete from rankings_cache_changes$$, 'admin clears the pending changes');
+select pg_temp.denied($$select refresh_rankings_cache()$$, 'admin refreshes the rankings cache');
+reset role;
+select pg_temp.assert(not prosecdef, f || ' runs with the caller''s rights (RLS as the caller)')
+from unnest(array['public.season_rankings(text)', 'public.season_rankings_build(text)', 'public.refresh_rankings_cache()']) f
+join pg_proc on oid = f::regprocedure;
+select pg_temp.assert(prosecdef, 'season_rankings_cached reads the closed cache table')
+from pg_proc where oid = 'public.season_rankings_cached(text)'::regprocedure;
 select pg_temp.assert(has_function_privilege('authenticated', 'public.admin_accounts()', 'execute')
   and has_function_privilege('anon', 'public.has_role(public.app_role)', 'execute'),
   'admins (authenticated) keep admin RPCs; RLS helpers stay executable');

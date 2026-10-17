@@ -17,10 +17,12 @@ view only, no sign-in; `src/apps/viewer`) and the **staff** app (sign-in; judge,
   points, previous-round rank, top attempts, zone attempts; classic: T, Z, attempts, countback in finals;
   lead: time only in finals). Totals-only rounds (older LogLig history) read `round_totals`.
 - National rankings follow criteria editions (`src/lib/criteria.ts`: ILCA 2025 for 2023-24..2025-26,
-  ILCA 2027 for 2026-27) and are computed only in `src/lib/rankings.ts` from `season_rankings`
-  (`season_ranking_rounds`, `season_age_classes`, `season_senior_too_young`, `international_results`,
+  ILCA 2027 for 2026-27) and are computed only in `src/lib/rankings.ts` from `season_rankings` (the
+  stored anon-built payload of `season_rankings_cache`, refreshed by pg_cron every minute; built by
+  `season_rankings_build` from `season_ranking_rounds`, `season_age_classes`, `season_senior_too_young`, `international_results`,
   `ranking_adjustments`, `world_rankings`; the last three admin-entered or tool-loaded). Tests: the criteria document's worked examples; validated against ILCA's published
-  2024-25 youth bouldering ranking.
+  2024-25 youth bouldering ranking. A new table the build reads needs the `rankings_cache_*` triggers
+  (migration 033); a migration changing scoring or the build must queue a full rebuild (docs/operations.md).
 - Identity: profiles exist without accounts. `profiles.user_id` links a login (only via `link_account()`);
   policies use `my_profile_id()`, never `auth.uid()` = profile id. Client code uses `useAuth().profileId`.
 - Who climbs a round = `round_starters` (first rounds follow registrations by trigger; later rounds via

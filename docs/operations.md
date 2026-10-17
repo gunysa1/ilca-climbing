@@ -135,6 +135,39 @@ One run at a time: a call while another runs gets 409 `busy`; a run still `runni
 is marked `failed` ("timed out"). The sync's list replaces the season's positions daily until 1 January
 (only climbers with an `ifsc_id`), so positions loaded by `tools/ifsc/world_ranking.py` don't last.
 
+### Rankings cache (pg_cron `rankings-cache`)
+
+The rankings page reads a stored payload per season (`season_rankings_cache`, migration 033). Every
+minute pg_cron runs `select public.refresh_rankings_cache()`, which rebuilds, as the anon role, the
+seasons whose data changed since the last run (results, start lists, competitions, profiles,
+international results, adjustments, world rankings) and any season not stored yet. Until the refresh,
+a changed season shows its previous payload (at most about a minute old).
+
+Setup (once, after `db push` applied 033): run `supabase/cron/rankings_cache.sql` in the SQL editor
+(its header checks `pg_has_role('postgres', 'anon', 'SET')` and runs the first build by hand).
+
+- Force a refresh now: `select public.refresh_rankings_cache();` (returns the number of seasons rebuilt).
+- Force a full rebuild (after a migration that changes scoring, the build or the payload, which no
+  trigger notices): `insert into public.rankings_cache_changes (season) values (null);` then the refresh.
+- Check: `select season, built_at, length(payload::text) from public.season_rankings_cache order by 1;`
+  and `select count(*) from public.rankings_cache_changes;` (pending; 0 right after a refresh);
+  failed runs: `select * from cron.job_run_details where command like '%rankings%' order by start_time desc limit 5;`
+- Rollback: `select cron.unschedule('rankings-cache'); delete from public.season_rankings_cache;`
+  (without stored rows `season_rankings` builds live, as before 033).
+- Emergency switch for event day (if the result triggers ever slow the judge pad): stop marking on
+  result writes; the public rankings then keep the last stored payload.
+  ```sql
+  alter table public.boulder_results disable trigger rankings_cache_ins, disable trigger rankings_cache_upd, disable trigger rankings_cache_del;
+  alter table public.lead_results disable trigger rankings_cache_ins, disable trigger rankings_cache_upd, disable trigger rankings_cache_del;
+  ```
+  Afterwards re-enable and rebuild everything (the writes in between were not marked):
+  ```sql
+  alter table public.boulder_results enable trigger rankings_cache_ins, enable trigger rankings_cache_upd, enable trigger rankings_cache_del;
+  alter table public.lead_results enable trigger rankings_cache_ins, enable trigger rankings_cache_upd, enable trigger rankings_cache_del;
+  insert into public.rankings_cache_changes (season) values (null);
+  select public.refresh_rankings_cache();
+  ```
+
 ### IFSC international results (`tools/ifsc`, backfills)
 
 The manual tools below are now for backfills (older seasons, one-off checks); the daily sync keeps the
