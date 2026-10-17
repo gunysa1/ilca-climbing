@@ -79,6 +79,16 @@ The API returns at most 1000 rows per request, so the rankings page does not pag
 adjustments, world rankings and profiles in one JSON), and the climber page one `climber_page(climber)`
 RPC (profile, history and the competitions' series and season).
 
+`season_rankings` returns a stored payload (`season_rankings_cache`, migration 033) instead of building
+it per request (~0.7 s live). Statement-level triggers on every table the build reads append the
+affected season (or "every season") to `rankings_cache_changes`; pg_cron runs
+`refresh_rankings_cache()` every minute (`supabase/cron/rankings_cache.sql`), which rebuilds those
+seasons with `season_rankings_build` (the former body) as the anon role, so the stored payload is
+exactly what an anonymous visitor may see, for every caller, staff included. A changed season serves
+its previous payload until the refresh (at most about a minute); a season not built yet is built live
+in the caller's context. The refresh deletes only the changes it read before building, so a write
+during a build stays pending. The ranking is still computed in the browser (`src/lib/rankings.ts`).
+
 The viewer opens on a home page (`/`, `src/pages/Home.tsx`): continue watching, rounds live now (with
 who is on the wall), the next 3 published competitions (not live yet),
 the 3 latest finished ones with each category's winners (rank 1 of its last round, ties all shown),
@@ -188,3 +198,4 @@ judge pad subscribes to `judge_claims` of its boulder. Everything else loads on 
 | 20261017000029 | page RPCs `season_rankings(season)` and `climber_page(climber)`; NULL-array fix |
 | 20261017000030 | home page RPCs `home_page(live_only)` (live rounds and who is on the wall, upcoming, latest with winners) and `favorites_page(climbers)` |
 | 20261017000031 | IFSC sync: `international_results.ifsc_event_id`/`ifsc_dcat_id`, `ifsc_pending`, `ifsc_dismissed`, `ifsc_sync_runs` (admins only), `profiles.ifsc_id` set only by admins or the service role, one profile per IFSC athlete |
+| 20261017000033 | rankings cache: `season_rankings_cache` (anon-built payload per season, closed table), `rankings_cache_changes` (pending changes from statement triggers), `season_rankings_build` (former body), `refresh_rankings_cache()` (pg_cron, `supabase/cron/rankings_cache.sql`); `season_rankings` serves the stored payload |
