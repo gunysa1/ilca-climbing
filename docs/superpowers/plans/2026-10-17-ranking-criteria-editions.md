@@ -148,3 +148,21 @@
 - [ ] **Step 2:** Load `world_ranking.sql` for 2026-27 (provisional, today's date) and the 2026 IFSC results (`to_sql.py`).
 - [ ] **Step 3:** Compare 2023-24, 2024-25 and 2025-26 tables before/after: identical. Show the user the 2026-27 senior and youth tables.
 - [ ] **Step 4:** `git push origin main`; delete the private exports in `OUT`.
+
+### Task 7: Climber page — ranked vs unranked competitions
+
+Added 2026-10-17 at the user's request: "I want there to be a difference between comps that are included in the rankings and ones that are not important when viewing a person's rankings."
+
+**Files:**
+- Modify: `src/components/History.tsx` (`useClimberHistory` / `DisciplineResults`)
+- Modify: `src/lib/i18n.tsx`, `src/styles.css`
+- Modify: `e2e/admin-flow.mjs` (the climber page step, if one exists; otherwise the rankings step's climber link) to assert the tag
+
+**Interfaces:**
+- Consumes: `competitions.series` / `competitions.season` (public columns; `series = 'other'` or `season is null` = not ranked).
+- Produces: each history event knows `ranked: boolean` (one extra request: `competitions` `id, season, series` for the events' competition ids, chunked by 150 like `Rankings.tsx`); i18n keys `rankedEvent` ({he: 'נספרת במדרג', en: 'Counts for the rankings'}), `unrankedEvent` ({he: 'לא נספרת במדרג', en: 'Not ranked'}).
+
+- [ ] **Step 1:** Ranked events show a small `rankedEvent` tag next to the title; unranked events are visually muted (class `event-unranked`, lower contrast) with the `unrankedEvent` label. Stats stay over all events. Works in both themes and at 390px.
+- [ ] **Step 2:** e2e: the seeded ranked competition shows `נספרת במדרג` on the climber page.
+- [ ] **Step 3: Run** `npm run typecheck && npm test && npm run build && npm run test:e2e` — expect all PASS.
+- [ ] **Step 4: Commit** — "Climber page: mark competitions that count for the rankings".
