@@ -11,7 +11,7 @@
 --   select cron.unschedule('ifsc-sync');
 
 create extension if not exists pg_cron;
-create extension if not exists pg_net;
+create extension if not exists pg_net with schema extensions;
 
 select cron.schedule('ifsc-sync', '0 3 * * *', $$
   select net.http_post(
