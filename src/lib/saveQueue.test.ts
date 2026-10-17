@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  ackedSince, conflict, isAuthFailure, isTransient, keyState, latestRow, outboxKey, parseOutbox, retryDelay, SaveQueue,
+  ackedSince, conflict, isAuthFailure, isTransient, keyState, landed, latestRow, outboxKey, parseOutbox, retryDelay, SaveQueue,
   type OutboxEntry, type SaveQueueOptions, type SendResult,
 } from './saveQueue';
 
@@ -21,8 +21,10 @@ const K1 = outboxKey('boulder_results', 'b1', 'c1');
 const K2 = outboxKey('boulder_results', 'b1', 'c2');
 const K3 = outboxKey('boulder_results', 'b1', 'c3');
 const row = (climber: string, attempts: number) => ({ boulder_id: 'b1', climber_id: climber, round_id: 'r1', attempts, zone_attempt: null, top_attempt: null });
-const put = (q: SaveQueue, climber: string, attempts: number, lock = false, base: string | null = null) =>
-  q.enqueue({ key: outboxKey('boulder_results', 'b1', climber), table: 'boulder_results', row: row(climber, attempts), lock, base });
+const put = (q: SaveQueue, climber: string, attempts: number, lock = false, baseRow: Record<string, unknown> | null = null) =>
+  q.enqueue({ key: outboxKey('boulder_results', 'b1', climber), table: 'boulder_results', row: row(climber, attempts), lock, baseRow });
+/** A server row as the pad or the server has it. */
+const srv = (climber: string, attempts: number, updated_at: string, locked = false) => ({ ...row(climber, attempts), locked, updated_at });
 const OK: SendResult = { ok: true };
 const ack = (climber: string, attempts: number, updated_at: string, locked = false): SendResult =>
   ({ ok: true, row: { ...row(climber, attempts), locked, updated_at } });
@@ -243,9 +245,11 @@ describe('saveQueue', () => {
       await vi.advanceTimersByTimeAsync(0);
       q.stop();
       put(q, 'c1', 2, false, null);                  // pad opened before the first save: acked is newer
+      expect(q.snapshot().pending[0].baseRow).toMatchObject({ attempts: 1, updated_at: '2026-10-28T09:00:05+00:00' });
       expect(q.snapshot().pending[0].base).toBe('2026-10-28T09:00:05+00:00');
       const r = queue({ send: async () => OK });
-      r.enqueue({ key: K1, table: 'boulder_results', row: row('c1', 1), lock: false, base: '2026-10-28T10:00:00+00:00' });
+      r.enqueue({ key: K1, table: 'boulder_results', row: row('c1', 1), lock: false, baseRow: srv('c1', 4, '2026-10-28T10:00:00+00:00') });
+      expect(r.snapshot().pending[0].baseRow?.attempts).toBe(4);
       expect(r.snapshot().pending[0].base).toBe('2026-10-28T10:00:00+00:00');
     });
 
@@ -257,7 +261,7 @@ describe('saveQueue', () => {
       put(q, 'c1', 2, false, null);
       s.calls[0].resolve(ack('c1', 1, '2026-10-28T09:00:07+00:00'));
       await vi.advanceTimersByTimeAsync(0);
-      expect(s.calls[1].entry.base).toBe('2026-10-28T09:00:07+00:00');
+      expect(s.calls[1].entry.baseRow).toMatchObject({ attempts: 1, updated_at: '2026-10-28T09:00:07+00:00' });
     });
   });
 
@@ -295,7 +299,7 @@ describe('saveQueue', () => {
       expect(q.snapshot().failed[0]).toMatchObject({ key: K1, code: 'held', error: 'Judge Dana' });
     });
 
-    it('conflict: the server row changed since the base, unless it is one of our own writes', () => {
+    it('conflict (first-round outboxes, updated_at only): the server row changed since the base, unless it is one of our own writes', () => {
       const entry = (base: string | null | undefined, inDoubt?: Record<string, unknown>[]): OutboxEntry =>
         ({ key: K1, id: 'x', table: 'boulder_results', row: row('c1', 3), lock: false, queuedAt: 0, tries: 1, base, inDoubt });
       const server = (attempts: number, updated_at: string) => ({ ...row('c1', attempts), locked: false, updated_at });
@@ -307,6 +311,72 @@ describe('saveQueue', () => {
       expect(conflict(entry(null), server(3, '2026-10-28T09:10:00+00:00'))).toBe(false);   // our row landed, the answer was lost
       expect(conflict(entry(null, [row('c1', 2)]), server(2, '2026-10-28T09:10:00+00:00'))).toBe(false); // an earlier try of ours
       expect(conflict(entry(undefined), server(5, '2026-10-28T09:10:00+00:00'))).toBe(false); // older outbox: base unknown
+    });
+
+    it('conflict: compares the data and the lock of the row the pad started from, not only updated_at', () => {
+      const entry = (baseRow: Record<string, unknown> | null, inDoubt?: Record<string, unknown>[]): OutboxEntry =>
+        ({ key: K1, id: 'x', table: 'boulder_results', row: row('c1', 3), lock: false, queuedAt: 0, tries: 1, baseRow, inDoubt });
+      const base = srv('c1', 1, '2026-10-28T09:00:00+00:00');
+      expect(conflict(entry(base), srv('c1', 1, '2026-10-28T09:05:00+00:00'))).toBe(false); // touched, same values
+      expect(conflict(entry(base), srv('c1', 5, '2026-10-28T09:00:00+00:00'))).toBe(true);  // same time, other values
+      expect(conflict(entry(base), srv('c1', 1, '2026-10-28T09:05:00+00:00', true))).toBe(true); // an admin locked it
+      expect(conflict(entry(null), null)).toBe(false);
+      expect(conflict(entry(null), srv('c1', 5, '2026-10-28T09:10:00+00:00'))).toBe(true);
+      expect(conflict(entry(base), null)).toBe(true);
+      expect(conflict(entry(base), srv('c1', 3, '2026-10-28T09:10:00+00:00'))).toBe(false);  // ours landed
+      expect(conflict(entry(base, [row('c1', 2)]), srv('c1', 2, '2026-10-28T09:10:00+00:00'))).toBe(false);
+    });
+
+    it('landed: the server already holds this row with its lock (an answer that was lost)', () => {
+      const entry = (lock: boolean, attempts = 3): OutboxEntry =>
+        ({ key: K1, id: 'x', table: 'boulder_results', row: row('c1', attempts), lock, queuedAt: 0, tries: 1, baseRow: null });
+      expect(landed(entry(true), srv('c1', 3, 't', true))).toBe(true);
+      expect(landed(entry(false), srv('c1', 3, 't'))).toBe(true);
+      expect(landed(entry(true), srv('c1', 3, 't'))).toBe(false);          // the lock didn't land
+      expect(landed(entry(false), srv('c1', 3, 't', true))).toBe(false);   // locked by someone else
+      expect(landed(entry(true, 2), srv('c1', 3, 't', true))).toBe(false);
+      expect(landed(entry(true), null)).toBe(false);
+    });
+
+    it('a lost answer that landed (e.g. a lock, now refused on resend) is taken as saved, not sent again', async () => {
+      const send = sendMock().mockResolvedValueOnce(OFFLINE);
+      const landedRow = srv('c1', 3, '2026-10-28T09:00:09+00:00', true);
+      const verify = sendMock().mockResolvedValue({ ok: true, row: landedRow, done: true });
+      const q = queue({ send, verify, now: () => 50 });
+      put(q, 'c1', 3, true);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(q.snapshot()).toMatchObject({ pending: [], failed: [] });
+      expect(q.snapshot().acked[K1]).toEqual({ row: landedRow, at: 50 });
+    });
+
+    it('after "changed" or "held" the next row for that climber is verified too, even fresh; the failure keeps the server row', async () => {
+      const send = sendMock().mockResolvedValueOnce(OFFLINE).mockResolvedValue(OK);
+      const admins = srv('c1', 5, '2026-10-28T09:10:00+00:00');
+      const verify = sendMock().mockResolvedValueOnce({ ok: false, status: 409, code: 'changed', message: 'changed', row: admins })
+        .mockResolvedValue(OK);
+      const q = queue({ send, verify });
+      put(q, 'c1', 2);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(q.snapshot().failed[0]).toMatchObject({ code: 'changed', server: admins });
+      q.dismiss();
+      put(q, 'c1', 6, false, admins);                // the pad reloaded the admin's row
+      await vi.advanceTimersByTimeAsync(0);
+      expect(verify).toHaveBeenCalledTimes(2);       // fresh, but checked
+      expect(keyState(q.snapshot(), K1)).toBe('saved');
+      put(q, 'c1', 7, false, admins);                // saved since: back to normal
+      await vi.advanceTimersByTimeAsync(0);
+      expect(verify).toHaveBeenCalledTimes(2);
+    });
+
+    it('answers may be lost on network errors, timeouts and 5xx (the row may be on the server), not on 429', async () => {
+      for (const [status, lost] of [[0, true], [503, true], [408, true], [429, false]] as const) {
+        const q = queue({ send: async () => ({ ok: false, status, message: 'x' }) });
+        put(q, 'c1', 1);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(!!q.snapshot().pending[0].inDoubt?.length, String(status)).toBe(lost);
+        q.stop();
+      }
     });
 
     it('remembers rows whose answer was lost (network) as possibly on the server', async () => {
@@ -369,12 +439,19 @@ describe('saveQueue', () => {
     expect(other.snapshot().pending).toEqual([]);
     put(other, 'c2', 1);                             // a write builds on what storage holds now
     expect(JSON.parse(storage.data.get('k')!).pending.map((e: OutboxEntry) => e.key)).toEqual([K2]);
-    other.setLeader(true);                           // the other tab closed: this one takes over
+    leader.setLeader(false);                         // its lock was taken (the other tab was shown)
+    put(leader, 'c3', 1);
     await vi.advanceTimersByTimeAsync(0);
+    expect(sent).toHaveLength(1);                    // a tab that lost the lock doesn't send
+    const sent2: OutboxEntry[] = [];
+    const third = new SaveQueue({ storageKey: 'k', storage, leader: false, send: async (e) => { sent2.push(e); return OK; } });
+    third.setLeader(true);                           // takes over: reads storage first
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sent2.map((e) => e.key)).toEqual([K2, K3]);
   });
 
   it('ignores corrupt storage, reads the first outbox format, and flags storage that cannot be written', async () => {
-    const empty = { pending: [], failed: [], acked: {} };
+    const empty = { pending: [], failed: [], acked: {}, recheck: [] };
     expect(parseOutbox('not json')).toEqual(empty);
     expect(parseOutbox(null)).toEqual(empty);
     expect(parseOutbox('{"pending":[{"key":3},{"key":"a|b|c","table":"x","row":{},"lock":false,"queuedAt":1}],"failed":"no","acked":[]}'))

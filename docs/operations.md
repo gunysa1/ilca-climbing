@@ -83,6 +83,18 @@ one-year cache for `/assets/*`; Cloudflare serves `index.html` for app routes (s
    log); appeals are opened and resolved there and show as "ערעור" on the public results.
 7. **Close** the round, generate the next start list, repeat; mark the competition finished.
 
+### Event days (judge pad offline)
+
+- **No deploys on event days** (nothing pushed to main from the day before until the event is over).
+  A deploy changes the staff app's shell: a judge's phone keeps working from its cached copy, but a
+  phone that hasn't picked up the new one can't reopen the pad without signal until it has.
+- **After the last deploy before an event, every judge opens the staff app once on good signal**
+  (Wi-Fi), signs in and opens their judge screen: that caches the app, their roles, assignments and
+  round on the phone, so the pad reopens even without signal at the venue.
+- Judges use one tab, don't clear browser data and don't sign out while "⏳ N ממתינים" shows (results
+  wait on the phone and are sent by themselves). Results a judge reports from "N תוצאות לא נשמרו"
+  (held by another judge, changed by an admin meanwhile, locked) are fixed on the round page.
+
 ## Imports
 
 ### LogLig history (`tools/loglig/import_loglig.py`)

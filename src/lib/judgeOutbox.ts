@@ -5,7 +5,7 @@
 import { isAuthRetryableFetchError } from '@supabase/supabase-js';
 import { useEffect, useSyncExternalStore } from 'react';
 import { useAuth } from './auth';
-import { conflict, outboxStorageKey, SaveQueue, type AuthRefresh, type OutboxEntry, type OutboxSnapshot, type SendResult } from './saveQueue';
+import { conflict, landed, outboxStorageKey, SaveQueue, type AuthRefresh, type OutboxEntry, type OutboxSnapshot, type SendResult } from './saveQueue';
 import { supabase } from './supabase';
 import { LEAD_COLUMNS, RESULT_COLUMNS } from './types';
 
@@ -37,7 +37,10 @@ function verifier(profileId: string) {
     const { data, error, status } = await supabase.from(entry.table).select(columns(entry))
       .eq('boulder_id', r.boulder_id).eq('climber_id', r.climber_id).abortSignal(timeout()).maybeSingle();
     if (error) return failed(error, status);
-    if (conflict(entry, data as Record<string, unknown> | null)) return { ok: false, status: 409, code: 'changed', message: 'changed on the server' };
+    const server = data as Record<string, unknown> | null;
+    // Already there (a save whose answer was lost; a lock would now be refused by RLS): saved.
+    if (server && landed(entry, server)) return { ok: true, done: true, row: server };
+    if (conflict(entry, server)) return { ok: false, status: 409, code: 'changed', message: 'changed on the server', row: server ?? undefined };
     return { ok: true };
   };
 }
@@ -67,17 +70,26 @@ export function outboxFor(profileId: string): SaveQueue {
     isCurrent: () => currentProfile === profileId, leader: !locks,
   });
   const online = () => queue.kick();
-  const visible = () => { if (document.visibilityState === 'visible') queue.kick(); };
+  const visible = () => {
+    if (document.visibilityState !== 'visible') return;
+    if (locks && !queue.leading()) void take(true);
+    queue.kick();
+  };
   const stored = (e: StorageEvent) => { if (e.key === key) queue.adopt(); };
   window.addEventListener('online', online);
   document.addEventListener('visibilitychange', visible);
   window.addEventListener('storage', stored);
-  // One tab per profile sends: the one holding the lock (held until the tab closes or the queue stops).
+  // One tab per profile sends: the one holding the lock (until the tab closes or the queue stops). The
+  // tab the judge looks at takes it over (steal); the tab that lost it queues for it again.
   const abort = new AbortController();
   let release = () => {};
-  locks?.request(key, { signal: abort.signal }, () => new Promise<void>((resolve) => { release = resolve; queue.setLeader(true); }))
-    .catch(() => { /* aborted: stopped before getting the lock */ });
+  let disposed = false;
+  const hold = () => new Promise<void>((resolve) => { release = resolve; queue.setLeader(true); });
+  const take = (steal: boolean) => locks?.request(key, steal ? { steal: true } : { signal: abort.signal }, hold)
+    .catch(() => { queue.setLeader(false); if (!disposed) void take(false); }); // stolen (or stopped)
+  void take(false);
   queues.set(profileId, { queue, dispose: () => {
+    disposed = true;
     queue.stop();
     window.removeEventListener('online', online);
     document.removeEventListener('visibilitychange', visible);
@@ -123,7 +135,7 @@ export function forgetJudgeDevice(profileId: string | null, userId: string) {
   } catch { /* storage unavailable */ }
 }
 
-const EMPTY: OutboxSnapshot = { pending: [], failed: [], acked: {}, needsSignIn: false, storageFailed: false };
+const EMPTY: OutboxSnapshot = { pending: [], failed: [], acked: {}, recheck: [], needsSignIn: false, storageFailed: false };
 const noSubscribe = () => () => {};
 const emptySnapshot = () => EMPTY;
 

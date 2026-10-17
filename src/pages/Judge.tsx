@@ -161,13 +161,15 @@ export function JudgeBoulder() {
   const [index, setIndex] = useState<number | null>(null);
   const [showList, setShowList] = useState(false);
   const [toast, setToast] = useState('');
-  // What the pad shows for a climber: the judge's unsent row, else the newer of the server's row and
-  // the last one the server returned to this judge (acked: newer than a page kept for offline use).
+  // What the pad shows for a climber: the judge's unsent row, else the newest of the server's row, the
+  // last one the server returned to this judge (acked: newer than a page kept for offline use) and the
+  // one a refused row found on the server ("changed": the admin's values).
   const rowsOf = useCallback((s: Starter) => {
-    if (!boulder) return { pending: undefined, saved: undefined };
+    if (!boulder) return { pending: undefined, saved: undefined, failed: undefined };
     const key = outboxKey(table, boulder.id, s.climber_id);
     const server = (lead ? leadResults : results).get(resultKey(boulder.id, s.climber_id)) as Row | undefined;
-    return { pending: pendingEntry(snap, key), saved: latestRow(snap.acked[key]?.row, server) };
+    const failed = snap.failed.find((f) => f.key === key);
+    return { pending: pendingEntry(snap, key), saved: latestRow(latestRow(snap.acked[key]?.row, failed?.server), server), failed };
   }, [boulder, snap, table, lead, results, leadResults]);
   // Locked on the server (or in its answer to this judge), or locked here and still waiting to be sent.
   const locked = useCallback((s: Starter) => { const r = rowsOf(s); return !!(r.pending?.lock || r.saved?.locked); }, [rowsOf]);
@@ -237,15 +239,16 @@ export function JudgeBoulder() {
         </ul>
       )}
       {current && (() => {
-        const { pending, saved } = rowsOf(current);
-        // The pad builds on `saved` (its updated_at): a row that waits is checked against it before it's sent.
-        const base = typeof saved?.updated_at === 'string' ? saved.updated_at : null;
+        const { pending, saved, failed } = rowsOf(current);
+        // The pad builds on `saved`: a row that waits is checked against it before it's sent.
         const shown = pending?.row ?? saved;
+        // A refused row (or dismissing it) reopens the pad on the server's values.
+        const padKey = `${current.climber_id}:${failed?.id ?? ''}`;
         return lead
-          ? <LeadPad key={current.climber_id} roundId={roundId!} routeId={boulder.id} starter={current} label={label(current)} base={base}
+          ? <LeadPad key={padKey} roundId={roundId!} routeId={boulder.id} starter={current} label={label(current)} baseRow={saved ?? null}
               initial={shown as unknown as LeadRow | undefined} locked={locked(current)}
               onLocked={() => afterLock(current.bib)} nextFree={nextFree(i)} onGo={go} />
-          : <ScorePad key={current.climber_id} roundId={roundId!} boulderId={boulder.id} starter={current} label={label(current)} base={base}
+          : <ScorePad key={padKey} roundId={roundId!} boulderId={boulder.id} starter={current} label={label(current)} baseRow={saved ?? null}
               initial={(shown as unknown as BoulderResult | undefined) ?? EMPTY_RESULT}
               locked={locked(current)} onLocked={() => afterLock(current.bib)} nextFree={nextFree(i)} onGo={go} />;
       })()}
@@ -363,15 +366,15 @@ function PadBlocked({ locked, holder, nav }: { locked: boolean; holder: { judge_
   );
 }
 
-function ScorePad({ roundId, boulderId, starter, label, base, initial, locked: initiallyLocked, ...nav }:
-  { roundId: string; boulderId: string; starter: Starter; label: PadLabel; base: string | null; initial: BoulderResult; locked: boolean } & PadNav) {
+function ScorePad({ roundId, boulderId, starter, label, baseRow, initial, locked: initiallyLocked, ...nav }:
+  { roundId: string; boulderId: string; starter: Starter; label: PadLabel; baseRow: Row | null; initial: BoulderResult; locked: boolean } & PadNav) {
   const { t } = useI18n();
   const { holder, mine, onWall, markWall } = useClaim(roundId, boulderId, starter.climber_id, !initiallyLocked);
   const { queue } = useOutbox();
   const key = outboxKey('boulder_results', boulderId, starter.climber_id);
   const [since, setSince] = useState(() => unsentNow(queue, key));
   // The row this pad started from (frozen: a change arriving meanwhile is a conflict, not a new base).
-  const [startBase] = useState(base);
+  const [startBase] = useState(baseRow);
   const [history, setHistory] = useState<BoulderResult[]>([]);
   const [state, setState] = useState<BoulderResult>({
     attempts: initial.attempts, zone_attempt: initial.zone_attempt, top_attempt: initial.top_attempt,
@@ -386,7 +389,7 @@ function ScorePad({ roundId, boulderId, starter, label, base, initial, locked: i
 
   // Through the outbox: kept on the phone until the server has it (no revert without signal).
   function save(next: BoulderResult, lock = false) {
-    queue?.enqueue({ key, table: 'boulder_results', lock, meta: label, base: startBase, row: { boulder_id: boulderId, climber_id: starter.climber_id,
+    queue?.enqueue({ key, table: 'boulder_results', lock, meta: label, baseRow: startBase, row: { boulder_id: boulderId, climber_id: starter.climber_id,
       round_id: roundId, attempts: next.attempts, zone_attempt: next.zone_attempt, top_attempt: next.top_attempt } });
     setSince((v) => v ?? Date.now());
   }
@@ -480,8 +483,8 @@ function ScorePad({ roundId, boulderId, starter, label, base, initial, locked: i
 }
 
 /** Lead: the judge records the final height (hold, + or TOP); saving keeps it editable, locking ends it. */
-function LeadPad({ roundId, routeId, starter, label, base, initial, locked: initiallyLocked, ...nav }:
-  { roundId: string; routeId: string; starter: Starter; label: PadLabel; base: string | null; initial: Pick<LeadRow, 'hold' | 'plus' | 'top'> | undefined; locked: boolean } & PadNav) {
+function LeadPad({ roundId, routeId, starter, label, baseRow, initial, locked: initiallyLocked, ...nav }:
+  { roundId: string; routeId: string; starter: Starter; label: PadLabel; baseRow: Row | null; initial: Pick<LeadRow, 'hold' | 'plus' | 'top'> | undefined; locked: boolean } & PadNav) {
   const { t } = useI18n();
   const { holder, mine, onWall, markWall } = useClaim(roundId, routeId, starter.climber_id, !initiallyLocked);
   const { queue } = useOutbox();
@@ -492,7 +495,7 @@ function LeadPad({ roundId, routeId, starter, label, base, initial, locked: init
   // Edited since the last save: no status until saved; saved: what the outbox says.
   const [edited, setEdited] = useState(false);
   const [since, setSince] = useState(() => unsentNow(queue, key));
-  const [startBase] = useState(base);
+  const [startBase] = useState(baseRow);
   const [ask, setAsk] = useState(false);
   const [lockedNow, setLockedNow] = useState(false);
   const locked = initiallyLocked || lockedNow;
@@ -501,7 +504,7 @@ function LeadPad({ roundId, routeId, starter, label, base, initial, locked: init
 
   // Through the outbox, like the boulder pad; locking without signal moves on as well.
   function save(lock = false) {
-    queue?.enqueue({ key, table: 'lead_results', lock, meta: label, base: startBase,
+    queue?.enqueue({ key, table: 'lead_results', lock, meta: label, baseRow: startBase,
       row: { boulder_id: routeId, climber_id: starter.climber_id, round_id: roundId, hold, plus: top ? false : plus, top } });
     setEdited(false);
     setSince((v) => v ?? Date.now());

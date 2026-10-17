@@ -8,8 +8,10 @@
 //    6 failures in a row an entry goes behind the others. 401: refresh the session once, else pause
 //    and ask to sign in again (rows kept). Any other 4xx (RLS, locked by an admin, not a starter,
 //    check violation): moved to `failed`, never retried.
-//  * A row that waited (a failed try, or queued over 30 s ago) is verified first: still this judge's
-//    climber, and the server row unchanged since the row the judge built on (`base`); else failed.
+//  * A row that waited (a failed try, queued over 30 s ago, or the first after a "changed" / "held"
+//    failure) is verified first: still this judge's climber, and the server row unchanged since the
+//    row the judge built on (`baseRow`); else failed. Already on the server (an answer that was lost):
+//    taken as saved, not sent again.
 //  * The server's answer to each save is kept (`acked`): the pad's base after a reload.
 
 export type ResultTable = 'boulder_results' | 'lead_results';
@@ -29,8 +31,13 @@ export interface OutboxEntry {
   queuedAt: number;
   /** Failed tries of this key so far. */
   tries: number;
-  /** updated_at of the server row the judge built on; null: there was none; undefined: unknown (first format). */
+  /** The server row the judge built on (data, lock, updated_at); null: there was none; undefined:
+   *  unknown (first-round outboxes, which have only `base`). */
+  baseRow?: Row | null;
+  /** updated_at of baseRow (null: none; undefined: unknown, first format). */
   base?: string | null;
+  /** Verify before sending even if it didn't wait (after a "changed" / "held" failure for this key). */
+  verify?: boolean;
   /** Rows sent for this key whose answer was lost (network): they may be on the server. */
   inDoubt?: Row[];
   /** For the failed-results notice: who and where. */
@@ -38,10 +45,17 @@ export interface OutboxEntry {
 }
 /** `held`: another judge holds the climber (error: their name); `changed`: changed on the server meanwhile. */
 export type FailCode = 'held' | 'changed';
-export interface FailedEntry extends OutboxEntry { error: string; code?: FailCode }
+/** `server`: the server's row when it was refused for having changed (the pad shows it). */
+export interface FailedEntry extends OutboxEntry { error: string; code?: FailCode; server?: Row }
 /** The server's row as returned by a save, and when it came (ms). */
 export interface Acked { row: Row; at: number }
-interface Stored { pending: OutboxEntry[]; failed: FailedEntry[]; acked: Record<string, Acked> }
+interface Stored {
+  pending: OutboxEntry[];
+  failed: FailedEntry[];
+  acked: Record<string, Acked>;
+  /** Keys whose next row is verified however fresh (a "changed" / "held" failure, until a save). */
+  recheck: string[];
+}
 export interface OutboxSnapshot extends Stored {
   /** Paused: the session is gone; the judge must sign in again (rows kept). */
   needsSignIn: boolean;
@@ -49,8 +63,9 @@ export interface OutboxSnapshot extends Stored {
   storageFailed: boolean;
 }
 export type KeyState = 'saved' | 'pending' | 'failed';
-/** `status` is the HTTP status; 0 for a network failure or timeout. `row`: the server's row. */
-export type SendResult = { ok: true; row?: Row } | { ok: false; status: number; message: string; code?: string };
+/** `status` is the HTTP status; 0 for a network failure or timeout. `row`: the server's row.
+ *  From verify: `done` (the row is already on the server: saved, don't send). */
+export type SendResult = { ok: true; row?: Row; done?: boolean } | { ok: false; status: number; message: string; code?: string; row?: Row };
 export type AuthRefresh = 'ok' | 'signed-out' | 'offline';
 type StorageLike = { getItem(key: string): string | null; setItem(key: string, value: string): void };
 
@@ -89,15 +104,28 @@ export function latestRow<T extends { updated_at?: unknown }>(acked: T | undefin
 }
 
 const IDS = new Set(['boulder_id', 'climber_id', 'round_id']);
+/** The result's own columns (attempts … / hold …), compared on `row`'s keys. */
 const sameData = (row: Row, server: Row) => Object.keys(row).every((k) => IDS.has(k) || (row[k] ?? null) === (server[k] ?? null));
+const sameLock = (a: Row, b: Row) => !!a.locked === !!b.locked;
+
+/** The server already holds this row, with its lock: a save whose answer was lost landed. */
+export const landed = (entry: OutboxEntry, server: Row | null) => !!server && sameData(entry.row, server) && !!server.locked === entry.lock;
 
 /** A waited row would overwrite someone else's change: the server row is not the one the judge built
- *  on, nor one of the judge's own writes (whose answer may have been lost). */
+ *  on (data and lock), nor one of the judge's own writes (whose answer may have been lost). */
 export function conflict(entry: OutboxEntry, server: Row | null): boolean {
+  const ours = (s: Row) => [entry.row, ...(entry.inDoubt ?? [])].some((r) => sameData(r, s));
+  if (entry.baseRow !== undefined) {
+    if (!server) return entry.baseRow !== null;
+    const base = entry.baseRow;
+    if (base && Object.keys(entry.row).every((k) => IDS.has(k) || (base[k] ?? null) === (server[k] ?? null)) && sameLock(base, server)) return false;
+    return server.locked && !base?.locked ? true : !ours(server); // locked meanwhile (ours would have landed)
+  }
+  // First-round outboxes: only the base's updated_at.
   if (entry.base === undefined) return false;
   if (!server) return entry.base !== null;
   if (entry.base !== null && time(server.updated_at) === time(entry.base)) return false;
-  return ![entry.row, ...(entry.inDoubt ?? [])].some((r) => sameData(r, server));
+  return !ours(server);
 }
 
 const TABLES: readonly string[] = ['boulder_results', 'lead_results'];
@@ -112,7 +140,7 @@ const upgrade = <T extends OutboxEntry>(e: T): T => ({ ...e, id: typeof e.id ===
 export function parseOutbox(raw: string | null): Stored {
   try {
     const v: unknown = JSON.parse(raw ?? 'null');
-    if (!isObject(v)) return { pending: [], failed: [], acked: {} };
+    if (!isObject(v)) return { pending: [], failed: [], acked: {}, recheck: [] };
     const list = (x: unknown) => (Array.isArray(x) ? x : []);
     const acked = isObject(v.acked)
       ? Object.fromEntries(Object.entries(v.acked).filter(([, a]) => isObject(a) && isObject(a.row) && typeof a.at === 'number')) as Record<string, Acked>
@@ -121,9 +149,10 @@ export function parseOutbox(raw: string | null): Stored {
       pending: list(v.pending).filter(isEntry).map(upgrade),
       failed: list(v.failed).filter((e): e is FailedEntry => isEntry(e) && typeof (e as FailedEntry).error === 'string').map(upgrade),
       acked,
+      recheck: list(v.recheck).filter((k): k is string => typeof k === 'string'),
     };
   } catch {
-    return { pending: [], failed: [], acked: {} };
+    return { pending: [], failed: [], acked: {}, recheck: [] };
   }
 }
 
@@ -174,18 +203,20 @@ export class SaveQueue {
   }
 
   /** Queue a row (replacing an unsent one for the same key, in its place) and start sending.
-   *  `base`: updated_at of the row the pad shows (null: none); the newer acked row wins. */
-  enqueue(entry: Pick<OutboxEntry, 'key' | 'table' | 'row' | 'lock' | 'meta' | 'base'>) {
+   *  `baseRow`: the server row the pad started from (null: none); the newer acked row wins. */
+  enqueue({ baseRow: given, ...entry }: Pick<OutboxEntry, 'key' | 'table' | 'row' | 'lock' | 'meta' | 'baseRow'>) {
     this.mutate((s) => {
       const pending = [...s.pending];
       const at = pending.findIndex((e) => e.key === entry.key);
       if (at >= 0) {
         const old = pending[at];
-        pending[at] = { ...old, ...entry, id: newId(), lock: old.lock || entry.lock, base: old.base };
+        pending[at] = { ...old, ...entry, id: newId(), lock: old.lock || entry.lock };
       } else {
-        const acked = s.acked[entry.key]?.row.updated_at;
-        const base = typeof acked === 'string' && (entry.base == null || time(acked) > time(entry.base)) ? acked : entry.base;
-        pending.push({ ...entry, base, id: newId(), queuedAt: this.now(), tries: 0 });
+        const acked = s.acked[entry.key]?.row;
+        const baseRow = acked && (!given || time(acked.updated_at) > time(given.updated_at)) ? acked : given ?? null;
+        const base = typeof baseRow?.updated_at === 'string' ? baseRow.updated_at : null;
+        pending.push({ ...entry, baseRow, base, id: newId(), queuedAt: this.now(), tries: 0,
+          ...(s.recheck.includes(entry.key) ? { verify: true } : {}) });
       }
       // A new row for a failed key is a new try.
       return { ...s, pending, failed: s.failed.filter((e) => e.key !== entry.key) };
@@ -204,10 +235,13 @@ export class SaveQueue {
     this.kick();
   }
 
+  /** This tab is the one that sends. */
+  leading() { return this.leader; }
+
   /** This tab became (or stopped being) the one that sends. */
   setLeader(leader: boolean) {
     this.leader = leader;
-    if (leader) this.kick();
+    if (leader) this.adopt(); // what the previous leader left in storage
   }
 
   /** Another tab wrote the outbox (`storage` event): take it over and send what's new. */
@@ -233,24 +267,24 @@ export class SaveQueue {
   /** What storage holds (another tab may have written it); memory when storage can't be trusted. */
   private read(): Stored {
     const { storage, storageKey } = this.opts;
-    if (!storage || this.snap?.storageFailed) return this.snap ?? { pending: [], failed: [], acked: {} };
+    if (!storage || this.snap?.storageFailed) return this.snap ?? { pending: [], failed: [], acked: {}, recheck: [] };
     try {
       const raw = storage.getItem(storageKey);
       return raw === null && this.snap ? this.snap : parseOutbox(raw);
     } catch {
-      return this.snap ?? { pending: [], failed: [], acked: {} };
+      return this.snap ?? { pending: [], failed: [], acked: {}, recheck: [] };
     }
   }
 
   private mutate(fn: (s: OutboxSnapshot) => OutboxSnapshot) {
     const r = this.read();
-    this.set(fn({ ...this.snap, pending: r.pending, failed: r.failed, acked: r.acked }));
+    this.set(fn({ ...this.snap, pending: r.pending, failed: r.failed, acked: r.acked, recheck: r.recheck }));
   }
 
   private set(next: OutboxSnapshot, write = true) {
     if (write && this.opts.storage && !next.storageFailed) {
-      const { pending, failed, acked } = next;
-      try { this.opts.storage.setItem(this.opts.storageKey, JSON.stringify({ pending, failed, acked })); }
+      const { pending, failed, acked, recheck } = next;
+      try { this.opts.storage.setItem(this.opts.storageKey, JSON.stringify({ pending, failed, acked, recheck })); }
       catch { next = { ...next, storageFailed: true }; } // full or blocked: memory only
     }
     this.snap = next;
@@ -272,10 +306,10 @@ export class SaveQueue {
         const entry = this.snap.pending[0];
         if (!entry) break;
         if (this.opts.isCurrent && !this.opts.isCurrent()) break; // another account: kept for its owner
-        const waited = entry.tries > 0 || this.now() - entry.queuedAt > WAITED_MS;
+        const waited = entry.tries > 0 || !!entry.verify || this.now() - entry.queuedAt > WAITED_MS;
         let result: SendResult = waited && this.opts.verify ? await this.call(this.opts.verify, entry) : { ok: true };
         let sent = false; // the row went out (its answer may be lost)
-        if (result.ok) { sent = true; result = await this.call(this.opts.send, entry); }
+        if (result.ok && !result.done) { sent = true; result = await this.call(this.opts.send, entry); }
         if (isAuthFailure(result)) {
           const auth = refreshed || !this.opts.refreshAuth ? 'signed-out' : await this.opts.refreshAuth();
           refreshed = true;
@@ -294,13 +328,15 @@ export class SaveQueue {
             const acked = ackRow ? keepLatest({ ...s.acked, [entry.key]: { row: ackRow, at: this.now() } }) : s.acked;
             const ua = ackRow?.updated_at;
             const pending = replaced
-              ? s.pending.map((e) => (e.key === entry.key && typeof ua === 'string' ? { ...e, base: ua, inDoubt: undefined } : e))
+              ? s.pending.map((e) => (e.key === entry.key && ackRow && typeof ua === 'string'
+                ? { ...e, baseRow: ackRow, base: ua, inDoubt: undefined } : e))
               : s.pending.filter((e) => e.id !== entry.id);
-            return { ...s, pending, acked };
+            return { ...s, pending, acked, recheck: s.recheck.filter((k) => k !== entry.key) };
           });
         } else if (isTransient(result.status)) {
           this.failures++;
-          const lost = sent && result.status === 0 && result.message !== 'offline'; // the row may have landed
+          // No answer, a timeout or a server error after the row went out: it may have landed.
+          const lost = sent && result.message !== 'offline' && (result.status === 0 || result.status === 408 || result.status >= 500);
           this.mutate((s) => {
             let pending = s.pending.map((e) => (e.key !== entry.key ? e : {
               ...e, tries: e.tries + 1, inDoubt: lost ? [...(e.inDoubt ?? []), entry.row].slice(-IN_DOUBT_KEEP) : e.inDoubt,
@@ -314,10 +350,13 @@ export class SaveQueue {
           break;
         } else if (!replaced) {
           const code = result.code === 'held' || result.code === 'changed' ? result.code : undefined;
+          const server = code === 'changed' ? result.row : undefined;
           this.mutate((s) => ({
             ...s,
             pending: s.pending.filter((e) => e.id !== entry.id),
-            failed: [...s.failed.filter((e) => e.key !== entry.key), { ...entry, error: result.message, ...(code ? { code } : {}) }],
+            failed: [...s.failed.filter((e) => e.key !== entry.key),
+              { ...entry, error: result.message, ...(code ? { code } : {}), ...(server ? { server } : {}) }],
+            recheck: code && !s.recheck.includes(entry.key) ? [...s.recheck, entry.key] : s.recheck,
           }));
         }
       }

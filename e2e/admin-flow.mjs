@@ -25,8 +25,8 @@ async function page(lang, viewport = { width: 1280, height: 900 }, as = session)
   }, [as, lang]);
   const p = await ctx.newPage();
   p.on('dialog', (d) => d.accept());
-  // 502: the stubbed invite email failure (invite step); no network: the judge pad offline step
-  p.on('console', (m) => { if (m.type() === 'error' && !/realtime|websocket|status of 502|ERR_INTERNET_DISCONNECTED|Failed to fetch/i.test(m.text())) problems.push(`console: ${m.text()}`); });
+  // 502: the stubbed invite email failure (invite step); no network / a cut answer: the judge pad offline steps
+  p.on('console', (m) => { if (m.type() === 'error' && !/realtime|websocket|status of 502|ERR_INTERNET_DISCONNECTED|ERR_FAILED|Failed to fetch/i.test(m.text())) problems.push(`console: ${m.text()}`); });
   p.on('response', (r) => { if (r.url().includes('/rest/v1') && r.status() >= 400) problems.push(`${r.status()} ${r.request().method()} ${r.url()}`); });
   return p;
 }
@@ -288,6 +288,44 @@ step('judge pad offline: taps wait on the phone, survive a reload, are sent once
   await failure.getByRole('button', { name: 'Dismiss' }).click();
   await failure.waitFor({ state: 'detached' });
   if ((await jp.locator('.pad-status').innerText()).trim()) problems.push(`after dismissing a failure the pad says "${await jp.locator('.pad-status').innerText()}"`);
+
+  step('judge pad: an unlocked admin edit while the judge was offline: not overwritten, the pad shows the admin\'s values');
+  await jp.getByRole('button', { name: 'Next climber', exact: true }).click();
+  await jp.getByText(/3 \/ 3/).waitFor();
+  await jp.getByRole('button', { name: /On the wall/ }).waitFor();
+  const third = (await jp.locator('.pad-head h2').innerText()).trim();
+  const thirdId = starters.find((s) => s.profile.full_name === third)?.climber_id;
+  await jp.getByRole('button', { name: 'Add attempt' }).click();     // online: saved at once
+  await jp.locator('.pad-status').getByText('Saved').waitFor();
+  await jp.context().setOffline(true);
+  await jp.getByRole('button', { name: 'Add attempt' }).click();
+  await jp.locator('.pad-status').getByText('Waiting to send').waitFor();
+  const edited = await rest(`boulder_results?boulder_id=eq.${boulder3}&climber_id=eq.${thirdId}`, { method: 'PATCH', body: JSON.stringify({ attempts: 5 }) });
+  if (edited !== null) throw new Error(`admin edit failed: ${JSON.stringify(edited)}`);
+  await jp.context().setOffline(false);
+  const changed = jp.locator('.outbox-failed', { hasText: "1 results weren't saved" });
+  await changed.getByText(third).waitFor({ timeout: 10000 });
+  await changed.getByText('changed on the server meanwhile').waitFor();
+  await jp.waitForFunction(() => document.querySelector('.stepper-value')?.textContent?.trim() === '5'); // the admin's values
+  const adminKept = await rest(`boulder_results?boulder_id=eq.${boulder3}&climber_id=eq.${thirdId}&select=attempts,locked`);
+  if (JSON.stringify(adminKept) !== '[{"attempts":5,"locked":false}]') problems.push(`the admin's unlocked edit was overwritten: ${JSON.stringify(adminKept)}`);
+  await changed.getByRole('button', { name: 'Dismiss' }).click();
+  await changed.waitFor({ state: 'detached' });
+
+  step('judge pad: a lock whose answer was lost (the server has it) is taken as saved, not reported as a failure');
+  let cut = true;                                                    // the request reaches the server, its answer doesn't
+  await jp.route('**/rest/v1/boulder_results*', async (route) => {
+    if (cut && route.request().method() === 'POST') { cut = false; await route.fetch(); return route.abort('failed'); }
+    return route.continue();
+  });
+  await jp.getByRole('button', { name: /Next · lock/ }).click();
+  await jp.getByRole('dialog').getByRole('button', { name: 'Yes, lock' }).click();
+  await jp.locator('.outbox-badge').waitFor({ state: 'detached', timeout: 15000 });
+  if (cut) problems.push('the lock request was never cut');
+  if (await jp.locator('.outbox-failed').count()) problems.push(`a lock whose answer was lost was reported: ${await jp.locator('.outbox-failed').innerText()}`);
+  const lockedThird = await rest(`boulder_results?boulder_id=eq.${boulder3}&climber_id=eq.${thirdId}&select=attempts,locked`);
+  if (JSON.stringify(lockedThird) !== '[{"attempts":5,"locked":true}]') problems.push(`lost-answer lock: the server has ${JSON.stringify(lockedThird)}`);
+  await jp.unroute('**/rest/v1/boulder_results*');
   await jp.getByRole('link', { name: /Boulders/ }).click();
   await jp.getByRole('link', { name: 'Boulder 2' }).waitFor();
 }

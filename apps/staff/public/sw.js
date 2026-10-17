@@ -1,9 +1,12 @@
 // Minimal offline shell: cache the app shell, always go to network for API calls. The judge pad
 // must reopen without signal (results wait in its outbox), so the shell's own scripts and styles
 // are cached at install too. Pages: network first, the cached shell after 3.5 s or without signal
-// (each page loaded online refreshes it and drops assets it no longer uses). Built assets (hashed
-// names): cache first. Anything else (manifest, icon): network first, cache as fallback.
-const CACHE = 'ilca-staff-shell-v3';
+// (a page loaded online replaces the cached shell only once all its assets are cached, then drops
+// the old ones). Built assets (hashed names): cache first. Anything else (manifest, icon): network
+// first, cache as fallback. The cache is named after the build (`?v=` from src/apps/staff/main.tsx):
+// every deploy installs a new worker that caches the new shell completely before it takes over; if
+// that fails, the old worker and its cache stay.
+const CACHE = `ilca-staff-shell-${new URL(self.location.href).searchParams.get('v') || 'v3'}`;
 const NAV_TIMEOUT_MS = 3500;
 const assetsOf = (html) => [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]);
 
@@ -40,8 +43,12 @@ function navigate(request) {
       const c = await caches.open(CACHE);
       const html = await res.clone().text();
       const old = await c.match('/');
-      await c.put('/', res.clone());
-      if (!old || (await old.text()) !== html) await prune(c, html);
+      if (!old || (await old.text()) !== html) {
+        // A newer shell: cache its assets first; if that fails, keep the old shell and its assets.
+        try { await c.addAll(assetsOf(html)); } catch { return res; }
+        await c.put('/', res.clone());
+        await prune(c, html);
+      }
     }
     return res;
   });

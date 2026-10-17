@@ -7,5 +7,8 @@ import '../../styles.css';
 createRoot(document.getElementById('root')!).render(<StrictMode><StaffApp /></StrictMode>);
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
+  // `v`: this build (the main bundle's hashed file name). A new deploy registers a new worker URL, so
+  // the browser installs a worker that caches the new shell completely before it takes over.
+  const build = new URL(import.meta.url).pathname.split('/').pop() ?? '';
+  window.addEventListener('load', () => { navigator.serviceWorker.register(`/sw.js?v=${encodeURIComponent(build)}`).catch(() => {}); });
 }
