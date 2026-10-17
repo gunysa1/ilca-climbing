@@ -17,8 +17,14 @@ insert into user_roles values
   ('00000000-0000-0000-0000-0000000000a1', 'admin'),
   ('00000000-0000-0000-0000-0000000000a2', 'judge');
 
--- IFSC sync admin screen: one run and one athlete waiting for confirmation.
-insert into ifsc_sync_runs (started_at, finished_at, status, added, linked, pending, world)
-  values (now(), now(), 'ok', 3, 1, 1, 80);
-insert into ifsc_pending (ifsc_athlete_id, firstname, lastname, gender, birthday, suggested_profile, score, results)
-  values (9001, 'Dana', 'Suggestion', 'female', '2008-05-05', '00000000-0000-0000-0000-0000000000a4', 0.8, '[{}, {}]');
+-- IFSC sync admin screen: one run with a skipped category; athletes waiting for confirmation (a confident and a
+-- weak suggestion) and one ignored.
+insert into ifsc_sync_runs (started_at, finished_at, status, added, updated, linked, pending, world, warnings)
+  values (now(), now(), 'ok', 3, 1, 1, 1, 80, '["IFSC /api/v1/events/1/result/3: HTTP 404"]');
+insert into ifsc_pending (ifsc_athlete_id, firstname, lastname, gender, birthday, suggested_profile, score, status, results) values
+  (9001, 'Dana', 'Suggestion', 'female', '2008-05-05', '00000000-0000-0000-0000-0000000000a4', 0.8, 'pending',
+   '[{"event_name": "IFSC World Cup Prague 2026 (BOULDER Women)"}, {"event_name": "IFSC World Cup Bern 2026 (BOULDER Women)"}]'),
+  (9002, 'Weak', 'Guess', 'male', '2009-02-02', '00000000-0000-0000-0000-0000000000a4', 0.15, 'pending', '[{}]'),
+  (9003, 'Gone', 'Away', 'male', null, null, null, 'ignored', '[{}]');
+-- A profile already linked to IFSC athlete 7001 (People admin: "already linked" message).
+update profiles set ifsc_id = '7001' where full_name = 'Judge Yossi';

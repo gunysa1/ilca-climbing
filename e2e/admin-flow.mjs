@@ -516,17 +516,77 @@ await intlForm.getByLabel('Last round').selectOption('final');
 await intlForm.getByRole('button', { name: 'Add' }).click();
 await p.locator('tr', { hasText: 'WC Bern' }).waitFor(); // 2026-27 uses the ILCA 2027 edition: per-event senior points are 0
 await p.getByText('are added automatically').waitFor(); // IFSC events need no manual entry
-step('rankings admin: IFSC sync run and athlete to confirm; ignore hides the athlete');
+step('rankings admin: IFSC runs with warnings; Confirm only for a confident match, asked twice; ignore and restore');
 {
   const ifsc = p.locator('.ifsc-sync');
   await ifsc.getByRole('button', { name: 'Run now' }).waitFor();
-  await ifsc.locator('li', { hasText: '3 added · 1 linked · 1 to confirm · 80 world ranking' }).waitFor();
+  await ifsc.locator('li', { hasText: '3 added · 1 corrected · 1 linked · 1 to confirm · 80 world ranking · 1 skipped' }).waitFor();
+  await ifsc.getByText('IFSC /api/v1/events/1/result/3: HTTP 404').waitFor();
   const row = ifsc.locator('li', { hasText: 'Dana Suggestion' });
   await row.getByText('Dana Suggested').waitFor();
-  await row.getByRole('button', { name: 'Confirm' }).waitFor();
+  await row.getByText(/^woman · 2008-05-05 · 2 results/).waitFor();
+  await row.getByText('IFSC World Cup Bern 2026 (BOULDER Women)').waitFor();
+  const weak = ifsc.locator('li', { hasText: 'Weak Guess' });
+  await weak.getByText('Weak match').waitFor();
+  await weak.locator('button.primary', { hasText: 'Pick another climber' }).waitFor();
+  if (await weak.getByRole('button', { name: 'Confirm' }).count()) problems.push('a weak IFSC suggestion offers Confirm');
   await p.screenshot({ path: `${out}/admin-ifsc-sync-en.png`, fullPage: true });
+  // Confirm asks first, naming both people; cancelling links nothing.
+  await row.getByRole('button', { name: 'Confirm' }).click();
+  const sheet = p.getByRole('dialog', { name: 'Link an IFSC athlete' });
+  await sheet.getByText('Link Dana Suggestion (IFSC) to Dana Suggested?').waitFor();
+  await p.screenshot({ path: `${out}/admin-ifsc-confirm-en.png` });
+  await sheet.getByRole('button', { name: 'Cancel' }).click();
+  await sheet.waitFor({ state: 'detached' });
+  // The weak one: pick a climber, then confirm in the sheet (links the profile; the import call is stubbed here).
+  await weak.getByRole('button', { name: 'Pick another climber' }).click();
+  await weak.getByPlaceholder(/Search/).fill('Dana');
+  await weak.locator('.picker-hits').getByRole('button', { name: 'Link' }).first().click();
+  await sheet.getByText('Link Weak Guess (IFSC) to Dana Suggested?').waitFor();
+  await sheet.getByRole('button', { name: 'Link' }).click();
+  await sheet.waitFor({ state: 'detached' });
+  await ifsc.getByText('0 added · 0 corrected').waitFor(); // the stubbed function's (empty) answer
   await row.getByRole('button', { name: 'Not on the team' }).click();
-  await row.waitFor({ state: 'detached' });
+  await row.waitFor({ state: 'hidden' }); // now only in the closed "not on the team" list
+  await ifsc.locator('summary', { hasText: 'Marked "not on the team" (2)' }).click();
+  await ifsc.locator('details li', { hasText: 'Gone Away' }).getByRole('button', { name: 'Restore' }).click();
+  await ifsc.locator('li:not(details li)', { hasText: 'Gone Away' }).getByRole('button', { name: 'Not on the team' }).waitFor();
+}
+
+step('people admin: IFSC link shown, unlink asked first, edit loads the athlete, replacing asks first, a taken number is explained');
+{
+  await p.goto(`${base}/admin/people`);
+  const climbers = p.locator('.panel', { hasText: 'Climbers' });
+  await climbers.getByPlaceholder('Search').fill('Dana Suggested');
+  const dana = climbers.locator('tr', { hasText: 'Dana Suggested' });
+  const link = dana.getByRole('link', { name: '9002' });
+  await link.waitFor();
+  if (await link.getAttribute('href') !== 'https://ifsc.results.info/athlete/9002') problems.push(`IFSC link: ${await link.getAttribute('href')}`);
+  await dana.getByRole('button', { name: 'Unlink' }).last().click();
+  const sheet = p.getByRole('dialog', { name: 'Unlink from IFSC' });
+  await sheet.getByText('Results already imported stay').waitFor();
+  await p.screenshot({ path: `${out}/admin-people-ifsc-unlink-en.png` });
+  await sheet.getByRole('button', { name: 'Unlink' }).click();
+  await link.waitFor({ state: 'detached' });
+  await dana.getByRole('button', { name: 'Edit' }).click();
+  await dana.getByLabel('IFSC athlete number').fill('9005');
+  await dana.getByRole('button', { name: 'Save' }).click();
+  await dana.getByRole('link', { name: '9005' }).waitFor();
+  await p.getByText('IFSC: 0 added · 0 corrected').waitFor(); // the { athlete } import ran (stubbed function)
+  // Replacing an existing number asks first; a number linked to someone else is refused with a clear message.
+  await dana.getByRole('button', { name: 'Edit' }).click();
+  await dana.getByLabel('IFSC athlete number').fill('7001');
+  await dana.getByRole('button', { name: 'Save' }).click();
+  const replace = p.getByRole('dialog', { name: 'Replace the IFSC number' });
+  await replace.getByText('Replace IFSC 9005 with 7001 for Dana Suggested?').waitFor();
+  await replace.getByRole('button', { name: 'Replace' }).click();
+  await p.getByText('This IFSC number is already linked to another climber').waitFor();
+  await dana.getByRole('link', { name: '9005' }).waitFor();
+  // the refused update is expected: take its 409 (response and console line) off the problem list
+  for (const re of [/^409 PATCH .*\/rest\/v1\/profiles/, /^console: .*409/]) {
+    const i = problems.findIndex((x) => re.test(x));
+    if (i < 0) { if (re.source.startsWith('^409')) problems.push('no 409 for the taken IFSC number'); } else problems.splice(i, 1);
+  }
 }
 
 await p.goto(`${view}/rankings?season=2026-27&c=senior&g=female&d=boulder`);

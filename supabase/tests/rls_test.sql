@@ -58,6 +58,13 @@ begin
   raise notice 'ok - %', msg;
 end $$;
 
+-- The ranking season of today in Israel (September to August), e.g. '2026-27'.
+create function pg_temp.cur_season() returns text language sql as $$
+  select y || '-' || lpad(((y + 1) % 100)::text, 2, '0')
+  from (select extract(year from d)::int - case when extract(month from d) < 9 then 1 else 0 end y
+        from (select (now() at time zone 'Asia/Jerusalem')::date d) a) b
+$$;
+
 -- Expect a statement to be rejected (RLS / privilege / check).
 create function pg_temp.denied(stmt text, msg text) returns void language plpgsql as $$
 declare n int;
@@ -772,14 +779,41 @@ select pg_temp.denied($$select * from ifsc_sync_runs$$, 'non-admin reads IFSC sy
 select pg_temp.denied($$insert into ifsc_pending (ifsc_athlete_id, firstname, lastname) values (1, 'A', 'B')$$, 'non-admin adds pending IFSC athletes');
 select pg_temp.denied($$insert into ifsc_sync_runs (status) values ('ok')$$, 'non-admin adds IFSC sync runs');
 select pg_temp.login('00000000-0000-0000-0000-00000000000a');
-insert into ifsc_pending (ifsc_athlete_id, firstname, lastname, suggested_profile, score, results)
-  values (4242, 'Test', 'Climber', '60000000-0000-0000-0000-00000000000a', 0.62, '[{"season":"2026-27"}]');
-insert into ifsc_sync_runs (status, added) values ('ok', 3);
+insert into ifsc_pending (ifsc_athlete_id, firstname, lastname, birthday, suggested_profile, score, results)
+  values (4242, 'Test', 'Climber', '2008-01-01', '60000000-0000-0000-0000-00000000000a', 0.62, '[{"season":"2026-27"}]');
+insert into ifsc_sync_runs (status, added, updated, warnings) values ('ok', 3, 2, '["IFSC /api/v1/events/1/result/3: HTTP 404"]');
+select pg_temp.assert((select updated = 2 and warnings ->> 0 like '%HTTP 404' from ifsc_sync_runs),
+  'admin reads corrected rows and warnings of IFSC sync runs');
+-- Hard lock: one running run at most.
+insert into ifsc_sync_runs (status) values ('running');
+select pg_temp.denied($$insert into ifsc_sync_runs (status) values ('running')$$, 'two IFSC sync runs running at once');
+update ifsc_sync_runs set status = 'failed' where status = 'running';
+insert into ifsc_sync_runs (status) values ('running');
+delete from ifsc_sync_runs where status <> 'ok';
 insert into ifsc_dismissed (climber_id, ifsc_event_id, ifsc_dcat_id) values ('60000000-0000-0000-0000-00000000000a', 1500, 3);
 select pg_temp.assert((select count(*) from ifsc_dismissed where ifsc_event_id = 1500 and ifsc_dcat_id = 3) = 1,
   'admin dismisses IFSC results and reads them');
+select pg_temp.assert((select birthday from ifsc_pending where ifsc_athlete_id = 4242) = '2008-01-01', 'pending athletes keep their birthday');
 update ifsc_pending set status = 'ignored' where ifsc_athlete_id = 4242;
+select pg_temp.assert((select birthday from ifsc_pending where ifsc_athlete_id = 4242) is null, 'ignoring an IFSC athlete clears the birthday');
+update ifsc_pending set birthday = '2008-01-01' where ifsc_athlete_id = 4242;
+select pg_temp.assert((select birthday from ifsc_pending where ifsc_athlete_id = 4242) is null, 'an ignored IFSC athlete keeps no birthday');
+-- A new IFSC link drops the climber's world positions of the current season (they were someone else's); other
+-- seasons stay. cur_season: the season of today in Israel (September to August).
+insert into world_rankings (climber_id, season, discipline, position, as_of)
+  values ('60000000-0000-0000-0000-00000000000a', '2020-21', 'boulder', 3, '2020-10-01'),
+         ('60000000-0000-0000-0000-00000000000a', pg_temp.cur_season(), 'boulder', 4, current_date)
+  on conflict do nothing;
+select pg_temp.denied($$update profiles set ifsc_id = 'abc' where id = '60000000-0000-0000-0000-00000000000a'$$, 'an IFSC id that is not a number');
+select pg_temp.denied($$update profiles set ifsc_id = '0123' where id = '60000000-0000-0000-0000-00000000000a'$$, 'an IFSC id with a leading zero');
 update profiles set ifsc_id = '4242' where id = '60000000-0000-0000-0000-00000000000a';
+select pg_temp.assert((select count(*) from world_rankings where climber_id = '60000000-0000-0000-0000-00000000000a'
+    and season = pg_temp.cur_season()) = 0
+  and (select count(*) from world_rankings where climber_id = '60000000-0000-0000-0000-00000000000a' and season = '2020-21') = 1,
+  'changing profiles.ifsc_id drops the climber''s current-season world positions only');
+delete from world_rankings where season = '2020-21';
+insert into world_rankings (climber_id, season, discipline, position, as_of)
+  values ('60000000-0000-0000-0000-00000000000a', '2026-27', 'lead', 9, '2026-10-01') on conflict do nothing;
 select pg_temp.assert((select status from ifsc_pending where ifsc_athlete_id = 4242) = 'ignored'
   and (select added from ifsc_sync_runs) = 3
   and (select ifsc_id from profiles where id = '60000000-0000-0000-0000-00000000000a') = '4242',
@@ -796,6 +830,22 @@ update profiles set ifsc_id = '4343' where id = '50000000-0000-0000-0000-0000000
 reset role;
 select pg_temp.assert((select ifsc_id from profiles where id = '50000000-0000-0000-0000-000000000001') = '4343',
   'the service role (sync) sets profiles.ifsc_id');
+-- People admin: unlink (sets null; results stay) is admin-only; ignored athletes can be restored.
+select pg_temp.login('00000000-0000-0000-0000-00000000000f');
+select pg_temp.denied($$update profiles set ifsc_id = null where id = my_profile_id()$$,
+  'a climber unlinks their own profile from its IFSC athlete');
+select pg_temp.denied($$update ifsc_pending set status = 'pending' where ifsc_athlete_id = 4242$$, 'non-admin restores an ignored IFSC athlete');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+update profiles set ifsc_id = null where id = '50000000-0000-0000-0000-000000000001';
+update ifsc_pending set status = 'pending' where ifsc_athlete_id = 4242;
+select pg_temp.assert((select ifsc_id from profiles where id = '50000000-0000-0000-0000-000000000001') is null
+  and (select status from ifsc_pending where ifsc_athlete_id = 4242) = 'pending',
+  'admin unlinks a profile from its IFSC athlete and restores an ignored one');
+select pg_temp.assert((select status = 'ignored' and suggested_profile is null and firstname || ' ' || lastname = 'IFSC #4343'
+  from ifsc_pending where ifsc_athlete_id = 4343),
+  'an unlinked IFSC athlete is kept as ignored without a suggestion (the sync never re-links it by itself)');
+delete from ifsc_pending where ifsc_athlete_id = 4343;
+reset role;
 insert into profiles (id, full_name) values ('60000000-0000-0000-0000-0000000000f3', 'World Ranking Temp');
 insert into world_rankings (climber_id, season, discipline, position, as_of)
   values ('60000000-0000-0000-0000-0000000000f3', '2026-27', 'boulder', 5, '2026-10-01');
@@ -1496,7 +1546,7 @@ from unnest(array['anon', 'authenticated']) r,
      unnest(array['public.handle_new_user()', 'public.boulder_results_stamp()',
                   'public.boulder_results_check_registration()', 'public.registrations_sync_starters()',
                   'public.lead_results_stamp()',
-                  'public.rounds_seed_starters()', 'public.profiles_ifsc_id_guard()',
+                  'public.rounds_seed_starters()', 'public.profiles_ifsc_id_guard()', 'public.ifsc_pending_forget_birthday()', 'public.profiles_ifsc_id_changed()',
                   'public.rankings_cache_touch_rounds()', 'public.rankings_cache_touch_seasons()',
                   'public.rankings_cache_touch_all()']) f;
 -- Rankings cache: the stored payload is anon's view; only the refresh (pg_cron, postgres) writes it.

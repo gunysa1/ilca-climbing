@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- IFSC requests: `https://ifsc.results.info/api/v1/...` with headers `referer: https://ifsc.results.info/` and `accept: application/json`; stop the run at the first IFSC error (non-JSON, non-2xx, or a category/ranking response without an array) and change nothing.
+- IFSC requests: `https://ifsc.results.info/api/v1/...` with headers `referer: https://ifsc.results.info/` and `accept: application/json`; stop the run at the first IFSC error (non-JSON, non-2xx, or a category/ranking response without an array) and change nothing. *(Relaxed in Task 8: a single failing category or athlete is skipped with a warning; a failing world list skips the world part.)*
 - Leagues: `World Cups and World Championships`, `IFSC Youth`, `IFSC Europe Adults`, `IFSC Europe Youth`; events whose `local_start_date` is within the last 60 days; categories whose first word is BOULDER or LEAD and status `finished`; athletes with `country === 'ISR'`.
 - Same rules as `tools/ifsc/scrape.py` and `tools/ifsc/match.py`: event type from the name (incl. "World Climbing" names; senior World Championships → `world_championship`), season = calendar year (`2026-…` → `2026-27`), field size = athletes with a rank, reached = last round with a score/rank.
 - Confident match: exactly one candidate with the athlete's birth date and gender (or no gender on the profile), score ≥ 0.5, and no second candidate within 0.15. Score = consonant-skeleton similarity of `match.py`.
@@ -173,15 +173,19 @@
 
 Each item is small and independent; batch the UI ones into one dispatch.
 
-- [ ] **Un-ignore:** the admin IFSC box lists ignored athletes (collapsed) with **restore** (status back to `pending`).
-- [ ] **IFSC link in People admin:** show a profile's `ifsc_id` (link to `https://ifsc.results.info/athlete/{id}`) with **unlink** (admin; sets null) and edit.
-- [ ] **IFSC corrections:** for rows with `ifsc_event_id`/`ifsc_dcat_id` inside the 60-day window, update `place`, `field_size`, `reached` when IFSC changed them (never `manual` rows); count them in the run log (`updated`).
-- [ ] **Pending list detail:** show gender and the event names of the waiting results.
-- [ ] **Category link:** link to the category's results page instead of the event page, once the IFSC URL format for a category is verified (uses `ifsc_dcat_id`).
-- [ ] **Local date:** `today` = the date in Asia/Jerusalem, not UTC.
-- [ ] **Revised 1 January list:** during January, re-fetch `?date=<end year>-01-01` daily and replace when it differs from the stored rows; after January leave it alone.
-- [ ] **World ranking for a newly confirmed athlete:** the `{ athlete }` run also writes that athlete's world-ranking rows from the current list.
-- [ ] **Hard lock:** partial unique index on `ifsc_sync_runs (status) where status = 'running'`, so two runs can never start together (replace the soft check).
+- [x] **Un-ignore:** the admin IFSC box lists ignored athletes (collapsed) with **restore** (status back to `pending`).
+- [x] **IFSC link in People admin:** show a profile's `ifsc_id` (link to `https://ifsc.results.info/athlete/{id}`) with **unlink** (admin; sets null) and edit.
+- [x] **IFSC corrections:** for rows with `ifsc_event_id`/`ifsc_dcat_id` inside the 60-day window, update `place`, `field_size`, `reached` when IFSC changed them (never `manual` rows); count them in the run log (`updated`).
+- [x] **Pending list detail:** show gender and the event names of the waiting results.
+- [x] **Category link:** link to the category's results page instead of the event page, once the IFSC URL format for a category is verified (uses `ifsc_dcat_id`). *Checked 2026-10-17 in the IFSC site's router: no stable per-category URL (`/event/{id}/general/{discipline}` shows the category last viewed in that browser; `/event/{id}/cr/{category_round_id}` is one round and needs an id we don't store). The event link stays.*
+- [x] **Local date:** `today` = the date in Asia/Jerusalem, not UTC.
+- [x] **Revised 1 January list:** during January, re-fetch `?date=<end year>-01-01` daily and replace when it differs from the stored rows; after January leave it alone.
+- [x] **World ranking for a newly confirmed athlete:** the `{ athlete }` run also writes that athlete's world-ranking rows from the current list.
+- [x] **Hard lock:** partial unique index on `ifsc_sync_runs (status) where status = 'running'`, so two runs can never start together (replace the soft check).
 - [x] **Account deletion:** a profile referenced only by `ifsc_pending.suggested_profile` is deleted with its account (user decision 2026-10-17; migration 032).
-- [ ] **Merging duplicate profiles (future work):** the merge must move `ifsc_id` to the kept profile (unique index), plus `ifsc_dismissed` and `suggested_profile` references.
-- [ ] **Birthdays in `ifsc_pending`:** clear `birthday` when an athlete is ignored (it was only needed for matching).
+- [ ] **Merging duplicate profiles (future work, not part of this task):** the merge must move `ifsc_id` to the kept profile (unique index), plus `ifsc_dismissed` and `suggested_profile` references.
+- [x] **Birthdays in `ifsc_pending`:** clear `birthday` when an athlete is ignored (it was only needed for matching).
+- [x] **Robustness (added 2026-10-17):** a failing category or athlete is skipped with a warning in `ifsc_sync_runs.warnings`; every category/athlete request failing (≥ 2) or a failing season/league/event list still fails the run with no writes; a failing world list skips the world part only.
+- [x] **Confirm safety (added 2026-10-17, after a wrong 0.15-score confirm):** Confirm only for score ≥ 0.5, otherwise "pick another climber" is the main action; every link asks a second time naming both people.
+
+Done in migration 037 (`20261017000037_ifsc_sync_followups.sql`) plus the function and admin pages.

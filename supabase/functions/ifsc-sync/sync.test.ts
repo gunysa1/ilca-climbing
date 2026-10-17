@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import type { Candidate } from '../_shared/ifsc.ts';
-import { runSync, type Ifsc, type ResultRow, type Store } from './sync.ts';
+import { runSync, type Ifsc, type ResultRow, type Store, type WorldRow } from './sync.ts';
 
 type Pending = Parameters<Store['upsertPending']>[0] & { status: 'pending' | 'ignored' };
 const key = (r: ResultRow) => `${r.discipline}|${r.event_name}|${r.starts_on}`;
+type Stored = Omit<ResultRow, 'event_type'> & { event_type: string };
 
 /** In-memory store; `writes` lists every write call. */
 function memStore(init: { linked?: [number, string][]; candidates?: Candidate[]; manual?: string[]; pending?: Pending[];
-  world?: { as_of: string }[]; dismissed?: string[] } = {}) {
+  world?: WorldRow[]; dismissed?: string[]; results?: [string, Stored[]][] } = {}) {
   const linked = new Map(init.linked ?? []);
-  const results = new Map<string, ResultRow[]>();
+  const results = new Map<string, Stored[]>(init.results ?? []);
   const pending = new Map((init.pending ?? []).map((p) => [p.ifsc_athlete_id, p]));
-  const world = { rows: init.world ?? [], replaced: [] as { season: string; rows: unknown[]; asOf: string }[] };
+  const world = { rows: init.world ?? [], replaced: [] as { season: string; rows: unknown[]; asOf: string }[],
+    replacedFor: [] as { season: string; climber: string; rows: unknown[]; asOf: string }[] };
   const writes: string[] = [];
   const store: Store = {
     linkedProfiles: async () => new Map(linked),
@@ -27,6 +29,17 @@ function memStore(init: { linked?: [number, string][]; candidates?: Candidate[];
       results.set(climber, [...have, ...fresh]);
       return fresh.length;
     },
+    correctResults: async (climber, rows) => {
+      writes.push(`correct ${climber}`);
+      let n = 0;
+      for (const h of results.get(climber) ?? []) {
+        const r = rows.find((x) => x.ifsc_event_id === h.ifsc_event_id && x.ifsc_dcat_id === h.ifsc_dcat_id);
+        if (!r || h.event_type === 'manual' || (h.place === r.place && h.field_size === r.field_size && h.reached === r.reached)) continue;
+        Object.assign(h, { place: r.place, field_size: r.field_size, reached: r.reached });
+        n++;
+      }
+      return n;
+    },
     linkProfile: async (profile, ifscId) => { writes.push(`link ${profile}`); linked.set(ifscId, profile); },
     upsertPending: async (p) => {
       writes.push(`pending ${p.ifsc_athlete_id}`);
@@ -36,6 +49,10 @@ function memStore(init: { linked?: [number, string][]; candidates?: Candidate[];
     },
     worldRows: async () => world.rows,
     replaceWorld: async (season, rows, asOf) => { writes.push('world'); world.replaced.push({ season, rows, asOf }); },
+    replaceWorldFor: async (season, climber, rows, asOf) => {
+      writes.push(`world ${climber}`);
+      world.replacedFor.push({ season, climber, rows, asOf });
+    },
   };
   return { store, linked, results, pending, world, writes };
 }
@@ -89,11 +106,21 @@ const row = (over: Partial<ResultRow> = {}): ResultRow => ({ season: '2026-27', 
   event_name: 'IFSC World Cup Bern 2026 (BOULDER Men)', starts_on: '2026-06-01', place: 9, field_size: 60, reached: 'semifinal',
   ifsc_event_id: 1490, ifsc_dcat_id: 3, ...over });
 
+/** Prague plus a second category (Innsbruck, 101 only), so one broken category is not "every request failing". */
+const twoCategories: Record<string, unknown> = {
+  '/api/v1/season_leagues/457': { events: [
+    { event_id: 1500, event: 'IFSC World Cup Prague 2026', local_start_date: '2026-09-20', d_cats: [
+      { id: 3, name: 'BOULDER Men', status: 'finished', result_url: '/api/v1/events/1500/result/3' }] },
+    { event_id: 1503, event: 'IFSC World Cup Innsbruck 2026', local_start_date: '2026-10-10', d_cats: [
+      { id: 3, name: 'BOULDER Men', status: 'finished', result_url: '/api/v1/events/1503/result/3' }] }] },
+  '/api/v1/events/1503/result/3': { ranking: [rnk(101, 4)] },
+};
+
 describe('runSync', () => {
   it('imports linked and newly matched athletes, keeps the unknown one pending', async () => {
     const s = base();
     const { ifsc, calls } = api();
-    expect(await runSync(ifsc, s.store, '2026-10-17')).toEqual({ added: 2, linked: 1, pending: 1, world: 2 });
+    expect(await runSync(ifsc, s.store, '2026-10-17')).toEqual({ added: 2, updated: 0, linked: 1, pending: 1, world: 2, warnings: [] });
     expect(s.results.get('p1')).toEqual([{ season: '2026-27', discipline: 'boulder', event_type: 'world_cup',
       event_name: 'IFSC World Cup Prague 2026 (BOULDER Men)', starts_on: '2026-09-20', place: 5, field_size: 4,
       reached: 'qualification', ifsc_event_id: 1500, ifsc_dcat_id: 3 }]);
@@ -115,7 +142,7 @@ describe('runSync', () => {
   it('adds nothing on a second run; a pending athlete seen again stays one row with merged results', async () => {
     const s = base();
     await runSync(api().ifsc, s.store, '2026-10-17');
-    expect(await runSync(api().ifsc, s.store, '2026-10-17')).toEqual({ added: 0, linked: 0, pending: 1, world: 2 });
+    expect(await runSync(api().ifsc, s.store, '2026-10-17')).toEqual({ added: 0, updated: 0, linked: 0, pending: 1, world: 2, warnings: [] });
     expect([...s.pending.keys()]).toEqual([103]);
     expect(s.pending.get(103)?.results.map((r) => r.event_name)).toEqual(['IFSC World Cup Prague 2026 (BOULDER Men)']);
   });
@@ -152,11 +179,12 @@ describe('runSync', () => {
     expect((await runSync(api().ifsc, s.store, '2026-10-17')).pending).toBe(0);
     expect(s.pending.get(103)?.status).toBe('ignored');
     expect(s.pending.get(103)?.results).toHaveLength(2);
+    expect(s.pending.get(103)?.birthday).toBeNull(); // only needed for matching
   });
 
   it('skips groups that hold ILCA-published (manual) points', async () => {
     const s = memStore({ linked: [[101, 'p1']], candidates: [p2], manual: ['2026-27|senior|boulder'] });
-    expect(await runSync(api().ifsc, s.store, '2026-10-17')).toEqual({ added: 0, linked: 1, pending: 1, world: 2 });
+    expect(await runSync(api().ifsc, s.store, '2026-10-17')).toEqual({ added: 0, updated: 0, linked: 1, pending: 1, world: 2, warnings: [] });
     expect(s.results.get('p1') ?? []).toEqual([]);
   });
 
@@ -191,22 +219,134 @@ describe('runSync', () => {
   });
 
   it.each([
-    ['an error object for a category', { '/api/v1/events/1500/result/3': { error: 'not found' } }],
-    ['a failing request', { '/api/v1/athletes/102': undefined }],
-    ['an error object for an athlete', { '/api/v1/athletes/103': { error: 'not found' } }],
-    ['a world ranking without a list', { '/api/v1/cuwr/5?date=2026-10-17': { error: 'x' } }],
     ['a league without events', { '/api/v1/season_leagues/457': {} }],
-    ['an empty world ranking', { '/api/v1/cuwr/7?date=2026-10-17': { ranking: [] } }],
-    ['a category without an id', { '/api/v1/season_leagues/457': { events: [{ event_id: 1505, event: 'IFSC World Cup Keqiao 2026',
-      local_start_date: '2026-10-01', d_cats: [{ name: 'BOULDER Men', status: 'finished', result_url: '/api/v1/results/x' }] }] },
-      '/api/v1/results/x': { ranking: [rnk(101, 1)] } }],
+    ['a failing season list', { '/api/v1/': undefined }],
+    ['every category and world-list request failing', { '/api/v1/events/1500/result/3': undefined, '/api/v1/events/1503/result/3': undefined,
+      ...Object.fromEntries([3, 7, 1, 5].map((c) => [`/api/v1/cuwr/${c}?date=2026-10-17`, undefined])) }],
   ])('rejects on %s without writing anything', async (_, over) => {
     const s = base();
-    const o = over as Record<string, unknown>;
+    const o = { ...twoCategories, ...over } as Record<string, unknown>;
     const { ifsc } = api(o);
     const failing: Ifsc = { get: async (p) => { if (p in o && o[p] === undefined) throw new Error('HTTP 500'); return ifsc.get(p); } };
     await expect(runSync(failing, s.store, '2026-10-17')).rejects.toThrow();
     expect(s.writes).toEqual([]);
+  });
+
+  it.each([
+    ['an error object', { error: 'not found' }],
+    ['a failing request', undefined],
+    ['a category without an id', 'no id'],
+  ])('skips a category with %s, keeps the rest of the run and logs a warning', async (_, bad) => {
+    const s = base();
+    const over: Record<string, unknown> = { ...twoCategories };
+    if (bad === 'no id') {
+      over['/api/v1/season_leagues/457'] = { events: [...(twoCategories['/api/v1/season_leagues/457'] as { events: unknown[] }).events,
+        { event_id: 1505, event: 'IFSC World Cup Keqiao 2026', local_start_date: '2026-10-01',
+          d_cats: [{ name: 'BOULDER Men', status: 'finished', result_url: '/api/v1/results/x' }] }] };
+      over['/api/v1/results/x'] = { ranking: [rnk(101, 1)] };
+    } else over['/api/v1/events/1500/result/3'] = bad;
+    const { ifsc } = api(over);
+    const failing: Ifsc = { get: async (p) => { if (p in over && over[p] === undefined) throw new Error(`IFSC ${p}: HTTP 404`); return ifsc.get(p); } };
+    const sum = await runSync(failing, s.store, '2026-10-17');
+    expect(sum.warnings).toHaveLength(1);
+    expect(sum.warnings[0]).toContain(bad === 'no id' ? 'Keqiao' : '/api/v1/events/1500/result/3');
+    // Innsbruck still comes in; with a broken Prague nothing of Prague is written (102, 103 only appear there)
+    expect(s.results.get('p1')?.map((r) => r.ifsc_event_id)).toEqual(bad === 'no id' ? [1500, 1503] : [1503]);
+    if (bad !== 'no id') expect([...s.pending.keys(), ...s.linked.keys()]).toEqual([101]);
+    expect(sum.world).toBe(bad === 'no id' ? 2 : 1);
+  });
+
+  it.each([
+    ['a failing request', undefined],
+    ['an error object', { error: 'not found' }],
+  ])('skips an athlete whose details come back with %s', async (_, bad) => {
+    const s = base();
+    const o: Record<string, unknown> = { '/api/v1/athletes/102': bad };
+    const { ifsc } = api(o);
+    const failing: Ifsc = { get: async (p) => { if (p in o && o[p] === undefined) throw new Error(`IFSC ${p}: HTTP 500`); return ifsc.get(p); } };
+    const sum = await runSync(failing, s.store, '2026-10-17');
+    expect(sum).toMatchObject({ added: 1, linked: 0, pending: 1 });
+    expect(sum.warnings).toEqual([expect.stringContaining('/api/v1/athletes/102')]);
+    expect(s.linked.has(102)).toBe(false);
+    expect(s.pending.has(102)).toBe(false);
+    expect(s.pending.has(103)).toBe(true);
+  });
+
+  it.each([
+    ['a world ranking without a list', { '/api/v1/cuwr/5?date=2026-10-17': { error: 'x' } }],
+    ['an empty world ranking', { '/api/v1/cuwr/7?date=2026-10-17': { ranking: [] } }],
+  ])('on %s leaves the stored world ranking alone and imports the results', async (_, over) => {
+    const s = base();
+    const sum = await runSync(api(over).ifsc, s.store, '2026-10-17');
+    expect(sum).toMatchObject({ added: 2, linked: 1, pending: 1, world: 0 });
+    expect(sum.warnings).toEqual([expect.stringContaining('world ranking')]);
+    expect(s.world.replaced).toEqual([]);
+  });
+
+  it('two categories failing while the world lists answer: an ok run with warnings, the world written', async () => {
+    const s = base();
+    const o: Record<string, unknown> = { ...twoCategories, '/api/v1/events/1500/result/3': undefined, '/api/v1/events/1503/result/3': undefined };
+    const { ifsc } = api(o);
+    const failing: Ifsc = { get: async (p) => { if (p in o && o[p] === undefined) throw new Error(`IFSC ${p}: HTTP 404`); return ifsc.get(p); } };
+    const sum = await runSync(failing, s.store, '2026-10-17');
+    expect(sum.warnings).toHaveLength(2);
+    expect(sum.world).toBe(1); // p1 (linked); 102 was never seen, so not linked
+    expect(s.world.replaced).toHaveLength(1);
+  });
+
+  it('exactly one category, failing: an ok run with a warning (one request is not an outage)', async () => {
+    const s = base();
+    const o: Record<string, unknown> = { '/api/v1/events/1500/result/3': undefined };
+    const { ifsc } = api(o);
+    const failing: Ifsc = { get: async (p) => { if (p in o) throw new Error(`IFSC ${p}: HTTP 404`); return ifsc.get(p); } };
+    const sum = await runSync(failing, s.store, '2026-10-17');
+    expect(sum.warnings).toEqual([expect.stringContaining('/api/v1/events/1500/result/3')]);
+    expect(sum.world).toBe(1);
+  });
+
+  it('tried = 1: one failing category and no world list due (after January) is a warning, not a failed run', async () => {
+    const s = memStore({ linked: [[101, 'p1']], world: [{ climber_id: 'p1', discipline: 'boulder', position: 40, as_of: '2027-01-01' }] });
+    const o: Record<string, unknown> = {
+      '/api/v1/seasons/38': { leagues: [] },
+      '/api/v1/seasons/39': { leagues: [{ name: 'World Cups and World Championships', url: '/api/v1/season_leagues/500' }] },
+      '/api/v1/season_leagues/500': { events: [{ event_id: 1600, event: 'IFSC World Cup Keqiao 2027', local_start_date: '2027-03-01',
+        d_cats: [{ id: 3, name: 'BOULDER Men', status: 'finished', result_url: '/api/v1/events/1600/result/3' }] }] },
+    };
+    const { ifsc, calls } = api(o);
+    const failing: Ifsc = { get: async (p) => { if (p === '/api/v1/events/1600/result/3') throw new Error(`IFSC ${p}: HTTP 404`); return ifsc.get(p); } };
+    const sum = await runSync(failing, s.store, '2027-03-05');
+    expect(sum).toEqual({ added: 0, updated: 0, linked: 0, pending: 0, world: 0, warnings: [expect.stringContaining('1600')] });
+    expect(calls.some((c) => c.includes('cuwr'))).toBe(false);
+  });
+
+  it('does not correct rows in a group with ILCA-published (manual) points', async () => {
+    const s = memStore({ linked: [[101, 'p1']], manual: ['2026-27|senior|boulder'], results: [['p1', [{ season: '2026-27', discipline: 'boulder',
+      event_type: 'world_cup', event_name: 'IFSC World Cup Prague 2026 (BOULDER Men)', starts_on: '2026-09-20', ifsc_event_id: 1500,
+      ifsc_dcat_id: 3, place: 6, field_size: 70, reached: 'semifinal' }]]] });
+    expect((await runSync(api().ifsc, s.store, '2026-10-17')).updated).toBe(0);
+    expect(s.results.get('p1')).toMatchObject([{ place: 6, field_size: 70, reached: 'semifinal' }]);
+  });
+
+  it('never links an ignored athlete by itself, even on a confident match', async () => {
+    const s = memStore({ linked: [[101, 'p1']], candidates: [p2], pending: [{ ifsc_athlete_id: 102, firstname: 'IFSC', lastname: '#102',
+      gender: null, birthday: null, suggested_profile: null, score: null, status: 'ignored', results: [] }] });
+    const sum = await runSync(api().ifsc, s.store, '2026-10-17');
+    expect(sum.linked).toBe(0);
+    expect(s.linked.has(102)).toBe(false);
+    expect(s.pending.get(102)).toMatchObject({ status: 'ignored', firstname: 'Yonatan', lastname: 'COHEN', suggested_profile: 'p2' });
+  });
+
+  it('corrects place, field size and round of recent IFSC rows, never manual ones', async () => {
+    const prague = { season: '2026-27', discipline: 'boulder' as const, event_name: 'IFSC World Cup Prague 2026 (BOULDER Men)',
+      starts_on: '2026-09-20', ifsc_event_id: 1500, ifsc_dcat_id: 3 };
+    const s = memStore({ linked: [[101, 'p1'], [102, 'p2']], results: [
+      ['p1', [{ ...prague, event_type: 'world_cup', place: 6, field_size: 70, reached: 'semifinal' }]],
+      ['p2', [{ ...prague, event_type: 'manual', place: 1, field_size: 1, reached: 'final' }]]] });
+    const sum = await runSync(api().ifsc, s.store, '2026-10-17');
+    expect(sum.updated).toBe(1);
+    expect(s.results.get('p1')).toMatchObject([{ place: 5, field_size: 4, reached: 'qualification' }]);
+    expect(s.results.get('p2')).toMatchObject([{ place: 1, field_size: 1, reached: 'final' }]);
+    expect((await runSync(api().ifsc, s.store, '2026-10-17')).updated).toBe(0);
   });
 
   it('on/after 1 January fetches the official 1 January list once', async () => {
@@ -221,8 +361,8 @@ describe('runSync', () => {
     expect(sum.world).toBe(1);
   });
 
-  it('leaves the official list alone once stored', async () => {
-    const s = memStore({ linked: [[101, 'p1']], world: [{ as_of: '2027-01-01' }] });
+  it('leaves the official list alone after January', async () => {
+    const s = memStore({ linked: [[101, 'p1']], world: [{ climber_id: 'p1', discipline: 'boulder', position: 40, as_of: '2027-01-01' }] });
     const { ifsc, calls } = api({ '/api/v1/seasons/38': { leagues: [] } });
     expect((await runSync(ifsc, s.store, '2027-03-05')).world).toBe(0);
     expect(calls.some((c) => c.includes('cuwr'))).toBe(false);
@@ -230,7 +370,84 @@ describe('runSync', () => {
     expect(s.world.replaced).toEqual([]);
   });
 
-  it('onlyAthlete imports that athlete\'s waiting results without asking IFSC', async () => {
+  it('February: a newly linked athlete gets their 1 January positions; nobody else is touched', async () => {
+    const official: WorldRow = { climber_id: 'p1', discipline: 'boulder', position: 40, as_of: '2027-01-01' };
+    const s = memStore({ linked: [[101, 'p1']], candidates: [p2], world: [official] });
+    const o: Record<string, unknown> = {
+      '/api/v1/seasons/38': { leagues: [] },
+      '/api/v1/seasons/39': { leagues: [{ name: 'World Cups and World Championships', url: '/api/v1/season_leagues/500' }] },
+      '/api/v1/season_leagues/500': { events: [{ event_id: 1600, event: 'IFSC World Cup Keqiao 2027', local_start_date: '2027-02-01',
+        d_cats: [{ id: 3, name: 'BOULDER Men', status: 'finished', result_url: '/api/v1/events/1600/result/3' }] }] },
+      '/api/v1/events/1600/result/3': { ranking: [rnk(101, 3), rnk(102, 9, 'ISR', 'Yonatan', 'Cohen')] },
+    };
+    const { ifsc, calls } = api(o);
+    const sum = await runSync(ifsc, s.store, '2027-02-10');
+    expect(sum).toMatchObject({ linked: 1, world: 1, warnings: [] });
+    expect(calls).toContain('/api/v1/cuwr/3?date=2027-01-01');
+    expect(s.world.replaced).toEqual([]);
+    expect(s.world.replacedFor).toEqual([{ season: '2026-27', climber: 'p2', asOf: '2027-01-01',
+      rows: [{ climber_id: 'p2', discipline: 'boulder', position: 77 }] }]);
+    // the same run without a new link asks IFSC for no world list
+    const again = api(o);
+    expect((await runSync(again.ifsc, s.store, '2027-02-11')).world).toBe(0);
+    expect(again.calls.some((c) => c.includes('cuwr'))).toBe(false);
+  });
+
+  it('February: a failing 1 January list for a new link is a warning; the link and results still go in', async () => {
+    const s = memStore({ linked: [[101, 'p1']], candidates: [p2],
+      world: [{ climber_id: 'p1', discipline: 'boulder', position: 40, as_of: '2027-01-01' }] });
+    const o: Record<string, unknown> = {
+      '/api/v1/seasons/38': { leagues: [] },
+      '/api/v1/seasons/39': { leagues: [{ name: 'World Cups and World Championships', url: '/api/v1/season_leagues/500' }] },
+      '/api/v1/season_leagues/500': { events: [{ event_id: 1600, event: 'IFSC World Cup Keqiao 2027', local_start_date: '2027-02-01',
+        d_cats: [{ id: 3, name: 'BOULDER Men', status: 'finished', result_url: '/api/v1/events/1600/result/3' }] }] },
+      '/api/v1/events/1600/result/3': { ranking: [rnk(102, 9, 'ISR', 'Yonatan', 'Cohen')] },
+      '/api/v1/cuwr/7?date=2027-01-01': { error: 'x' },
+    };
+    const sum = await runSync(api(o).ifsc, s.store, '2027-02-10');
+    expect(sum).toMatchObject({ linked: 1, added: 1, world: 0, warnings: [expect.stringContaining('world ranking')] });
+    expect(s.world.replacedFor).toEqual([]);
+  });
+
+  it('during January re-fetches the 1 January list and replaces it only when IFSC revised it', async () => {
+    const stored: WorldRow = { climber_id: 'p1', discipline: 'boulder', position: 40, as_of: '2027-01-01' };
+    const same = memStore({ linked: [[101, 'p1']], world: [stored] });
+    const { ifsc, calls } = api({ '/api/v1/seasons/38': { leagues: [] } });
+    expect((await runSync(ifsc, same.store, '2027-01-20')).world).toBe(0);
+    expect(calls).toContain('/api/v1/cuwr/3?date=2027-01-01');
+    expect(same.world.replaced).toEqual([]);
+
+    const revised = memStore({ linked: [[101, 'p1']], world: [{ ...stored, position: 41 }] });
+    expect((await runSync(api({ '/api/v1/seasons/38': { leagues: [] } }).ifsc, revised.store, '2027-01-31')).world).toBe(1);
+    expect(revised.world.replaced).toEqual([{ season: '2026-27', asOf: '2027-01-01',
+      rows: [{ climber_id: 'p1', discipline: 'boulder', position: 40 }] }]);
+  });
+
+  it('onlyAthlete writes the newly linked athlete\'s world positions from the current list', async () => {
+    const s = memStore({ linked: [[101, 'p1'], [102, 'p2']],
+      pending: [{ ifsc_athlete_id: 102, firstname: 'Yonatan', lastname: 'COHEN', gender: null, birthday: null,
+        suggested_profile: null, score: null, status: 'pending', results: [row()] }] });
+    expect(await runSync(api().ifsc, s.store, '2026-10-17', { onlyAthlete: 102 })).toMatchObject({ added: 1, world: 1 });
+    expect(s.world.replacedFor).toEqual([{ season: '2026-27', climber: 'p2', asOf: '2026-10-17',
+      rows: [{ climber_id: 'p2', discipline: 'boulder', position: 77 }] }]);
+    expect(s.world.replaced).toEqual([]);
+    // after 1 January: the official list
+    const later = memStore({ linked: [[102, 'p2']] });
+    const { ifsc, calls } = api();
+    await runSync(ifsc, later.store, '2027-03-05', { onlyAthlete: 102 });
+    expect(calls).toContain('/api/v1/cuwr/3?date=2027-01-01');
+    expect(later.world.replacedFor[0]).toMatchObject({ climber: 'p2', asOf: '2027-01-01' });
+  });
+
+  it('onlyAthlete still imports when the world ranking fails', async () => {
+    const s = memStore({ linked: [[103, 'p3']], pending: [{ ifsc_athlete_id: 103, firstname: 'Dan', lastname: 'LEVI', gender: null,
+      birthday: null, suggested_profile: null, score: null, status: 'pending', results: [row()] }] });
+    const sum = await runSync(api({ '/api/v1/cuwr/1?date=2026-10-17': { error: 'x' } }).ifsc, s.store, '2026-10-17', { onlyAthlete: 103 });
+    expect(sum).toMatchObject({ added: 1, world: 0, warnings: [expect.stringContaining('world ranking')] });
+    expect(s.world.replacedFor).toEqual([]);
+  });
+
+  it('onlyAthlete imports that athlete\'s waiting results, asking IFSC only for the world ranking', async () => {
     const s = memStore({ linked: [[103, 'p3']], manual: ['2025-26|senior|boulder'],
       pending: [{ ifsc_athlete_id: 103, firstname: 'Dan', lastname: 'LEVI', gender: 'male', birthday: '2009-01-01',
         suggested_profile: null, score: null, status: 'pending',
@@ -238,8 +455,10 @@ describe('runSync', () => {
       { ifsc_athlete_id: 105, firstname: 'A', lastname: 'B', gender: null, birthday: null, suggested_profile: null, score: null,
         status: 'pending', results: [row()] }] });
     const { ifsc, calls } = api();
-    expect(await runSync(ifsc, s.store, '2026-10-17', { onlyAthlete: 103 })).toEqual({ added: 1, linked: 0, pending: 0, world: 0 });
-    expect(calls).toEqual([]);
+    expect(await runSync(ifsc, s.store, '2026-10-17', { onlyAthlete: 103 }))
+      .toEqual({ added: 1, updated: 0, linked: 0, pending: 0, world: 0, warnings: [] });
+    expect(calls.every((c) => c.startsWith('/api/v1/cuwr/'))).toBe(true); // only the world ranking
+    expect(s.world.replacedFor).toEqual([{ season: '2026-27', climber: 'p3', rows: [], asOf: '2026-10-17' }]);
     expect(s.results.get('p3')?.map((r) => r.event_name)).toEqual(['IFSC World Cup Bern 2026 (BOULDER Men)']);
     expect([...s.pending.keys()]).toEqual([105]);
   });
@@ -247,7 +466,7 @@ describe('runSync', () => {
   it('onlyAthlete for an athlete without a profile changes nothing', async () => {
     const s = memStore({ pending: [{ ifsc_athlete_id: 103, firstname: 'Dan', lastname: 'LEVI', gender: null, birthday: null,
       suggested_profile: null, score: null, status: 'pending', results: [row()] }] });
-    expect(await runSync(api().ifsc, s.store, '2026-10-17', { onlyAthlete: 103 })).toEqual({ added: 0, linked: 0, pending: 0, world: 0 });
+    expect(await runSync(api().ifsc, s.store, '2026-10-17', { onlyAthlete: 103 })).toEqual({ added: 0, updated: 0, linked: 0, pending: 0, world: 0, warnings: [] });
     expect(s.writes).toEqual([]);
   });
 
