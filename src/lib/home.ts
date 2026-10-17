@@ -1,0 +1,60 @@
+// The public home page's data (home_page(), one request) and the small pure steps that shape it.
+import { climberEvents, type ClimberEvent } from './climberStats';
+import type { RankingRow } from './rankings';
+import type { HistoryRow, Profile, Round } from './types';
+
+export interface HomeOnWall { boulder_id: string; number: number; climber_id: string; full_name: string; full_name_he: string | null }
+export interface HomeLiveRound {
+  round_id: string;
+  kind: Round['kind'];
+  scoring: Round['scoring'];
+  category: { id: string; name: string; name_he: string | null; gender: string };
+  competition: { id: string; name: string; name_he: string | null };
+  on_wall: HomeOnWall[];
+}
+export interface HomeCompetition { id: string; name: string; name_he: string | null; venue: string | null; starts_on: string; ends_on: string }
+export interface HomeWinner {
+  category_id: string; category: string; category_he: string | null; gender: string;
+  round_id: string; round_kind: Round['kind'];
+  climber_id: string; full_name: string; full_name_he: string | null; club: string | null;
+}
+export interface HomeData {
+  live: HomeLiveRound[];
+  upcoming: HomeCompetition[];
+  latest: (HomeCompetition & { winners: HomeWinner[] })[];
+}
+
+/** home_page() json -> HomeData (missing parts are empty). */
+export function parseHome(raw: unknown): HomeData {
+  const d = (raw ?? {}) as Partial<HomeData>;
+  return {
+    live: (d.live ?? []).map((r) => ({ ...r, on_wall: r.on_wall ?? [] })),
+    upcoming: d.upcoming ?? [],
+    latest: (d.latest ?? []).map((c) => ({ ...c, winners: c.winners ?? [] })),
+  };
+}
+
+/** Winners grouped by category (a tie gives one category several winners), in the order given. */
+export function winnersByCategory(winners: HomeWinner[]): { category_id: string; category: string; category_he: string | null; round_id: string; climbers: HomeWinner[] }[] {
+  const out = new Map<string, { category_id: string; category: string; category_he: string | null; round_id: string; climbers: HomeWinner[] }>();
+  for (const w of winners) {
+    if (!out.has(w.category_id)) out.set(w.category_id, { category_id: w.category_id, category: w.category, category_he: w.category_he, round_id: w.round_id, climbers: [] });
+    out.get(w.category_id)!.climbers.push(w);
+  }
+  return [...out.values()];
+}
+
+/** The top of a ranking table: places 1 to n (ties at n are all kept). */
+export function topOfRanking(rows: RankingRow[], n = 3): RankingRow[] {
+  return rows.filter((r) => r.rank <= n);
+}
+
+/** Each starred climber (in starring order) with their latest result, as on the favorites page. */
+export function favoritesLatest(ids: string[], profiles: Profile[], history: HistoryRow[]): { profile: Profile; latest: ClimberEvent | null }[] {
+  const byId = new Map(profiles.map((p) => [p.id, p]));
+  const shown = history.filter((h) => h.round_status !== 'planned');
+  return ids.filter((id) => byId.has(id)).map((id) => ({
+    profile: byId.get(id)!,
+    latest: climberEvents(shown.filter((h) => h.climber_id === id))[0] ?? null,
+  }));
+}
