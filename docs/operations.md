@@ -128,7 +128,8 @@ admin, and refreshes the season's `world_rankings`: today's list until 1 January
 list daily, replaced only when IFSC revised it; after January the 1 January list once if never stored.
 
 Failures: all IFSC requests happen before the first write. If the season, league or event lists fail, or every
-category and athlete request fails (at least two), the run is `failed` and writes nothing. A single category or
+category, athlete and world-list request fails (at least two), the run is `failed` and writes nothing; any success
+(e.g. the world lists) keeps it an `ok` run with warnings. A single category or
 athlete that fails (HTTP error, not JSON, malformed) is skipped, listed in the run's `warnings` (shown on the
 admin page as "N skipped") and tried again next run; nothing is written for it. A failing world list skips the
 world part only (the stored positions stay). An IFSC row an admin deletes (ניהול → דירוגים) is remembered in
@@ -138,8 +139,12 @@ Admin (staff app): ניהול → דירוגים lists the athletes to confirm w
 **Confirm** appears only for a confident suggestion (score ≥ 0.5); a weaker one is shown as text with "pick
 another climber" as the main action, and every link asks again, naming both people. Ignored athletes ("not on
 the team", birthday cleared) sit in a collapsed list with **restore**. ניהול → אנשים shows each climber's IFSC
-number (link to the IFSC athlete page) with edit and unlink; unlinking keeps results already imported (delete
-wrong ones under דירוגים) and the daily run imports a newly set number's waiting results. Results link to the
+number (link to the IFSC athlete page) with edit and unlink (replacing a number asks first; a number taken by
+another climber is refused). Any change of `profiles.ifsc_id` (trigger, migration 037) deletes the climber's
+current-season world positions and keeps the old athlete in `ifsc_pending` as ignored (shown as "IFSC #<id>"
+until the next run sees them), so the sync never links them again by itself; results already imported stay
+(delete wrong ones under דירוגים). A newly set number is imported right away (`{ athlete }`). The sync never
+auto-links an ignored athlete; `profiles.ifsc_id` must be a plain number (check constraint). Results link to the
 IFSC event page: IFSC has no stable URL for one category's results (its category page is
 `/event/<id>/general/<discipline>` and opens the category last viewed in that browser).
 

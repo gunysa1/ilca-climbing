@@ -8,6 +8,7 @@ import { AdminNav, ErrorLine } from './AdminHome';
 import { ClimberPicker } from './ClimberPicker';
 import { InviteJudge } from './InviteJudge';
 import { Sheet } from '../../components/Sheet';
+import { Busy, countsText, fill, invokeSync } from './ifscSync';
 
 const STAFF_ROLES = ['judge', 'coach', 'admin'] as const satisfies readonly AppRole[];
 type ProfileRow = Profile & { user_id: string | null; ifsc_id: string | null };
@@ -28,6 +29,8 @@ export function AdminPeople() {
   // IFSC link of a climber: edited inline; unlinking is asked first in a sheet.
   const [ifscEdit, setIfscEdit] = useState<{ id: string; value: string } | null>(null);
   const [toUnlink, setToUnlink] = useState<ProfileRow | null>(null);
+  const [toReplace, setToReplace] = useState<{ p: ProfileRow; value: string } | null>(null);
+  const [ifscNote, setIfscNote] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     let profError: string | null = null;
@@ -61,14 +64,28 @@ export function AdminPeople() {
     if (!error) await reload();
   };
 
-  // Sets or clears profiles.ifsc_id (admins only, enforced by a trigger). Results already imported stay either way;
-  // the daily sync imports the waiting results of a newly set athlete.
+  // Sets or clears profiles.ifsc_id (admins only, enforced by a trigger), only if it is still what this page showed.
+  // In the database a change drops the climber's current-season world positions and keeps the old athlete as
+  // ignored; results already imported stay. A new number's waiting results and world positions load right away.
   async function saveIfsc(p: ProfileRow, value: string | null) {
-    const { error } = await supabase.from('profiles').update({ ifsc_id: value }).eq('id', p.id);
-    if (error) return setError(error.code === '23505' ? t('ifscIdTaken') : error.message);
-    setIfscEdit(null); setToUnlink(null); setError(null);
+    setIfscEdit(null); setToUnlink(null); setToReplace(null); setIfscNote(null);
+    const q = supabase.from('profiles').update({ ifsc_id: value }).eq('id', p.id);
+    const { data, error } = await (p.ifsc_id ? q.eq('ifsc_id', p.ifsc_id) : q.is('ifsc_id', null)).select('id');
+    if (error || !data?.length) {
+      setError(error?.code === '23505' ? t('ifscIdTaken') : error?.message ?? t('ifscChanged'));
+      return reload();
+    }
+    setError(null);
     await reload();
+    if (!value) return;
+    try { setIfscNote(countsText(t, await invokeSync({ athlete: Number(value) }))); }
+    catch (e) { if (e instanceof Busy) setIfscNote(t('ifscBusyLater')); else setError((e as Error).message); }
   }
+  const submitIfsc = (p: ProfileRow, value: string) => {
+    if (value === p.ifsc_id) return setIfscEdit(null);
+    if (p.ifsc_id) return setToReplace({ p, value }); // overwriting a link: asked first
+    void saveIfsc(p, value);
+  };
 
   const byId = useMemo(() => new Map(profiles.map((p) => [p.id, p])), [profiles]);
   const unlinked = profiles.filter((p) => !p.user_id);
@@ -111,6 +128,14 @@ export function AdminPeople() {
           <p>{t('ifscUnlinkText')}</p>
         </Sheet>
       )}
+      {toReplace && (
+        <Sheet title={t('ifscReplaceTitle')} confirm={t('ifscReplace')} danger
+          onConfirm={() => void saveIfsc(toReplace.p, toReplace.value)} onCancel={() => setToReplace(null)}>
+          <p className="sheet-result">{fill(t('ifscReplaceText'), { old: toReplace.p.ifsc_id ?? '', new: toReplace.value, name: name(toReplace.p) })}</p>
+          <p>{t('ifscUnlinkText')}</p>
+        </Sheet>
+      )}
+      {ifscNote && <p className="notice">IFSC: {ifscNote}</p>}
 
       <div className="panel">
         <h2>{t('accounts')} ({accounts.length})</h2>
@@ -196,8 +221,8 @@ export function AdminPeople() {
                   </td>
                   <td className="ifsc-cell">
                     {ifscEdit?.id === p.id ? (
-                      <form className="inline-form" onSubmit={(e) => { e.preventDefault(); void saveIfsc(p, ifscEdit.value.trim()); }}>
-                        <input aria-label={t('ifscIdLabel')} value={ifscEdit.value} inputMode="numeric" pattern="\d+" required dir="ltr" size={8}
+                      <form className="inline-form" onSubmit={(e) => { e.preventDefault(); submitIfsc(p, ifscEdit.value.trim()); }}>
+                        <input aria-label={t('ifscIdLabel')} value={ifscEdit.value} inputMode="numeric" pattern="[1-9]\d*" required dir="ltr" size={8}
                           onChange={(e) => setIfscEdit({ id: p.id, value: e.target.value })} />
                         <button className="link">{t('save')}</button>
                         <button type="button" className="link" onClick={() => setIfscEdit(null)}>{t('cancel')}</button>

@@ -10,6 +10,7 @@ import type { Profile } from '../../lib/types';
 import { AdminNav, ErrorLine } from './AdminHome';
 import { ClimberPicker } from './ClimberPicker';
 import { Sheet } from '../../components/Sheet';
+import { Busy, countsText, fill, invokeSync, type SyncCounts } from './ifscSync';
 
 const EVENT_TYPES: IntlEventType[] = ['world_cup', 'world_championship', 'european_cup', 'european_championship',
   'european_youth_cup', 'european_youth_championship', 'world_youth_championship', 'manual'];
@@ -217,7 +218,6 @@ function AdjustmentForm({ season, onAdd }: { season: string; onAdd: (row: Record
   );
 }
 
-type Counts = { added?: number; updated?: number; linked?: number; pending?: number; world?: number; warnings?: string[] };
 type SyncRun = { id: number; started_at: string; status: 'running' | 'ok' | 'failed'; added: number; updated: number; linked: number;
   pending: number; world: number; warnings: string[] | null; error: string | null };
 type PendingAthlete = { ifsc_athlete_id: number; firstname: string; lastname: string; gender: string | null; birthday: string | null;
@@ -225,19 +225,6 @@ type PendingAthlete = { ifsc_athlete_id: number; firstname: string; lastname: st
 
 /** The sync's own bar for a confident match (pickMatch); below it the suggestion is shown but not offered as Confirm. */
 const CONFIDENT = 0.5;
-
-class Busy extends Error {}
-
-/** Calls the ifsc-sync function; a non-2xx answer comes back as an error whose body holds the reason
- *  (`Busy` while another run is going). */
-async function invokeSync(body: { athlete?: number }, counts: (c: Counts) => string): Promise<string> {
-  const { data, error } = await supabase.functions.invoke('ifsc-sync', { body });
-  if (!error) return counts(data ?? {});
-  const res = (error as { context?: Response }).context;
-  const j = res && typeof res.json === 'function' ? await res.json().catch(() => null) : null;
-  if (j?.status === 'busy') throw new Busy();
-  throw new Error(j?.error ?? error.message);
-}
 
 /** The daily IFSC sync: last runs, run now, and athletes waiting for an admin to confirm who they are. */
 function IfscSync() {
@@ -252,10 +239,7 @@ function IfscSync() {
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [linkedIds, setLinkedIds] = useState(new Set<string>());
-  const fill = (s: string, v: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (_, k) => String(v[k] ?? ''));
-  const counts = (c: Counts) => [fill(t('ifscCounts'), { added: c.added ?? 0, updated: c.updated ?? 0, linked: c.linked ?? 0,
-    pending: c.pending ?? 0, world: c.world ?? 0 }), c.warnings?.length ? fill(t('ifscWarnings'), { n: c.warnings.length }) : '']
-    .filter(Boolean).join(' · ');
+  const counts = (c: SyncCounts) => countsText(t, c);
   const statusKey = { ok: 'ifscOk', failed: 'ifscFailed', running: 'ifscRunning' } as const;
   const pending = athletes.filter((a) => a.status === 'pending');
   const ignored = athletes.filter((a) => a.status === 'ignored');
@@ -283,7 +267,7 @@ function IfscSync() {
 
   const sync = async (body: { athlete?: number }) => {
     setWorking(true); setNote(null);
-    try { setNote(await invokeSync(body, counts)); setError(null); }
+    try { setNote(counts(await invokeSync(body))); setError(null); }
     catch (e) {
       if (!(e instanceof Busy)) setError((e as Error).message);
       else if (body.athlete !== undefined) { setNote(t('ifscBusyLater')); setError(null); }
@@ -308,7 +292,11 @@ function IfscSync() {
     setWorking(true);
     const { data, error: e } = await supabase.from('profiles').update({ ifsc_id: String(a.ifsc_athlete_id) })
       .eq('id', profileId).is('ifsc_id', null).select('id');
-    if (e || !data?.length) { setError(e?.message ?? t('ifscAlreadyLinked')); setWorking(false); return; }
+    if (e || !data?.length) {
+      setError(e?.code === '23505' ? t('ifscIdTaken') : e?.message ?? t('ifscAlreadyLinked'));
+      setWorking(false);
+      return;
+    }
     setPicking(null);
     await sync({ athlete: a.ifsc_athlete_id });
   };
@@ -357,7 +345,8 @@ function IfscSync() {
             <span className="event-main">
               <span className="event-title">{a.firstname} {a.lastname}</span>
               <span className="muted small">
-                {[gender(a.gender), a.birthday, fill(t('ifscResults'), { n: a.results.length }), suggested(a)].filter(Boolean).join(' · ')}
+                {[gender(a.gender), a.birthday ?? t('ifscBirthdayUnknown'), fill(t('ifscResults'), { n: a.results.length }), suggested(a)]
+                  .filter(Boolean).join(' · ')}
               </span>
               {a.suggested_profile && !confident(a) && <span className="error small">{t('ifscWeak')}</span>}
               {events(a).map((name) => <span key={name} className="muted small" dir="ltr">{name}</span>)}
@@ -395,7 +384,7 @@ function IfscSync() {
           onConfirm={() => void confirm(linking.a, linking.profile.id)} onCancel={() => setLinking(null)}>
           <p className="sheet-result">{fill(t('ifscLinkQuestion'), { ifsc: `${linking.a.firstname} ${linking.a.lastname}`, name: profileName(linking.profile) })}</p>
           <p className="muted small">
-            {[gender(linking.a.gender), linking.a.birthday, linking.profile.club].filter(Boolean).join(' · ')}
+            {[gender(linking.a.gender), linking.a.birthday ?? t('ifscBirthdayUnknown'), linking.profile.club].filter(Boolean).join(' · ')}
           </p>
           <p>{fill(t('ifscLinkText'), { ifsc: `${linking.a.firstname} ${linking.a.lastname}`, name: profileName(linking.profile) })}</p>
         </Sheet>

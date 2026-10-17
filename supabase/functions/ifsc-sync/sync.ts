@@ -101,22 +101,25 @@ function worldDate(today: string, season: string, stored: WorldRow[]): string | 
   return stored.some((r) => r.as_of === official) ? null : official;
 }
 
-/** Israeli positions of the four world lists on `date`, by IFSC athlete id. Throws if any list fails or is empty. */
-async function worldList(ifsc: Ifsc, date: string): Promise<{ athlete: number; discipline: Discipline; position: number }[]> {
-  const out: { athlete: number; discipline: Discipline; position: number }[] = [];
-  for (const [dcat, discipline] of WORLD_DCATS) {
-    const path = `/api/v1/cuwr/${dcat}?date=${date}`;
-    const ranking = list(await ifsc.get(path), 'ranking', path);
-    if (!ranking.length) throw new Error(`IFSC ${path}: empty world ranking`);
-    for (const x of ranking) {
-      if (x.country === 'ISR' && x.rank) out.push({ athlete: x.athlete_id, discipline, position: x.rank });
-    }
-  }
+type WorldIsr = { athlete: number; discipline: Discipline; position: number };
+
+/** Israeli positions of one world list (by IFSC athlete id); throws if it fails or is empty. */
+async function worldListOf(ifsc: Ifsc, dcat: number, discipline: Discipline, date: string): Promise<WorldIsr[]> {
+  const path = `/api/v1/cuwr/${dcat}?date=${date}`;
+  const ranking = list(await ifsc.get(path), 'ranking', path);
+  if (!ranking.length) throw new Error(`IFSC ${path}: empty world ranking`);
+  return ranking.filter((x) => x.country === 'ISR' && x.rank).map((x) => ({ athlete: x.athlete_id, discipline, position: x.rank }));
+}
+
+/** All four world lists on `date`; throws at the first failure. */
+async function worldList(ifsc: Ifsc, date: string): Promise<WorldIsr[]> {
+  const out: WorldIsr[] = [];
+  for (const [dcat, discipline] of WORLD_DCATS) out.push(...await worldListOf(ifsc, dcat, discipline, date));
   return out;
 }
 
 /** World positions of linked athletes, one per climber and discipline. */
-function worldPositions(isr: { athlete: number; discipline: Discipline; position: number }[], links: Map<number, string>): WorldPosition[] {
+function worldPositions(isr: WorldIsr[], links: Map<number, string>): WorldPosition[] {
   const seen = new Set<string>();
   const rows: WorldPosition[] = [];
   for (const w of isr) {
@@ -135,9 +138,10 @@ const sameWorld = (stored: WorldRow[], rows: WorldPosition[], asOf: string) => s
 /**
  * One sync run. Every IFSC request happens before the first store write. The season, league and event lists must
  * all succeed, else the run fails and writes nothing. A category or athlete whose request fails (non-JSON, HTTP
- * error, malformed answer) is skipped with a warning, nothing is written for it, and the next run tries again;
- * but when at least two such requests were made and every one failed, IFSC is taken as down and the run fails.
- * A failing world list skips the world part only (the stored positions stay).
+ * error, malformed answer) is skipped with a warning, nothing is written for it, and the next run tries again.
+ * A failing world list skips the world part only (the stored positions stay). When at least two category, athlete
+ * and world-list requests were made and every one failed, IFSC is taken as down and the run fails; any success
+ * (e.g. the world lists) keeps it a run with warnings, so a few broken categories never block the world update.
  */
 export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { onlyAthlete?: number } = {}): Promise<RunSummary> {
   const linked = await store.linkedProfiles();
@@ -235,28 +239,32 @@ export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { o
     details.set(id, { firstname: d.firstname ?? a.firstname, lastname: d.lastname ?? a.lastname,
       gender: d.gender ?? null, birthday: d.birthday ?? null });
   }
-  if (tried >= 2 && sum.warnings.length === tried) throw new Error(`IFSC failing: every request failed (${sum.warnings[0]})`);
 
-  // 3. World ranking (see worldDate).
+  // 3. World ranking (see worldDate): every list is asked (each counts for the outage check); one failing skips the
+  // world part.
   const stored = await store.worldRows(season);
   const wDate = worldDate(today, season, stored);
-  let worldIsr: Awaited<ReturnType<typeof worldList>> | null = null;
+  let worldIsr: WorldIsr[] | null = null;
   if (wDate) {
-    try {
-      worldIsr = await worldList(ifsc, wDate);
-    } catch (e) {
-      sum.warnings.push(`world ranking skipped: ${message(e)}`);
+    const lists: (WorldIsr[] | null)[] = [];
+    for (const [dcat, discipline] of WORLD_DCATS) {
+      lists.push(await attempt(() => worldListOf(ifsc, dcat, discipline, wDate)
+        .catch((e) => { throw new Error(`world ranking skipped: ${message(e)}`); })));
     }
+    if (lists.every((l) => l)) worldIsr = lists.flatMap((l) => l!);
   }
+  if (tried >= 2 && sum.warnings.length === tried) throw new Error(`IFSC failing: every request failed (${sum.warnings[0]})`);
 
-  // 4. Matching (store reads only). A profile already linked, or claimed earlier in this run, is not matched again.
+  // 4. Matching (store reads only). A profile already linked, or claimed earlier in this run, is not matched again;
+  // an athlete an admin ignored (or unlinked) is never linked by the sync, only suggested.
+  const waiting = await store.pendingResults();
   const taken = new Set(linked.values());
   const newLinks = new Map<number, string>();
   const pending: PendingAthlete[] = [];
   for (const [id, d] of details) {
     const cands = d.birthday ? (await store.candidates(d.birthday)).filter((c) => !taken.has(c.id)) : [];
     const m = pickMatch(d, cands);
-    if (m.status === 'match' && ![...newLinks.values()].includes(m.profileId)) {
+    if (m.status === 'match' && waiting.get(id)?.status !== 'ignored' && ![...newLinks.values()].includes(m.profileId)) {
       newLinks.set(id, m.profileId);
       continue;
     }
@@ -264,7 +272,6 @@ export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { o
     pending.push({ ifsc_athlete_id: id, ...d, suggested_profile, score, results: athletes.get(id)!.rows });
   }
   const skip = { manual: await store.manualGroups(), dismissed: await store.dismissed() };
-  const waiting = await store.pendingResults();
 
   // 5. Writes. A waiting row is cleared only once its results are in.
   for (const [id, profile] of newLinks) {
@@ -277,8 +284,10 @@ export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { o
     if (!profile) continue;
     const w = waiting.get(id);
     const fresh = dedupe(athletes.get(id)?.rows ?? []).filter(notDismissed(skip, profile));
-    // IFSC may revise a recent result (a late appeal, a disqualification): the rows seen now win.
-    if (fresh.length) sum.updated += await store.correctResults(profile, fresh);
+    // IFSC may revise a recent result (a late appeal, a disqualification): the rows seen now win, outside groups
+    // with ILCA-published points.
+    const correctable = fresh.filter((r) => !skip.manual.has(groupKey(r)));
+    if (correctable.length) sum.updated += await store.correctResults(profile, correctable);
     sum.added += await importRows(store, skip, profile, [...fresh, ...(w?.results ?? [])]);
     if (w) await store.clearPending(id);
   }

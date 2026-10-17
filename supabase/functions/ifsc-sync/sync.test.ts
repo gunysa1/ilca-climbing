@@ -221,7 +221,8 @@ describe('runSync', () => {
   it.each([
     ['a league without events', { '/api/v1/season_leagues/457': {} }],
     ['a failing season list', { '/api/v1/': undefined }],
-    ['every category and athlete request failing', { '/api/v1/events/1500/result/3': undefined, '/api/v1/events/1503/result/3': undefined }],
+    ['every category and world-list request failing', { '/api/v1/events/1500/result/3': undefined, '/api/v1/events/1503/result/3': undefined,
+      ...Object.fromEntries([3, 7, 1, 5].map((c) => [`/api/v1/cuwr/${c}?date=2026-10-17`, undefined])) }],
   ])('rejects on %s without writing anything', async (_, over) => {
     const s = base();
     const o = { ...twoCategories, ...over } as Record<string, unknown>;
@@ -280,6 +281,59 @@ describe('runSync', () => {
     expect(sum).toMatchObject({ added: 2, linked: 1, pending: 1, world: 0 });
     expect(sum.warnings).toEqual([expect.stringContaining('world ranking')]);
     expect(s.world.replaced).toEqual([]);
+  });
+
+  it('two categories failing while the world lists answer: an ok run with warnings, the world written', async () => {
+    const s = base();
+    const o: Record<string, unknown> = { ...twoCategories, '/api/v1/events/1500/result/3': undefined, '/api/v1/events/1503/result/3': undefined };
+    const { ifsc } = api(o);
+    const failing: Ifsc = { get: async (p) => { if (p in o && o[p] === undefined) throw new Error(`IFSC ${p}: HTTP 404`); return ifsc.get(p); } };
+    const sum = await runSync(failing, s.store, '2026-10-17');
+    expect(sum.warnings).toHaveLength(2);
+    expect(sum.world).toBe(1); // p1 (linked); 102 was never seen, so not linked
+    expect(s.world.replaced).toHaveLength(1);
+  });
+
+  it('exactly one category, failing: an ok run with a warning (one request is not an outage)', async () => {
+    const s = base();
+    const o: Record<string, unknown> = { '/api/v1/events/1500/result/3': undefined };
+    const { ifsc } = api(o);
+    const failing: Ifsc = { get: async (p) => { if (p in o) throw new Error(`IFSC ${p}: HTTP 404`); return ifsc.get(p); } };
+    const sum = await runSync(failing, s.store, '2026-10-17');
+    expect(sum.warnings).toEqual([expect.stringContaining('/api/v1/events/1500/result/3')]);
+    expect(sum.world).toBe(1);
+  });
+
+  it('tried = 1: one failing category and no world list due (after January) is a warning, not a failed run', async () => {
+    const s = memStore({ linked: [[101, 'p1']], world: [{ climber_id: 'p1', discipline: 'boulder', position: 40, as_of: '2027-01-01' }] });
+    const o: Record<string, unknown> = {
+      '/api/v1/seasons/38': { leagues: [] },
+      '/api/v1/seasons/39': { leagues: [{ name: 'World Cups and World Championships', url: '/api/v1/season_leagues/500' }] },
+      '/api/v1/season_leagues/500': { events: [{ event_id: 1600, event: 'IFSC World Cup Keqiao 2027', local_start_date: '2027-03-01',
+        d_cats: [{ id: 3, name: 'BOULDER Men', status: 'finished', result_url: '/api/v1/events/1600/result/3' }] }] },
+    };
+    const { ifsc, calls } = api(o);
+    const failing: Ifsc = { get: async (p) => { if (p === '/api/v1/events/1600/result/3') throw new Error(`IFSC ${p}: HTTP 404`); return ifsc.get(p); } };
+    const sum = await runSync(failing, s.store, '2027-03-05');
+    expect(sum).toEqual({ added: 0, updated: 0, linked: 0, pending: 0, world: 0, warnings: [expect.stringContaining('1600')] });
+    expect(calls.some((c) => c.includes('cuwr'))).toBe(false);
+  });
+
+  it('does not correct rows in a group with ILCA-published (manual) points', async () => {
+    const s = memStore({ linked: [[101, 'p1']], manual: ['2026-27|senior|boulder'], results: [['p1', [{ season: '2026-27', discipline: 'boulder',
+      event_type: 'world_cup', event_name: 'IFSC World Cup Prague 2026 (BOULDER Men)', starts_on: '2026-09-20', ifsc_event_id: 1500,
+      ifsc_dcat_id: 3, place: 6, field_size: 70, reached: 'semifinal' }]]] });
+    expect((await runSync(api().ifsc, s.store, '2026-10-17')).updated).toBe(0);
+    expect(s.results.get('p1')).toMatchObject([{ place: 6, field_size: 70, reached: 'semifinal' }]);
+  });
+
+  it('never links an ignored athlete by itself, even on a confident match', async () => {
+    const s = memStore({ linked: [[101, 'p1']], candidates: [p2], pending: [{ ifsc_athlete_id: 102, firstname: 'IFSC', lastname: '#102',
+      gender: null, birthday: null, suggested_profile: null, score: null, status: 'ignored', results: [] }] });
+    const sum = await runSync(api().ifsc, s.store, '2026-10-17');
+    expect(sum.linked).toBe(0);
+    expect(s.linked.has(102)).toBe(false);
+    expect(s.pending.get(102)).toMatchObject({ status: 'ignored', firstname: 'Yonatan', lastname: 'COHEN', suggested_profile: 'p2' });
   });
 
   it('corrects place, field size and round of recent IFSC rows, never manual ones', async () => {

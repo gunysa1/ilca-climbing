@@ -494,7 +494,7 @@ step('rankings admin: IFSC runs with warnings; Confirm only for a confident matc
   await ifsc.locator('li:not(details li)', { hasText: 'Gone Away' }).getByRole('button', { name: 'Not on the team' }).waitFor();
 }
 
-step('people admin: IFSC link shown, unlink asked first, edit');
+step('people admin: IFSC link shown, unlink asked first, edit loads the athlete, replacing asks first, a taken number is explained');
 {
   await p.goto(`${base}/admin/people`);
   const climbers = p.locator('.panel', { hasText: 'Climbers' });
@@ -513,6 +513,21 @@ step('people admin: IFSC link shown, unlink asked first, edit');
   await dana.getByLabel('IFSC athlete number').fill('9005');
   await dana.getByRole('button', { name: 'Save' }).click();
   await dana.getByRole('link', { name: '9005' }).waitFor();
+  await p.getByText('IFSC: 0 added · 0 corrected').waitFor(); // the { athlete } import ran (stubbed function)
+  // Replacing an existing number asks first; a number linked to someone else is refused with a clear message.
+  await dana.getByRole('button', { name: 'Edit' }).click();
+  await dana.getByLabel('IFSC athlete number').fill('7001');
+  await dana.getByRole('button', { name: 'Save' }).click();
+  const replace = p.getByRole('dialog', { name: 'Replace the IFSC number' });
+  await replace.getByText('Replace IFSC 9005 with 7001 for Dana Suggested?').waitFor();
+  await replace.getByRole('button', { name: 'Replace' }).click();
+  await p.getByText('This IFSC number is already linked to another climber').waitFor();
+  await dana.getByRole('link', { name: '9005' }).waitFor();
+  // the refused update is expected: take its 409 (response and console line) off the problem list
+  for (const re of [/^409 PATCH .*\/rest\/v1\/profiles/, /^console: .*409/]) {
+    const i = problems.findIndex((x) => re.test(x));
+    if (i < 0) { if (re.source.startsWith('^409')) problems.push('no 409 for the taken IFSC number'); } else problems.splice(i, 1);
+  }
 }
 
 await p.goto(`${view}/rankings?season=2026-27&c=senior&g=female&d=boulder`);

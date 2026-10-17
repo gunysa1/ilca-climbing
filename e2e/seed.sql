@@ -25,3 +25,5 @@ insert into ifsc_pending (ifsc_athlete_id, firstname, lastname, gender, birthday
    '[{"event_name": "IFSC World Cup Prague 2026 (BOULDER Women)"}, {"event_name": "IFSC World Cup Bern 2026 (BOULDER Women)"}]'),
   (9002, 'Weak', 'Guess', 'male', '2009-02-02', '00000000-0000-0000-0000-0000000000a4', 0.15, 'pending', '[{}]'),
   (9003, 'Gone', 'Away', 'male', null, null, null, 'ignored', '[{}]');
+-- A profile already linked to IFSC athlete 7001 (People admin: "already linked" message).
+update profiles set ifsc_id = '7001' where full_name = 'Judge Yossi';
