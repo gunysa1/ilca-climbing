@@ -182,6 +182,6 @@ Each item is small and independent; batch the UI ones into one dispatch.
 - [ ] **Revised 1 January list:** during January, re-fetch `?date=<end year>-01-01` daily and replace when it differs from the stored rows; after January leave it alone.
 - [ ] **World ranking for a newly confirmed athlete:** the `{ athlete }` run also writes that athlete's world-ranking rows from the current list.
 - [ ] **Hard lock:** partial unique index on `ifsc_sync_runs (status) where status = 'running'`, so two runs can never start together (replace the soft check).
-- [ ] **Account deletion:** check `delete_account_profile` with a profile referenced only by `ifsc_pending.suggested_profile`; that reference should not keep the profile (it is `on delete set null`).
+- [x] **Account deletion:** a profile referenced only by `ifsc_pending.suggested_profile` is deleted with its account (user decision 2026-10-17; migration 032).
 - [ ] **Merging duplicate profiles (future work):** the merge must move `ifsc_id` to the kept profile (unique index), plus `ifsc_dismissed` and `suggested_profile` references.
 - [ ] **Birthdays in `ifsc_pending`:** clear `birthday` when an athlete is ignored (it was only needed for matching).

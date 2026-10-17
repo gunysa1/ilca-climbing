@@ -1030,6 +1030,12 @@ select pg_temp.assert(not delete_account_profile('dddd0000-0000-0000-0000-000000
 select pg_temp.assert(exists (select 1 from coach_notes where coach_id = 'dddd0000-0000-0000-0000-000000000003'), 'the coach notes are still there');
 select pg_temp.assert(not delete_account_profile('dddd0000-0000-0000-0000-000000000004'), 'a profile with private data is kept');
 reset role;
+insert into profiles (id, full_name) values ('dddd0000-0000-0000-0000-000000000005', 'Only suggested');
+insert into ifsc_pending (ifsc_athlete_id, firstname, lastname, suggested_profile) values (777001, 'Only', 'Suggested', 'dddd0000-0000-0000-0000-000000000005');
+set role service_role;
+select pg_temp.assert(delete_account_profile('dddd0000-0000-0000-0000-000000000005'), 'an IFSC suggestion alone does not keep a profile');
+select pg_temp.assert((select suggested_profile from ifsc_pending where ifsc_athlete_id = 777001) is null, 'the athlete stays waiting, without the suggestion');
+reset role;
 select pg_temp.login('00000000-0000-0000-0000-00000000000a');
 select pg_temp.denied($$select delete_account_profile('dddd0000-0000-0000-0000-000000000002')$$, 'admin calls delete_account_profile directly');
 reset role;
