@@ -26,8 +26,15 @@ export function sameSecret(given: string | null, expected: string | undefined): 
   return diff === 0;
 }
 
-/** The ifsc-sync request body: `{}` (full run) or `{ athlete: <positive integer> }`. */
-export function parseSyncBody(body: unknown): { athlete?: number } | { error: string } {
+/** The ifsc-sync request body (raw text): empty or `{}` (full run), or `{ "athlete": <positive integer> }`. */
+export function parseSyncBody(raw: string): { athlete?: number } | { error: string } {
+  if (!raw.trim()) return {};
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return { error: 'invalid body' };
+  }
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return { error: 'invalid body' };
   const athlete = (body as { athlete?: unknown }).athlete;
   if (athlete === undefined) return {};

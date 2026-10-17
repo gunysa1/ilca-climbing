@@ -11,13 +11,14 @@ function check<T>(r: { data: T | null; error: { message: string } | null }, what
   return r.data as T;
 }
 
-/** All rows of a query, past PostgREST's row limit. */
+/** All rows of a query, page by page until an empty page (a short page does not end it: the server's row limit
+ *  may be below PAGE). Each query must have a stable order. */
 async function all<T>(what: string, page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
   const out: T[] = [];
   for (let from = 0; ; from += PAGE) {
     const rows = check(await page(from, from + PAGE - 1), what) ?? [];
+    if (!rows.length) return out;
     out.push(...rows);
-    if (rows.length < PAGE) return out;
   }
 }
 
@@ -30,6 +31,7 @@ export function supabaseStore(db: SupabaseClient): Store {
         db.from('profiles').select('id, ifsc_id').not('ifsc_id', 'is', null).order('id').range(a, b));
       const m = new Map<number, string>();
       for (const r of rows) {
+        if (!/^\d+$/.test(r.ifsc_id)) continue;
         const n = Number(r.ifsc_id);
         if (Number.isSafeInteger(n) && n > 0) m.set(n, r.id);
       }
@@ -40,7 +42,8 @@ export function supabaseStore(db: SupabaseClient): Store {
       const priv = check(await db.from('profile_private').select('id').eq('birth_date', birthday), 'profile_private') ?? [];
       if (!priv.length) return [];
       const ids = priv.map((p: { id: string }) => p.id);
-      const profiles = check(await db.from('profiles').select('id, full_name, full_name_he, gender').in('id', ids), 'profiles') ?? [];
+      const profiles = check(await db.from('profiles').select('id, full_name, full_name_he, gender')
+        .in('id', ids).is('ifsc_id', null), 'profiles') ?? [];
       return profiles.map((p: Omit<Candidate, 'birth_date'>) => ({ ...p, birth_date: birthday }));
     },
 
@@ -73,14 +76,15 @@ export function supabaseStore(db: SupabaseClient): Store {
         if (!existing) { add.push(r); continue; }
         // Existing rows are never changed, except their IFSC ids where still unset.
         for (const h of existing) {
-          if (h.ifsc_event_id === null) {
-            check(await db.from('international_results').update({ ifsc_event_id: r.ifsc_event_id })
-              .eq('id', h.id).is('ifsc_event_id', null), 'international_results ifsc_event_id');
-          }
-          if (h.ifsc_dcat_id === null) {
-            check(await db.from('international_results').update({ ifsc_dcat_id: r.ifsc_dcat_id })
-              .eq('id', h.id).is('ifsc_dcat_id', null), 'international_results ifsc_dcat_id');
-          }
+          const fill: { ifsc_event_id?: number; ifsc_dcat_id?: number } = {};
+          if (h.ifsc_event_id === null) fill.ifsc_event_id = r.ifsc_event_id;
+          if (h.ifsc_dcat_id === null) fill.ifsc_dcat_id = r.ifsc_dcat_id;
+          if (!Object.keys(fill).length) continue;
+          let q = db.from('international_results').update(fill).eq('id', h.id);
+          for (const col of Object.keys(fill)) q = q.is(col, null);
+          check(await q, 'international_results ifsc ids');
+          h.ifsc_event_id ??= r.ifsc_event_id;
+          h.ifsc_dcat_id ??= r.ifsc_dcat_id;
         }
       }
       if (!add.length) return 0;
@@ -131,4 +135,25 @@ export function supabaseStore(db: SupabaseClient): Store {
       }
     },
   };
+}
+
+const STALE_MINUTES = 15;
+
+/** Starts a run in ifsc_sync_runs, one at a time: runs still `running` after 15 minutes are marked failed
+ *  ('timed out'); if another run is younger, returns null (busy). Soft lock: two calls in the same instant can
+ *  both start. */
+export async function startRun(db: SupabaseClient): Promise<number | null> {
+  const cutoff = new Date(Date.now() - STALE_MINUTES * 60_000).toISOString();
+  check(await db.from('ifsc_sync_runs').update({ status: 'failed', error: 'timed out', finished_at: new Date().toISOString() })
+    .eq('status', 'running').lt('started_at', cutoff), 'ifsc_sync_runs stale');
+  const busy = check(await db.from('ifsc_sync_runs').select('id').eq('status', 'running').limit(1), 'ifsc_sync_runs') ?? [];
+  if (busy.length) return null;
+  const run = check(await db.from('ifsc_sync_runs').insert({ status: 'running' }).select('id').single(), 'ifsc_sync_runs insert') as { id: number };
+  return run.id;
+}
+
+/** Ends a run (ok with counts, or failed with the error). Logs, never throws: the reply must still go out. */
+export async function finishRun(db: SupabaseClient, id: number, fields: Record<string, unknown>): Promise<void> {
+  const { error } = await db.from('ifsc_sync_runs').update({ ...fields, finished_at: new Date().toISOString() }).eq('id', id);
+  if (error) console.error(`ifsc_sync_runs ${id} finish: ${error.message}`);
 }

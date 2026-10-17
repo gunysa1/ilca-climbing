@@ -130,6 +130,9 @@ Manual run: "run now" on the admin page, or `POST <project_url>/functions/v1/ifs
 `x-sync-secret` (or an admin's `Authorization: Bearer` token) and body `{}`; `{"athlete": <IFSC id>}`
 imports the waiting results of a just-linked athlete. Each call logs a row in `ifsc_sync_runs`
 (`running`, then `ok` with counts or `failed` with the error), shown on the admin page.
+One run at a time: a call while another runs gets 409 `busy`; a run still `running` after 15 minutes
+is marked `failed` ("timed out"). The sync's world-ranking replace keeps only climbers with an
+`ifsc_id`: positions of unlinked climbers (e.g. loaded by `tools/ifsc/world_ranking.py`) are dropped.
 
 ### IFSC international results (`tools/ifsc`, backfills)
 

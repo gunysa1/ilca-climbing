@@ -33,9 +33,11 @@ describe('ifsc-sync request', () => {
     expect(sameSecret('anything', undefined)).toBe(false);
   });
   it('reads the body', () => {
-    expect(parseSyncBody({})).toEqual({});
-    expect(parseSyncBody({ athlete: 1234 })).toEqual({ athlete: 1234 });
-    for (const athlete of [0, -1, 1.5, '1234', null, Number.NaN]) expect(parseSyncBody({ athlete })).toEqual({ error: 'invalid athlete' });
-    for (const body of [null, [], 'x', 3]) expect(parseSyncBody(body)).toEqual({ error: 'invalid body' });
+    expect(parseSyncBody('')).toEqual({});
+    expect(parseSyncBody('  ')).toEqual({});
+    expect(parseSyncBody('{}')).toEqual({});
+    expect(parseSyncBody('{"athlete": 1234}')).toEqual({ athlete: 1234 });
+    for (const a of ['0', '-1', '1.5', '"1234"', 'null']) expect(parseSyncBody(`{"athlete": ${a}}`)).toEqual({ error: 'invalid athlete' });
+    for (const raw of ['{', 'not json', 'null', '[]', '"x"', '3']) expect(parseSyncBody(raw)).toEqual({ error: 'invalid body' });
   });
 });

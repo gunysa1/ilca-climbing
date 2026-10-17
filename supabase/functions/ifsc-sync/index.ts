@@ -1,10 +1,11 @@
 // Daily IFSC sync (pg_cron with the x-sync-secret header) or a manual run by an admin (staff app).
 // Body {} runs the full sync; { athlete } imports the waiting results of an athlete an admin just linked.
-// Every call is logged in ifsc_sync_runs (running → ok with counts, or failed with the error).
+// Every call is logged in ifsc_sync_runs (running → ok with counts, or failed with the error); one run at a time
+// (409 busy while another runs; a run still running after 15 minutes is marked failed).
 import { json, cors, requireAdmin, serviceClient } from '../_shared/admin.ts';
 import { parseSyncBody, sameSecret } from '../_shared/pure.ts';
 import { runSync, type Ifsc } from './sync.ts';
-import { supabaseStore } from './store.ts';
+import { finishRun, startRun, supabaseStore } from './store.ts';
 
 const BASE = 'https://ifsc.results.info';
 
@@ -40,22 +41,26 @@ Deno.serve(async (req) => {
     if ('response' in caller) return json({ error: 'unauthorized' }, 401);
   }
 
-  const input = parseSyncBody(await req.json().catch(() => ({})));
+  const input = parseSyncBody(await req.text().catch(() => ''));
   if ('error' in input) return json(input, 400);
 
-  const { data: run, error: runError } = await db.from('ifsc_sync_runs').insert({ status: 'running' }).select('id').single();
-  if (runError || !run) return json({ status: 'failed', error: `run log: ${runError?.message ?? 'no row'}` }, 500);
-  const finish = (fields: Record<string, unknown>) =>
-    db.from('ifsc_sync_runs').update({ ...fields, finished_at: new Date().toISOString() }).eq('id', run.id);
+  let run: number | null;
+  try {
+    run = await startRun(db);
+  } catch (e) {
+    return json({ status: 'failed', error: `run log: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500) }, 500);
+  }
+  if (run === null) return json({ status: 'busy' }, 409);
+  const id = run;
 
   try {
     const today = new Date().toISOString().slice(0, 10);
     const summary = await runSync(ifscFetcher(), supabaseStore(db), today, { onlyAthlete: input.athlete });
-    await finish({ status: 'ok', ...summary });
+    await finishRun(db, id, { status: 'ok', ...summary });
     return json({ status: 'ok', ...summary });
   } catch (e) {
     const error = (e instanceof Error ? e.message : String(e)).slice(0, 500);
-    await finish({ status: 'failed', error });
+    await finishRun(db, id, { status: 'failed', error });
     return json({ status: 'failed', error }, 500);
   }
 });
