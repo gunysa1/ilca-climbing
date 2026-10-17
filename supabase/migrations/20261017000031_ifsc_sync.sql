@@ -1,5 +1,6 @@
 -- Daily IFSC sync (edge function, service role): event ids on international_results, athletes waiting for
--- an admin to confirm a match, and a run log. The two new tables are admin-only.
+-- an admin to confirm a match, IFSC results an admin deleted (never imported again), and a run log. The three
+-- new tables are admin-only.
 alter table public.international_results
   add column ifsc_event_id int,
   add column ifsc_dcat_id  int;
@@ -30,14 +31,25 @@ create table public.ifsc_sync_runs (
   error       text
 );
 
+create table public.ifsc_dismissed (
+  climber_id    uuid not null references public.profiles (id) on delete cascade,
+  ifsc_event_id int not null,
+  ifsc_dcat_id  int not null,
+  dismissed_at  timestamptz not null default now(),
+  primary key (climber_id, ifsc_event_id, ifsc_dcat_id)
+);
+
 alter table public.ifsc_pending enable row level security;
 alter table public.ifsc_sync_runs enable row level security;
+alter table public.ifsc_dismissed enable row level security;
 create policy ifsc_pending_admin on public.ifsc_pending for all
   using (public.has_role('admin')) with check (public.has_role('admin'));
 create policy ifsc_sync_runs_admin on public.ifsc_sync_runs for all
   using (public.has_role('admin')) with check (public.has_role('admin'));
-revoke all on public.ifsc_pending, public.ifsc_sync_runs from anon, authenticated;
-grant select, insert, update, delete on public.ifsc_pending, public.ifsc_sync_runs to authenticated;
+create policy ifsc_dismissed_admin on public.ifsc_dismissed for all
+  using (public.has_role('admin')) with check (public.has_role('admin'));
+revoke all on public.ifsc_pending, public.ifsc_sync_runs, public.ifsc_dismissed from anon, authenticated;
+grant select, insert, update, delete on public.ifsc_pending, public.ifsc_sync_runs, public.ifsc_dismissed to authenticated;
 
 -- profiles.ifsc_id now decides whose IFSC results the sync imports: only admins (or the sync's service
 -- role) set it, and one IFSC athlete is one profile.

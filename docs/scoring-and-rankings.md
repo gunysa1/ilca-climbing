@@ -101,7 +101,9 @@ U17 = E-16…E-15.
 - Admin adjustments (e.g. disciplinary deductions published by ILCA) are added last.
 - International results: the points ILCA published (2023-24 seniors, 2024-25 youth bouldering),
   results imported from IFSC for the other seasons and tables (`tools/ifsc`, 2023-24 to 2025-26),
-  and admin entries (place, field size, last round reached, or published points).
+  and admin entries (place, field size, last round reached, or published points). A (season, class,
+  discipline) group with ILCA-published points takes only those: other international rows of the group
+  are ignored (class: youth for youth events and published youth points, else senior).
 - The season of an international event is its calendar year: the 24/25 ranking counts the events
   of 2024 (the criteria's worked examples). Checked against ILCA's 24/25 youth bouldering bonus:
   18 of 19 climbers identical.
@@ -134,7 +136,8 @@ loaded the page marks the positions *provisional* (and says so when none are loa
 for the rankings (from 2023-24); international events, which score 0 for seniors in 2026-27, are
 never marked as counted.
 
-No IFSC results or world rankings are imported for 2026-27 yet.
+IFSC results and world-ranking positions for 2026-27 are imported daily by the `ifsc-sync` edge
+function (docs/operations.md).
 
 ### Validation
 

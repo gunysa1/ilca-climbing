@@ -7,7 +7,7 @@ const key = (r: ResultRow) => `${r.discipline}|${r.event_name}|${r.starts_on}`;
 
 /** In-memory store; `writes` lists every write call. */
 function memStore(init: { linked?: [number, string][]; candidates?: Candidate[]; manual?: string[]; pending?: Pending[];
-  world?: { as_of: string }[] } = {}) {
+  world?: { as_of: string }[]; dismissed?: string[] } = {}) {
   const linked = new Map(init.linked ?? []);
   const results = new Map<string, ResultRow[]>();
   const pending = new Map((init.pending ?? []).map((p) => [p.ifsc_athlete_id, p]));
@@ -17,6 +17,7 @@ function memStore(init: { linked?: [number, string][]; candidates?: Candidate[];
     linkedProfiles: async () => new Map(linked),
     candidates: async (birthday) => (init.candidates ?? []).filter((c) => c.birth_date === birthday),
     manualGroups: async () => new Set(init.manual ?? []),
+    dismissed: async () => new Set(init.dismissed ?? []),
     pendingResults: async () => new Map([...pending].map(([id, p]) => [id, { status: p.status, results: structuredClone(p.results) }])),
     clearPending: async (id) => { writes.push(`clear ${id}`); pending.delete(id); },
     insertResults: async (climber, rows) => {
@@ -157,6 +158,25 @@ describe('runSync', () => {
     const s = memStore({ linked: [[101, 'p1']], candidates: [p2], manual: ['2026-27|senior|boulder'] });
     expect(await runSync(api().ifsc, s.store, '2026-10-17')).toEqual({ added: 0, linked: 1, pending: 1, world: 2 });
     expect(s.results.get('p1') ?? []).toEqual([]);
+  });
+
+  it('skips results an admin deleted (ifsc_dismissed), fresh or waiting', async () => {
+    const s = memStore({ linked: [[101, 'p1'], [108, 'p8']], candidates: [p2], dismissed: ['p1|1500|3', 'p8|1490|3'],
+      pending: [{ ifsc_athlete_id: 108, firstname: 'A', lastname: 'B', gender: null, birthday: null, suggested_profile: null,
+        score: null, status: 'pending', results: [row(), row({ event_name: 'Other (BOULDER Men)', ifsc_event_id: 1491 })] }] });
+    expect((await runSync(api().ifsc, s.store, '2026-10-17')).added).toBe(2); // p2: Prague; p8: Other
+    expect(s.results.get('p1') ?? []).toEqual([]);
+    expect(s.results.get('p8')?.map((r) => r.ifsc_event_id)).toEqual([1491]);
+    expect(s.pending.has(108)).toBe(false);
+  });
+
+  it('onlyAthlete skips dismissed results too', async () => {
+    const s = memStore({ linked: [[103, 'p3']], dismissed: ['p3|1490|3'],
+      pending: [{ ifsc_athlete_id: 103, firstname: 'Dan', lastname: 'LEVI', gender: null, birthday: null,
+        suggested_profile: null, score: null, status: 'pending', results: [row()] }] });
+    expect((await runSync(api().ifsc, s.store, '2026-10-17', { onlyAthlete: 103 })).added).toBe(0);
+    expect(s.results.get('p3') ?? []).toEqual([]);
+    expect(s.pending.has(103)).toBe(false);
   });
 
   it('counts youth events in the youth class', async () => {

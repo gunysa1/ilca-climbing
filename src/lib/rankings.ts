@@ -293,9 +293,15 @@ export function computeRanking(input: RankingInput): RankingRow[] {
 
   // International results. Seniors: points per event (2025), or one event for the world ranking
   // position (2027; the international events are then shown with 0 points).
+  // A (class, discipline) group holding ILCA-published ('manual') rows takes only those: ILCA's points replace the
+  // other international rows of that group (e.g. ones the IFSC sync imported). Class: youth for youth event types
+  // and manual rows for youth, senior otherwise.
   const perEvent = criteria.seniorIntl === 'per_event';
+  const intlClass = (r: IntlResult) => (r.event_type === 'manual' ? r.for_class === 'youth' : YOUTH_INTL.includes(r.event_type)) ? 'youth' : 'senior';
+  const manualGroups = new Set(input.intl.filter((r) => r.event_type === 'manual').map((r) => `${intlClass(r)}|${r.discipline}`));
   for (const r of input.intl) {
     if (r.discipline !== discipline || !inClass(r.climber_id)) continue;
+    if (r.event_type !== 'manual' && manualGroups.has(`${intlClass(r)}|${r.discipline}`)) continue;
     if (youth) {
       const b = criteria.youthBonus(r);
       if (b > 0 || (r.event_type !== 'manual' && YOUTH_INTL.includes(r.event_type))) get(r.climber_id).bonus += b;

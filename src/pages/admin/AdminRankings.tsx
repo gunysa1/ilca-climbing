@@ -14,7 +14,7 @@ const EVENT_TYPES: IntlEventType[] = ['world_cup', 'world_championship', 'europe
   'european_youth_cup', 'european_youth_championship', 'world_youth_championship', 'manual'];
 const KINDS = ['qualification', 'semifinal', 'final'] as const;
 
-type IntlRow = IntlResult & { id: string; season: string };
+type IntlRow = IntlResult & { id: string; season: string; ifsc_dcat_id?: number | null };
 type AdjustmentRow = Adjustment & { id: string; season: string };
 
 /** Points of an international result under the criteria edition of its season. */
@@ -54,6 +54,16 @@ export function AdminRankings() {
     if (!error) await reload();
     return !error;
   };
+  // A deleted IFSC row is remembered in ifsc_dismissed, so the daily sync never imports it again.
+  const remove = async (r: IntlRow) => {
+    if (r.ifsc_event_id != null && r.ifsc_dcat_id != null) {
+      const ok = await run(supabase.from('ifsc_dismissed').upsert(
+        { climber_id: r.climber_id, ifsc_event_id: r.ifsc_event_id, ifsc_dcat_id: r.ifsc_dcat_id },
+        { onConflict: 'climber_id,ifsc_event_id,ifsc_dcat_id', ignoreDuplicates: true }));
+      if (!ok) return;
+    }
+    await run(supabase.from('international_results').delete().eq('id', r.id));
+  };
   const name = (id: string) => { const p = names.get(id); return p ? localized(lang, p.full_name, p.full_name_he) : id.slice(0, 8); };
 
   return (
@@ -81,13 +91,14 @@ export function AdminRankings() {
                   </span>
                 </td>
                 <td className="score">{r.event_type === 'manual' ? r.points : editionPoints(r)}</td>
-                <td><button className="link danger" onClick={() => run(supabase.from('international_results').delete().eq('id', r.id))}>{t('delete')}</button></td>
+                <td><button className="link danger" onClick={() => remove(r)}>{t('delete')}</button></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
       <IntlForm season={season} onAdd={(row) => run(supabase.from('international_results').insert(row))} />
+      <p className="muted small">{t('ifscAutoNote')}</p>
 
       <h2>{t('adjustments')}</h2>
       <ul className="event-list">
@@ -211,13 +222,17 @@ type SyncRun = { id: number; started_at: string; status: 'running' | 'ok' | 'fai
 type PendingAthlete = { ifsc_athlete_id: number; firstname: string; lastname: string; birthday: string | null;
   suggested_profile: string | null; score: number | null; results: unknown[] };
 
-/** Calls the ifsc-sync function; a non-2xx answer comes back as an error whose body holds the reason. */
-async function invokeSync(body: { athlete?: number }, busy: string, counts: (c: Counts) => string): Promise<string> {
+class Busy extends Error {}
+
+/** Calls the ifsc-sync function; a non-2xx answer comes back as an error whose body holds the reason
+ *  (`Busy` while another run is going). */
+async function invokeSync(body: { athlete?: number }, counts: (c: Counts) => string): Promise<string> {
   const { data, error } = await supabase.functions.invoke('ifsc-sync', { body });
   if (!error) return counts(data ?? {});
   const res = (error as { context?: Response }).context;
   const j = res && typeof res.json === 'function' ? await res.json().catch(() => null) : null;
-  throw new Error(j?.status === 'busy' ? busy : j?.error ?? error.message);
+  if (j?.status === 'busy') throw new Busy();
+  throw new Error(j?.error ?? error.message);
 }
 
 /** The daily IFSC sync: last runs, run now, and athletes waiting for an admin to confirm who they are. */
@@ -230,19 +245,22 @@ function IfscSync() {
   const [working, setWorking] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const none = useMemo(() => new Set<string>(), []);
+  const [linkedIds, setLinkedIds] = useState(new Set<string>());
   const fill = (s: string, v: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (_, k) => String(v[k] ?? ''));
   const counts = (c: Counts) => fill(t('ifscCounts'), { added: c.added ?? 0, linked: c.linked ?? 0, pending: c.pending ?? 0, world: c.world ?? 0 });
   const statusKey = { ok: 'ifscOk', failed: 'ifscFailed', running: 'ifscRunning' } as const;
 
   const reload = useCallback(async () => {
-    const [{ data: r, error: e1 }, { data: p, error: e2 }] = await Promise.all([
+    const [{ data: r, error: e1 }, { data: p, error: e2 }, { data: l }] = await Promise.all([
       supabase.from('ifsc_sync_runs').select('id, started_at, status, added, linked, pending, world, error')
         .order('started_at', { ascending: false }).limit(5),
       supabase.from('ifsc_pending').select('ifsc_athlete_id, firstname, lastname, birthday, suggested_profile, score, results')
         .eq('status', 'pending').order('lastname'),
+      // already linked profiles are left out of the picker (the confirm guard catches the rest)
+      supabase.from('profiles').select('id').not('ifsc_id', 'is', null),
     ]);
     setRuns((r ?? []) as SyncRun[]);
+    setLinkedIds(new Set(((l ?? []) as { id: string }[]).map((x) => x.id)));
     const list = (p ?? []) as PendingAthlete[];
     setPending(list);
     setError(e1?.message ?? e2?.message ?? null);
@@ -254,15 +272,23 @@ function IfscSync() {
 
   const sync = async (body: { athlete?: number }) => {
     setWorking(true); setNote(null);
-    try { setNote(await invokeSync(body, t('ifscBusy'), counts)); setError(null); }
-    catch (e) { setError((e as Error).message); }
+    try { setNote(await invokeSync(body, counts)); setError(null); }
+    catch (e) {
+      if (!(e instanceof Busy)) setError((e as Error).message);
+      else if (body.athlete !== undefined) { setNote(t('ifscBusyLater')); setError(null); }
+      else setError(t('ifscBusy'));
+    }
     setWorking(false);
     await reload();
   };
-  // The link stays even when the import fails: the next daily run imports the waiting results anyway.
+  // Links only a profile without an IFSC id. The link stays even when the import fails: the next daily run
+  // imports the waiting results anyway.
   const confirm = async (a: PendingAthlete, profileId: string) => {
-    const { error: e } = await supabase.from('profiles').update({ ifsc_id: String(a.ifsc_athlete_id) }).eq('id', profileId);
-    if (e) { setError(e.message); return; }
+    if (working) return;
+    setWorking(true);
+    const { data, error: e } = await supabase.from('profiles').update({ ifsc_id: String(a.ifsc_athlete_id) })
+      .eq('id', profileId).is('ifsc_id', null).select('id');
+    if (e || !data?.length) { setError(e?.message ?? t('ifscAlreadyLinked')); setWorking(false); return; }
     setPicking(null);
     await sync({ athlete: a.ifsc_athlete_id });
   };
@@ -310,7 +336,7 @@ function IfscSync() {
                 {[a.birthday, fill(t('ifscResults'), { n: a.results.length }), suggested(a)].filter(Boolean).join(' · ')}
               </span>
               {picking === a.ifsc_athlete_id && (
-                <ClimberPicker exclude={none} actionLabel={t('ifscConfirm')} defaultGender={null} onPick={(id) => confirm(a, id)} />
+                <ClimberPicker exclude={linkedIds} actionLabel={t('ifscConfirm')} defaultGender={null} onPick={(id) => confirm(a, id)} />
               )}
             </span>
             {a.suggested_profile && (

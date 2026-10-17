@@ -90,6 +90,33 @@ describe('international event links', () => {
   });
 });
 
+describe('ILCA-published (manual) groups', () => {
+  // A (class, discipline) group with ILCA-published points ignores the other international rows of that group
+  // (e.g. rows the IFSC sync imported for a season ILCA has published).
+  const manual = (r: Partial<IntlResult>) => intl({ event_type: 'manual', place: null, field_size: null, ...r });
+  const senior = (discipline: 'lead' | 'boulder', res: IntlResult[]) => computeRanking({ criteria: ILCA_2025, rankClass: 'senior',
+    gender: 'female', discipline, rounds: [...placed('premier_league', 'a', 1, 0, { discipline }), ...placed('premier_league', 'b', 1, 0, { discipline })],
+    ageClass: new Map(), intl: res, adjustments: [] });
+  const res = [manual({ climber_id: 'a', for_class: 'senior', points: 250 }),
+    intl({ climber_id: 'b', place: 25, field_size: 63, reached: 'semifinal' }),
+    intl({ climber_id: 'b', discipline: 'boulder', place: 5, field_size: 57, reached: 'final' }),
+    intl({ climber_id: 'y', event_type: 'european_youth_cup', place: 9, field_size: 37, reached: 'final' })];
+  it('ignores non-manual rows of the same class and discipline', () => {
+    const r = senior('lead', res);
+    expect(r.find((x) => x.climber_id === 'a')!.total).toBe(350);
+    const b = r.find((x) => x.climber_id === 'b')!;
+    expect(b.total).toBe(100);
+    expect(b.events.some((e) => e.kind === 'intl')).toBe(false);
+  });
+  it('keeps other disciplines and classes', () => {
+    const b = senior('boulder', res).find((x) => x.climber_id === 'b')!;
+    expect(b.events.find((e) => e.kind === 'intl')!.points).toBe(200);
+    const y = computeRanking({ criteria: ILCA_2025, rankClass: 'U19', gender: 'female', discipline: 'lead',
+      rounds: placed('premier_league', 'y', 1), ageClass: new Map([['y', 'U19']]), intl: res, adjustments: [] });
+    expect(y.find((x) => x.climber_id === 'y')!.bonus).toBe(20);
+  });
+});
+
 describe('international points', () => {
   it('appendix A: world cup lead 25/63 (semi) = 140, 33/82 = 60, 29/59 = 100', () => {
     expect(seniorIntlPoints(intl({ place: 25, field_size: 63, reached: 'semifinal' }))).toBe(140);

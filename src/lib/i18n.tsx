@@ -312,6 +312,10 @@ const dict = {
   ifscFailed: { he: 'נכשל', en: 'Failed' },
   ifscRunning: { he: 'רץ', en: 'Running' },
   ifscBusy: { he: 'עדכון כבר רץ, נסו שוב בעוד כמה דקות', en: 'A run is already going; try again in a few minutes' },
+  ifscBusyLater: { he: 'הקישור נשמר; התוצאות ייובאו בהרצה הבאה.', en: 'Link saved; the results will be imported on the next run.' },
+  ifscAlreadyLinked: { he: 'למטפס/ת הזה/זו כבר יש קישור ל-IFSC', en: 'This climber is already linked to an IFSC athlete' },
+  ifscAutoNote: { he: 'תחרויות IFSC (גביעי עולם ואירופה, אליפויות) נוספות אוטומטית — אין צורך להזין אותן ידנית.',
+    en: 'IFSC events (World and European cups, championships) are added automatically — no need to enter them by hand.' },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type MsgKey = keyof typeof dict;

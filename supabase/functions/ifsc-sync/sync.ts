@@ -23,6 +23,8 @@ export interface Store {
   candidates(birthday: string): Promise<Candidate[]>;
   /** `${season}|${class}|${discipline}` groups holding ILCA-published ('manual') rows. */
   manualGroups(): Promise<Set<string>>;
+  /** `${climberId}|${eventId}|${dcatId}` of IFSC results an admin deleted (ifsc_dismissed): never imported again. */
+  dismissed(): Promise<Set<string>>;
   /** Every ifsc_pending row (any status): ifsc_athlete_id → status and waiting results. */
   pendingResults(): Promise<Map<number, { status: 'pending' | 'ignored'; results: ResultRow[] }>>;
   /** Deletes an athlete's pending row (after their results were imported). */
@@ -68,9 +70,11 @@ function dedupe(rows: ResultRow[]): ResultRow[] {
   return rows.filter((r) => !seen.has(rowKey(r)) && !!seen.add(rowKey(r)));
 }
 
-/** Inserts the rows outside manual groups; returns the number added. */
-async function importRows(store: Store, manual: Set<string>, climberId: string, rows: ResultRow[]): Promise<number> {
-  const keep = dedupe(rows).filter((r) => !manual.has(groupKey(r)));
+/** Inserts the rows outside manual groups and not dismissed; returns the number added. */
+async function importRows(store: Store, skip: { manual: Set<string>; dismissed: Set<string> }, climberId: string,
+  rows: ResultRow[]): Promise<number> {
+  const keep = dedupe(rows).filter((r) => !skip.manual.has(groupKey(r))
+    && !skip.dismissed.has(`${climberId}|${r.ifsc_event_id}|${r.ifsc_dcat_id}`));
   return keep.length ? store.insertResults(climberId, keep) : 0;
 }
 
@@ -83,10 +87,10 @@ export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { o
     // An admin just linked this athlete: import what waited for them, without asking IFSC.
     const profile = linked.get(opts.onlyAthlete);
     if (!profile) return sum;
-    const manual = await store.manualGroups();
+    const skip = { manual: await store.manualGroups(), dismissed: await store.dismissed() };
     const waiting = (await store.pendingResults()).get(opts.onlyAthlete);
     if (!waiting) return sum;
-    sum.added += await importRows(store, manual, profile, waiting.results);
+    sum.added += await importRows(store, skip, profile, waiting.results);
     await store.clearPending(opts.onlyAthlete);
     return sum;
   }
@@ -166,7 +170,7 @@ export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { o
     const [suggested_profile, score] = m.status === 'match' ? [m.profileId, m.score] : [m.suggestion, m.score];
     pending.push({ ifsc_athlete_id: id, ...d, suggested_profile, score, results: athletes.get(id)!.rows });
   }
-  const manual = await store.manualGroups();
+  const skip = { manual: await store.manualGroups(), dismissed: await store.dismissed() };
   const waiting = await store.pendingResults();
 
   // 5. Writes. A waiting row is cleared only once its results are in.
@@ -179,7 +183,7 @@ export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { o
     const profile = allLinks.get(id);
     if (!profile) continue;
     const w = waiting.get(id);
-    sum.added += await importRows(store, manual, profile, [...(athletes.get(id)?.rows ?? []), ...(w?.results ?? [])]);
+    sum.added += await importRows(store, skip, profile, [...(athletes.get(id)?.rows ?? []), ...(w?.results ?? [])]);
     if (w) await store.clearPending(id);
   }
   for (const p of pending) {

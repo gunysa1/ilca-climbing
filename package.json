@@ -7,7 +7,7 @@
     "dev": "vite --mode viewer",
     "build": "tsc -p . && vite build --mode viewer && vite build --mode staff",
     "preview": "vite preview --mode viewer",
-    "typecheck": "tsc -p .",
+    "typecheck": "tsc -p . && tsc -p tsconfig.functions.json",
     "test": "vitest run",
     "test:db": "supabase/tests/run.sh",
     "test:e2e": "e2e/run.sh",

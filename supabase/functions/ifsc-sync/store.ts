@@ -53,6 +53,13 @@ export function supabaseStore(db: SupabaseClient): Store {
       return new Set(rows.map((r) => `${r.season}|${r.for_class}|${r.discipline}`));
     },
 
+    async dismissed() {
+      const rows = await all<{ climber_id: string; ifsc_event_id: number; ifsc_dcat_id: number }>('ifsc_dismissed', (a, b) =>
+        db.from('ifsc_dismissed').select('climber_id, ifsc_event_id, ifsc_dcat_id')
+          .order('climber_id').order('ifsc_event_id').order('ifsc_dcat_id').range(a, b));
+      return new Set(rows.map((r) => `${r.climber_id}|${r.ifsc_event_id}|${r.ifsc_dcat_id}`));
+    },
+
     async pendingResults() {
       const rows = await all<{ ifsc_athlete_id: number; status: 'pending' | 'ignored'; results: ResultRow[] }>('ifsc_pending', (a, b) =>
         db.from('ifsc_pending').select('ifsc_athlete_id, status, results').order('ifsc_athlete_id').range(a, b));

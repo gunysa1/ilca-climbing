@@ -42,7 +42,8 @@ competitions (season, series)
           └─ appeals (open|upheld|rejected) + appeal_details (reason, decision; admins only)
 profiles (climbers and staff; user_id links a login, optional) + profile_private (birth date, contact)
 user_roles (climber, coach, judge, admin), coach_athletes, coach_notes
-international_results, ranking_adjustments, world_rankings   -- national rankings inputs (admin-entered; world_rankings by tools/ifsc/world_ranking.py)
+international_results, ranking_adjustments, world_rankings   -- national rankings inputs (admin-entered, IFSC rows and world_rankings also by the ifsc-sync function)
+ifsc_pending, ifsc_dismissed, ifsc_sync_runs                 -- IFSC sync: athletes to confirm, deleted IFSC rows (never re-imported), run log (admins only)
 ```
 
 Climbers are profiles without accounts. A login is linked to a profile only through the admin
@@ -124,7 +125,9 @@ All of this is in `supabase/tests/rls_test.sql`.
 ## Edge functions
 
 `supabase/functions/` is the only server code. The functions hold the service-role key (on
-Supabase, never in the apps) and accept calls only from signed-in admins (`_shared/admin.ts`).
+Supabase, never in the apps) and accept calls only from signed-in admins (`_shared/admin.ts`);
+`ifsc-sync` also accepts the cron secret (`x-sync-secret`). `npm run typecheck` checks them too
+(`tsconfig.functions.json`, Deno stub `supabase/functions/deno.d.ts`).
 
 **delete-account** deletes a login (its roles go with it; `profiles.user_id` is set null, so a
 climber's profile and results always stay). It refuses the caller's own account and the last admin,
@@ -137,6 +140,11 @@ don't). The staff app asks first.
 link that the staff app wraps in its own `/invite#…` page, so link previews (WhatsApp, mail scanners)
 can't use it up. An existing account just gets the judge role. Invite and reset links land on
 `/set-password`. Request validation is in `request.ts` (unit-tested).
+
+**ifsc-sync** runs daily (pg_cron with the secret) or from the admin page: Israeli IFSC results into
+`international_results` (add-only; skips ILCA-published groups and rows in `ifsc_dismissed`), athlete
+matching (`profiles.ifsc_id`, else `ifsc_pending`), the season's `world_rankings`; each call logged in
+`ifsc_sync_runs`. Logic in `sync.ts` over a store (unit-tested); see docs/operations.md.
 
 ## Realtime
 
@@ -179,3 +187,4 @@ judge pad subscribes to `judge_claims` of its boulder. Everything else loads on 
 | 20261017000028 | `world_rankings` (IFSC world-ranking position per climber, season, discipline) |
 | 20261017000029 | page RPCs `season_rankings(season)` and `climber_page(climber)`; NULL-array fix |
 | 20261017000030 | home page RPCs `home_page(live_only)` (live rounds and who is on the wall, upcoming, latest with winners) and `favorites_page(climbers)` |
+| 20261017000031 | IFSC sync: `international_results.ifsc_event_id`/`ifsc_dcat_id`, `ifsc_pending`, `ifsc_dismissed`, `ifsc_sync_runs` (admins only), `profiles.ifsc_id` set only by admins or the service role, one profile per IFSC athlete |

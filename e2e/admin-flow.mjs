@@ -345,6 +345,7 @@ await intlForm.getByLabel('Field size').fill('57');
 await intlForm.getByLabel('Last round').selectOption('final');
 await intlForm.getByRole('button', { name: 'Add' }).click();
 await p.locator('tr', { hasText: 'WC Bern' }).waitFor(); // 2026-27 uses the ILCA 2027 edition: per-event senior points are 0
+await p.getByText('are added automatically').waitFor(); // IFSC events need no manual entry
 step('rankings admin: IFSC sync run and athlete to confirm; ignore hides the athlete');
 {
   const ifsc = p.locator('.ifsc-sync');

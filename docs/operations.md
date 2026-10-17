@@ -112,12 +112,13 @@ adds Israeli results add-only to `international_results` (never into a season/cl
 with ILCA-published points), links new athletes to a profile when the match is confident (birth date,
 gender, name; sets `profiles.ifsc_id`) and leaves the others in `ifsc_pending` for an admin, and refreshes
 the season's `world_rankings` (today's list until 1 January, then the official 1 January list once). The
-first IFSC error stops the run before any write.
+first IFSC error stops the run before any write; a failed run is safe to repeat (add-only). An IFSC row an
+admin deletes (ניהול → דירוגים) is remembered in `ifsc_dismissed` and never imported again.
 
 Setup (once; the secret is never committed):
 
 ```bash
-npx -y supabase@2.121.0 functions deploy ifsc-sync --use-api   # verify_jwt off (config.toml): it checks auth itself
+npx -y supabase@2.121.0 functions deploy ifsc-sync --no-verify-jwt --use-api   # it checks auth itself (also in config.toml)
 openssl rand -hex 32                                            # the secret
 npx -y supabase@2.121.0 secrets set IFSC_SYNC_SECRET=<secret> --project-ref tsahkbtxjlgmebfmwkbq
 ```
@@ -131,8 +132,8 @@ Manual run: "run now" on the admin page, or `POST <project_url>/functions/v1/ifs
 imports the waiting results of a just-linked athlete. Each call logs a row in `ifsc_sync_runs`
 (`running`, then `ok` with counts or `failed` with the error), shown on the admin page.
 One run at a time: a call while another runs gets 409 `busy`; a run still `running` after 15 minutes
-is marked `failed` ("timed out"). The sync's world-ranking replace keeps only climbers with an
-`ifsc_id`: positions of unlinked climbers (e.g. loaded by `tools/ifsc/world_ranking.py`) are dropped.
+is marked `failed` ("timed out"). The sync's list replaces the season's positions daily until 1 January
+(only climbers with an `ifsc_id`), so positions loaded by `tools/ifsc/world_ranking.py` don't last.
 
 ### IFSC international results (`tools/ifsc`, backfills)
 
