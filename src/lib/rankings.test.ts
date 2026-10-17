@@ -32,6 +32,8 @@ describe('league points (table 4)', () => {
   it('places 1-30, ties share the average of the places they cover', () => {
     expect([1, 2, 3, 10, 20, 30, 31].map((p) => leaguePoints(p))).toEqual([100, 80, 65, 34, 12, 1, 0]);
     expect(leaguePoints(2, 3)).toBe(66.67); // (80 + 65 + 55) / 3 = 66.66... (2 decimals)
+    // Israeli championship ties: double first, then average (ILCA 24/25 bouldering, women 15th, 8 tied: 30.25)
+    expect(leaguePoints(15, 8, 2)).toBe(30.25);
     expect(leaguePoints(4, 3)).toBe(51);    // (55 + 51 + 47) / 3
   });
 });

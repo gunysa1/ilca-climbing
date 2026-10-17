@@ -25,11 +25,12 @@ export const LEAGUE_POINTS = [100, 80, 65, 55, 51, 47, 43, 40, 37, 34, 31, 28, 2
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
 
-/** Table 4 points for a place shared by `tied` climbers: the average over the places they cover. */
-export function leaguePoints(place: number, tied = 1): number {
+/** Table 4 points (times `factor`: 2 for the Israeli championship) for a place shared by `tied` climbers:
+ * the average over the places they cover, rounded once at the end. */
+export function leaguePoints(place: number, tied = 1, factor = 1): number {
   let sum = 0;
   for (let p = place; p < place + tied; p++) sum += LEAGUE_POINTS[p - 1] ?? 0;
-  return round2(sum / tied);
+  return round2((factor * sum) / tied);
 }
 
 /** One climber's ranked result in one round (from the `ranking_rounds` view). */
@@ -286,7 +287,7 @@ export function computeRanking(input: RankingInput): RankingRow[] {
   for (const [, pool] of champPools) {
     for (const p of youth ? eventPlaces(pool) : ownPlaces(eventPlaces(pool))) {
       const e = get(p.climber_id);
-      const points = round2(2 * leaguePoints(p.place, p.tied));
+      const points = leaguePoints(p.place, p.tied, 2);
       if (!e.champ || points > e.champ.points) e.champ = { place: p.place, points, competition_id: pool[0].competition_id, label: pool[0].competition };
     }
   }

@@ -60,7 +60,8 @@ it feeds: premier league, U17 league, Israeli championship, youth championship, 
 | Points | 100 | 80 | 65 | 55 | 51 | 47 | 43 | 40 | 37 | 34 | 31 | 28 | 26 | 24 | 22 | 20 | 18 | 16 | 14 | 12 | 10 … 1 |
 
 Tied climbers share the average of the points of the places they cover (2 decimals). The Israeli
-championship and the youth championship count **double**.
+championship and the youth championship count **double**; for a tie there, the doubled points are averaged and
+rounded once (8 tied at 15th: (22+20+18+16+14+12+10+9)×2/8 = 30.25, as in ILCA's 24/25 bouldering table).
 
 ### Seniors (per discipline and gender)
 
