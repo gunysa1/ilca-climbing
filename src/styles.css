@@ -185,6 +185,11 @@ label.inline { display: inline-flex; gap: .35rem; align-items: center; font-weig
 .pad-status { min-height: 1.5rem; text-align: center; }
 .pad-status.saved { color: var(--top); }
 .pad-status.error { color: var(--live); font-weight: 700; }
+.pad-status.pending { color: #b45309; font-weight: 700; }
+/* Judge outbox: results waiting on the phone (header) and results the server refused. */
+.outbox-badge { font-size: .8rem; font-weight: 700; white-space: nowrap; padding: .15rem .5rem; border-radius: 999px; background: #fef3c7; color: #78350f; }
+.outbox-failed { margin-bottom: .75rem; }
+.outbox-failed ul { margin: .4rem 0; padding-inline-start: 1.2rem; }
 
 @media (max-width: 700px) {
   .judge-layout { grid-template-columns: 1fr; }

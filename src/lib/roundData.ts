@@ -96,6 +96,22 @@ function fetchRoundPage(roundId: string): Promise<RoundPage | null> {
   return p;
 }
 
+/** Judge pad: the last round pages it opened, kept on the device so the pad reopens without signal. */
+const OFFLINE_KEY = 'ilca.judgeRounds';
+const OFFLINE_KEEP = 4;
+function readOffline(): Record<string, RoundPage> {
+  try {
+    const v = JSON.parse(localStorage.getItem(OFFLINE_KEY) ?? '{}') as unknown;
+    return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, RoundPage> : {};
+  } catch { return {}; }
+}
+function keepOffline(roundId: string, page: RoundPage) {
+  const all = readOffline();
+  delete all[roundId];
+  const kept = Object.entries(all).slice(-(OFFLINE_KEEP - 1));
+  try { localStorage.setItem(OFFLINE_KEY, JSON.stringify(Object.fromEntries([...kept, [roundId, page]]))); } catch { /* full or blocked */ }
+}
+
 /** Load a round page in the background (e.g. the other category's round), so opening it is instant. */
 export function prefetchRound(roundId: string) {
   if (!pageCache.has(roundId)) void fetchRoundPage(roundId);
@@ -114,8 +130,9 @@ const toState = (page: RoundPage): RoundData => ({
   loading: false,
 });
 
-/** Loads a round with its boulders, starters and results, and keeps results live via Realtime. */
-export function useRoundData(roundId: string | undefined): RoundData {
+/** Loads a round with its boulders, starters and results, and keeps results live via Realtime.
+ *  `offline`: keep the page on the device and show it when it can't be loaded (judge pad). */
+export function useRoundData(roundId: string | undefined, { offline = false } = {}): RoundData {
   const [state, setState] = useState<RoundData>(() => {
     const cached = roundId ? pageCache.get(roundId) : undefined;
     return cached ? toState(cached) : EMPTY;
@@ -129,10 +146,18 @@ export function useRoundData(roundId: string | undefined): RoundData {
     const cached = pageCache.get(roundId);
     setState(cached ? toState(cached) : EMPTY);
     pageCache.delete(roundId); // so this load fetches fresh data
-    void fetchRoundPage(roundId).then((page) => {
+    void fetchRoundPage(roundId).then((loaded) => {
       if (cancelled) return;
+      if (loaded && offline) keepOffline(roundId, loaded);
+      const page = loaded ?? (offline ? readOffline()[roundId] : undefined);
       setState(page ? toState(page) : (s) => ({ ...s, loading: false }));
     });
+    // Offline-capable (judge pad): back online, catch up with what others saved meanwhile.
+    const reload = () => {
+      pageCache.delete(roundId);
+      void fetchRoundPage(roundId).then((page) => { if (!cancelled && page) { keepOffline(roundId, page); setState(toState(page)); } });
+    };
+    if (offline) window.addEventListener('online', reload);
 
     const channel = supabase.channel(`round:${roundId}`)
       .on('postgres_changes',
@@ -168,8 +193,8 @@ export function useRoundData(roundId: string | undefined): RoundData {
         })
       .subscribe();
 
-    return () => { cancelled = true; supabase.removeChannel(channel); };
-  }, [roundId]);
+    return () => { cancelled = true; window.removeEventListener('online', reload); supabase.removeChannel(channel); };
+  }, [roundId, offline]);
 
   return state;
 }

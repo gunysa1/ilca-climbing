@@ -5,7 +5,7 @@ import { AuthProvider, useAuth } from '../../lib/auth';
 import { I18nProvider, useI18n } from '../../lib/i18n';
 import { supabase, supabaseConfigured } from '../../lib/supabase';
 import { CompetitionPage } from '../../pages/CompetitionPage';
-import { JudgeBoulder, JudgeHome } from '../../pages/Judge';
+import { JudgeBoulder, JudgeHome, OutboxBadge } from '../../pages/Judge';
 import { AcceptInvite } from '../../pages/AcceptInvite';
 import { Login } from '../../pages/Login';
 import { SetPassword } from '../../pages/SetPassword';
@@ -77,6 +77,7 @@ function StaffLayout() {
             </nav>
           )}
           <div className="nav-end">
+            {session && <OutboxBadge />}
             <button className="link" onClick={() => setLang(lang === 'he' ? 'en' : 'he')}>{lang === 'he' ? 'EN' : 'עב'}</button>
             {VIEWER_URL && <a className="muted small" href={VIEWER_URL}>{t('viewerApp')}</a>}
             {session && <button className="link" onClick={() => supabase.auth.signOut()}>{t('logout')}</button>}

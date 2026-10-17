@@ -152,6 +152,19 @@ The results page subscribes to `boulder_results`, `lead_results` and `appeals` o
 polls `on_wall(round)` every 5 s in live rounds (claims aren't public, so no Realtime for them); the
 judge pad subscribes to `judge_claims` of its boulder. Everything else loads on navigation.
 
+## Judge pad without signal
+
+Judge pads write through an outbox (`src/lib/saveQueue.ts`, pure and unit-tested; wired in
+`src/lib/judgeOutbox.ts`), persisted in localStorage per profile (`ilca.outbox.<profile id>`). Each
+tap queues the full result row, so only the latest row per climber and boulder is kept (a queued lock
+stays a lock); one request at a time, oldest first, a newer row for the row in flight after it, so the
+newest wins. Network errors, timeouts (15 s), 5xx, 408 and 429 retry with backoff (1 s … 30 s) and at
+once on `online` / the app becoming visible; other 4xx (RLS, locked by an admin, not a starter) go to a
+failed list the judge shows an admin. The pad shows unsent rows over the server's, a lock waits in the
+outbox while the pad moves on, and a claim that can't reach the server keeps the last answer (none yet:
+editable). To reopen without signal, the staff service worker caches the shell's scripts, and the
+roles, the judge's assignments and the last round pages opened on the pad are kept on the device.
+
 ## Migrations
 
 `supabase/migrations/`, applied in order with `npx supabase db push --linked`:

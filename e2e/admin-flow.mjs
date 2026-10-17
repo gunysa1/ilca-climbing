@@ -2,8 +2,8 @@
 import { chromium } from 'playwright';
 import { jwt } from './jwt.mjs';
 
-// base: the staff app (admin, judge); view: the public viewer app.
-const [base, secret, out, view] = process.argv.slice(2);
+// base: the staff app (admin, judge); view: the public viewer app; api: Supabase (REST).
+const [base, secret, out, view, api] = process.argv.slice(2);
 const ADMIN = '00000000-0000-0000-0000-0000000000a1';
 const session = {
   access_token: jwt(secret, 'authenticated', ADMIN), refresh_token: 'e2e', token_type: 'bearer',
@@ -25,8 +25,8 @@ async function page(lang, viewport = { width: 1280, height: 900 }, as = session)
   }, [as, lang]);
   const p = await ctx.newPage();
   p.on('dialog', (d) => d.accept());
-  // 502: the stubbed invite email failure (invite step)
-  p.on('console', (m) => { if (m.type() === 'error' && !/realtime|websocket|status of 502/i.test(m.text())) problems.push(`console: ${m.text()}`); });
+  // 502: the stubbed invite email failure (invite step); no network: the judge pad offline step
+  p.on('console', (m) => { if (m.type() === 'error' && !/realtime|websocket|status of 502|ERR_INTERNET_DISCONNECTED|Failed to fetch/i.test(m.text())) problems.push(`console: ${m.text()}`); });
   p.on('response', (r) => { if (r.url().includes('/rest/v1') && r.status() >= 400) problems.push(`${r.status()} ${r.request().method()} ${r.url()}`); });
   return p;
 }
@@ -218,6 +218,40 @@ await vp.waitForLoadState('networkidle');
 if (await vp.locator('.on-wall, .on-wall-row').count()) problems.push('locked climber still shown on the wall');
 await jp.getByRole('link', { name: /Boulders/ }).click();          // back to picking a boulder
 await jp.getByRole('link', { name: 'Boulder 2' }).waitFor();
+
+step('judge pad offline: taps wait on the phone, survive a reload, are sent once back online');
+{
+  await jp.evaluate(() => navigator.serviceWorker.ready.then(() => true)); // the app shell opens without signal
+  await jp.getByRole('link', { name: 'Boulder 3' }).click();
+  await jp.getByText(/1 \/ 3/).waitFor();
+  await jp.getByRole('button', { name: /On the wall/ }).waitFor();   // claimed: the pad is editable
+  const climber = (await jp.locator('.pad-head h2').innerText()).trim();
+  const boulder3 = new URL(jp.url()).pathname.split('/').pop();
+  await jp.context().setOffline(true);
+  await jp.getByRole('button', { name: 'Add attempt' }).click();
+  await jp.getByRole('button', { name: 'Add attempt' }).click();
+  await jp.locator('.pad-status').getByText('Waiting to send').waitFor();
+  await jp.locator('.outbox-badge').getByText('1 waiting').waitFor();
+  await jp.screenshot({ path: `${out}/judge-offline-en.png` });
+  await jp.reload();                                                 // offline: from the service worker
+  await jp.locator('.pad-head').getByText(climber).waitFor();
+  if ((await jp.locator('.stepper-value').innerText()).trim() !== '2') problems.push('offline reload: the pad lost the unsent attempts');
+  await jp.locator('.pad-status').getByText('Waiting to send').waitFor();
+  await jp.locator('.outbox-badge').getByText('1 waiting').waitFor();
+  if (await jp.getByRole('button', { name: 'Add attempt' }).isDisabled()) problems.push('offline reload: the pad became read-only');
+  await jp.screenshot({ path: `${out}/judge-offline-reloaded-en.png` });
+  const before = await (await fetch(`${api}/rest/v1/boulder_results?boulder_id=eq.${boulder3}&select=attempts`,
+    { headers: { Authorization: `Bearer ${session.access_token}` } })).json();
+  if (before.length) problems.push(`offline taps reached the server while offline: ${JSON.stringify(before)}`);
+  await jp.context().setOffline(false);                              // the browser's "online": sent at once
+  await jp.locator('.pad-status').getByText('Saved').waitFor({ timeout: 10000 });
+  await jp.locator('.outbox-badge').waitFor({ state: 'detached' });
+  const after = await (await fetch(`${api}/rest/v1/boulder_results?boulder_id=eq.${boulder3}&select=attempts,locked`,
+    { headers: { Authorization: `Bearer ${session.access_token}` } })).json();
+  if (JSON.stringify(after) !== '[{"attempts":2,"locked":false}]') problems.push(`after going online the server has ${JSON.stringify(after)}`);
+  await jp.getByRole('link', { name: /Boulders/ }).click();
+  await jp.getByRole('link', { name: 'Boulder 2' }).waitFor();
+}
 await p.goto(`${base}/admin/round/${roundId}`);
 await p.locator('tr', { hasText: 'מאיה גל' }).getByText(/🔒1\/1/).waitFor();
 const appealForm = p.locator('.panel', { hasText: 'Appeals' }).locator('form');

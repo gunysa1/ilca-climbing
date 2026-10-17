@@ -3,11 +3,13 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { localized, useI18n } from '../lib/i18n';
+import { useOutbox } from '../lib/judgeOutbox';
 import { formatHeight } from '../lib/lead';
 import { resultKey, useRoundData, type LeadRow, type Starter } from '../lib/roundData';
+import { isTransient, keyState, outboxKey, type OutboxEntry, type OutboxSnapshot, type ResultTable } from '../lib/saveQueue';
 import { applyAction, boulderPoints, EMPTY_RESULT, type BoulderResult, type JudgeAction } from '../lib/scoring';
 import { supabase } from '../lib/supabase';
-import { LEAD_COLUMNS, RESULT_COLUMNS, type Boulder, type RoundFormat } from '../lib/types';
+import { type Boulder, type RoundFormat } from '../lib/types';
 
 interface Assignment {
   id: string;
@@ -30,15 +32,27 @@ export function JudgeHome() {
 
   useEffect(() => {
     if (!profileId) return;
+    // Kept on the device: without signal the judge still finds their boulders.
+    const key = `ilca.judgeAssignments.${profileId}`;
     supabase.from('judge_assignments')
       .select('id, round_id, boulder_id, round:rounds!inner(kind, status, scoring, boulders(id, round_id, number), category:categories(name, name_he, competition:competitions(name, name_he)))')
       .eq('judge_id', profileId).eq('round.status', 'live')
-      .then(({ data }) => setItems((data as unknown as Assignment[]) ?? []));
+      .then(({ data, error }) => {
+        if (error) {
+          let kept: Assignment[] = [];
+          try { kept = JSON.parse(localStorage.getItem(key) ?? '[]') as Assignment[]; } catch { /* nothing kept */ }
+          setItems(Array.isArray(kept) ? kept : []);
+          return;
+        }
+        try { localStorage.setItem(key, JSON.stringify(data ?? [])); } catch { /* storage unavailable */ }
+        setItems((data as unknown as Assignment[]) ?? []);
+      });
   }, [profileId]);
 
   return (
     <section>
       <h1>{t('myAssignments')}</h1>
+      <OutboxFailed />
       {items === null && <p className="muted">{t('loading')}</p>}
       {items?.length === 0 && <p className="muted">{t('noAssignments')}</p>}
       {items?.map((a) => {
@@ -66,12 +80,17 @@ const CLAIM_BEAT_MS = 10_000;
 const CLAIM_STALE_MS = 30_000;
 
 /** Who holds a climber on a boulder: the calling judge claims them while the pad is open (re-claimed
- * every 10 s, released on close); another judge's fresh claim keeps the pad read-only. */
+ * every 10 s, released on close); another judge's fresh claim keeps the pad read-only. Without
+ * signal the last answer stands (no answer yet: the pad stays editable); only an explicit "held by
+ * another judge" makes it read-only. */
 function useClaim(roundId: string, boulderId: string, climberId: string, enabled: boolean) {
   const { profileId } = useAuth();
   const [holder, setHolder] = useState<{ judge_id: string; judge_name: string } | null>(null);
+  const [unreachable, setUnreachable] = useState(false);
   const claim = useCallback(async () => {
-    const { data } = await supabase.rpc('claim_climber', { p_round: roundId, p_boulder: boulderId, p_climber: climberId });
+    const { data, error, status } = await supabase.rpc('claim_climber', { p_round: roundId, p_boulder: boulderId, p_climber: climberId });
+    if (error && isTransient(status)) { setUnreachable(true); return; }
+    setUnreachable(false);
     setHolder(((data ?? []) as { judge_id: string; judge_name: string }[])[0] ?? null);
   }, [roundId, boulderId, climberId]);
   useEffect(() => {
@@ -86,7 +105,7 @@ function useClaim(roundId: string, boulderId: string, climberId: string, enabled
     const { error } = await supabase.rpc('set_on_wall', { p_boulder: boulderId, p_climber: climberId, p_on: on });
     if (!error) setOnWall(on);
   }, [boulderId, climberId]);
-  return { holder, mine: !enabled || (!!holder && holder.judge_id === profileId), loading: enabled && !holder, onWall, markWall };
+  return { holder, mine: !enabled || (holder ? holder.judge_id === profileId : unreachable), onWall, markWall };
 }
 
 /** "▶ On the wall" / "■ Off the wall": what the public sees as climbing now on this boulder. */
@@ -111,7 +130,7 @@ function useBoulderClaims(boulderId: string | undefined) {
     if (!boulderId) return;
     const load = () => supabase.from('judge_claims').select('climber_id, judge_id, claimed_at, judge:profiles!judge_claims_judge_id_fkey(full_name)')
       .eq('boulder_id', boulderId)
-      .then(({ data }) => setClaims(new Map(((data ?? []) as unknown as { climber_id: string; judge_id: string; claimed_at: string; judge: { full_name: string } | null }[])
+      .then(({ data, error }) => !error && setClaims(new Map(((data ?? []) as unknown as { climber_id: string; judge_id: string; claimed_at: string; judge: { full_name: string } | null }[])
         .filter((c) => c.judge_id !== profileId && Date.now() - Date.parse(c.claimed_at) < CLAIM_STALE_MS)
         .map((c) => [c.climber_id, c.judge?.full_name ?? '?']))));
     void load();
@@ -132,15 +151,20 @@ function useBoulderClaims(boulderId: string | undefined) {
 export function JudgeBoulder() {
   const { roundId, boulderId } = useParams();
   const { t, lang } = useI18n();
-  const { round, boulders, starters, results, leadResults, loading } = useRoundData(roundId);
+  const { round, boulders, starters, results, leadResults, loading } = useRoundData(roundId, { offline: true });
   const boulder = boulders.find((b) => b.id === boulderId);
   const claims = useBoulderClaims(boulder?.id);
+  const { snap } = useOutbox();
   const lead = round?.scoring === 'lead';
+  const table: ResultTable = lead ? 'lead_results' : 'boulder_results';
   const [index, setIndex] = useState<number | null>(null);
   const [showList, setShowList] = useState(false);
   const [toast, setToast] = useState('');
+  // The judge's unsent row for a climber on this boulder (shown instead of the server's).
+  const unsent = useCallback((s: Starter) => boulder && pendingEntry(snap, outboxKey(table, boulder.id, s.climber_id)), [boulder, snap, table]);
+  // Locked on the server, or locked here and still waiting to be sent.
   const locked = useCallback((s: Starter) => !!boulder && !!(results.get(resultKey(boulder.id, s.climber_id))?.locked
-    || leadResults.get(resultKey(boulder.id, s.climber_id))?.locked), [boulder, results, leadResults]);
+    || leadResults.get(resultKey(boulder.id, s.climber_id))?.locked || unsent(s)?.lock), [boulder, results, leadResults, unsent]);
   // The next climber still to judge after `from`: not locked and not held by another judge.
   const nextFree = useCallback((from: number) => {
     for (let i = from + 1; i < starters.length; i++) if (!locked(starters[i]) && !claims.has(starters[i].climber_id)) return i;
@@ -164,8 +188,11 @@ export function JudgeBoulder() {
     if (next >= 0) go(next);
   };
 
+  const label = (s: Starter) => ({ climber: `#${s.bib ?? '–'} ${localized(lang, s.profile.full_name, s.profile.full_name_he)}`, boulder: boulder.number });
+
   return (
     <section className="judge">
+      <OutboxFailed />
       <div className="judge-top">
         <Link className="button secondary" to="/judge">{lang === 'he' ? '→' : '←'} {t(lead ? 'routesWord' : 'bouldersWord')}</Link>
         <div className="judge-title">
@@ -181,14 +208,16 @@ export function JudgeBoulder() {
       {showList && (
         <ul className="starter-list">
           {starters.map((s, k) => {
-            const r = results.get(resultKey(boulder.id, s.climber_id));
-            const l = leadResults.get(resultKey(boulder.id, s.climber_id));
+            const waiting = unsent(s)?.row;
+            const r = (waiting && !lead ? waiting as unknown as BoulderResult : undefined) ?? results.get(resultKey(boulder.id, s.climber_id));
+            const l = (waiting && lead ? waiting as unknown as LeadRow : undefined) ?? leadResults.get(resultKey(boulder.id, s.climber_id));
             return (
               <li key={s.climber_id}>
                 <button className={k === i ? 'selected' : ''} onClick={() => go(k)}>
                   <span className="bib">{s.bib ?? '–'}</span>
                   <span>{localized(lang, s.profile.full_name, s.profile.full_name_he)}</span>
                   <span className="muted small">
+                    {waiting && '⏳ '}
                     {locked(s) && '🔒 '}
                     {claims.has(s.climber_id) && `✋ ${claims.get(s.climber_id)} · `}
                     {l ? formatHeight(l) : r ? shorthand(r) : ''}
@@ -200,12 +229,12 @@ export function JudgeBoulder() {
         </ul>
       )}
       {current && (lead
-        ? <LeadPad key={current.climber_id} roundId={roundId!} routeId={boulder.id} starter={current}
-            initial={leadResults.get(resultKey(boulder.id, current.climber_id))} locked={locked(current)}
+        ? <LeadPad key={current.climber_id} roundId={roundId!} routeId={boulder.id} starter={current} label={label(current)}
+            initial={(unsent(current)?.row as LeadRow | undefined) ?? leadResults.get(resultKey(boulder.id, current.climber_id))} locked={locked(current)}
             onLocked={() => afterLock(current.bib)} nextFree={nextFree(i)} onGo={go} />
-        : <ScorePad key={current.climber_id} roundId={roundId!} boulderId={boulder.id} starter={current}
-            initial={results.get(resultKey(boulder.id, current.climber_id)) ?? EMPTY_RESULT} locked={locked(current)}
-            onLocked={() => afterLock(current.bib)} nextFree={nextFree(i)} onGo={go} />)}
+        : <ScorePad key={current.climber_id} roundId={roundId!} boulderId={boulder.id} starter={current} label={label(current)}
+            initial={(unsent(current)?.row as BoulderResult | undefined) ?? results.get(resultKey(boulder.id, current.climber_id)) ?? EMPTY_RESULT}
+            locked={locked(current)} onLocked={() => afterLock(current.bib)} nextFree={nextFree(i)} onGo={go} />)}
       {toast && <div className="toast" role="status">{toast}</div>}
     </section>
   );
@@ -215,6 +244,51 @@ const shorthand = (r: BoulderResult) =>
   [r.top_attempt != null && `T${r.top_attempt}`, r.zone_attempt != null && `Z${r.zone_attempt}`, `· ${r.attempts}`].filter(Boolean).join(' ');
 
 interface PadNav { onLocked: () => void; nextFree: number; onGo: (index: number) => void }
+type PadLabel = NonNullable<OutboxEntry['meta']>;
+
+const pendingEntry = (snap: OutboxSnapshot, key: string) => snap.pending.find((e) => e.key === key);
+
+/** Header badge while results wait on this device to be sent (any staff screen: they keep sending). */
+export function OutboxBadge() {
+  const { t } = useI18n();
+  const { snap } = useOutbox();
+  if (!snap.pending.length) return null;
+  return <span className="outbox-badge" role="status" title={t('pendingBadgeHint')}>⏳ {snap.pending.length} {t('pendingCount')}</span>;
+}
+
+/** Results the server refused (locked by an admin, not a starter …): never retried; the judge tells
+ *  an admin, who fixes them on the round page, and dismisses the notice. */
+function OutboxFailed() {
+  const { t } = useI18n();
+  const { queue, snap } = useOutbox();
+  if (!queue || !snap.failed.length) return null;
+  return (
+    <div className="notice outbox-failed" role="alert">
+      <strong>{snap.failed.length} {t('failedResults')}</strong>
+      <ul>
+        {snap.failed.map((f) => (
+          <li key={f.key}>
+            {f.meta ? `${f.meta.climber} · ${t(f.table === 'lead_results' ? 'route' : 'boulder')} ${f.meta.boulder}` : f.key}
+            <span className="muted small"> · {f.error}</span>
+          </li>
+        ))}
+      </ul>
+      <button className="secondary" onClick={() => queue.dismiss()}>{t('dismiss')}</button>
+    </div>
+  );
+}
+
+/** Under the pad: saved / waiting to send (with the count across all climbers) / refused. */
+function PadStatus({ outboxKey: key, show }: { outboxKey: string; show: boolean }) {
+  const { t } = useI18n();
+  const { snap } = useOutbox();
+  const state = keyState(snap, key);
+  const failed = snap.failed.find((f) => f.key === key);
+  const text = !show && state === 'saved' ? ''
+    : state === 'pending' ? `⏳ ${t('pendingSend')}${snap.pending.length > 1 ? ` (${snap.pending.length})` : ''}`
+    : state === 'failed' ? `${t('notSaved')}${failed ? ` · ${failed.error}` : ''}` : t('saved');
+  return <p className={`pad-status ${state === 'failed' ? 'error' : text ? state : ''}`} aria-live="polite">{text}</p>;
+}
 
 /** Name, club and the state badges of the climber being judged. */
 function PadHeader({ starter, badge }: { starter: Starter; badge: ReactNode }) {
@@ -244,32 +318,31 @@ function PadBlocked({ locked, holder, nav }: { locked: boolean; holder: { judge_
   );
 }
 
-function ScorePad({ roundId, boulderId, starter, initial, locked: initiallyLocked, ...nav }:
-  { roundId: string; boulderId: string; starter: Starter; initial: BoulderResult; locked: boolean } & PadNav) {
+function ScorePad({ roundId, boulderId, starter, label, initial, locked: initiallyLocked, ...nav }:
+  { roundId: string; boulderId: string; starter: Starter; label: PadLabel; initial: BoulderResult; locked: boolean } & PadNav) {
   const { t } = useI18n();
   const { holder, mine, onWall, markWall } = useClaim(roundId, boulderId, starter.climber_id, !initiallyLocked);
+  const { queue } = useOutbox();
+  const key = outboxKey('boulder_results', boulderId, starter.climber_id);
+  // Status shows once the judge saves here, or at once for unsent work from before (reload, back).
+  const [touched, setTouched] = useState(() => !!queue && keyState(queue.snapshot(), key) !== 'saved');
   const [history, setHistory] = useState<BoulderResult[]>([]);
   const [state, setState] = useState<BoulderResult>({
     attempts: initial.attempts, zone_attempt: initial.zone_attempt, top_attempt: initial.top_attempt,
   });
-  const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [ask, setAsk] = useState<null | 'zone' | 'top' | 'lock'>(null);
   const [lockedNow, setLockedNow] = useState(false); // before the live update arrives
   const locked = initiallyLocked || lockedNow;
-  const blocked = locked || !mine;
+  const blocked = locked || !mine || !queue;
   const topped = state.top_attempt != null;
   const climbed = state.attempts > 0 || state.zone_attempt != null || state.top_attempt != null;
   const points = useMemo(() => boulderPoints(state), [state]);
 
-  async function save(next: BoulderResult, prev: BoulderResult, lock = false) {
-    setStatus('saving');
-    const { error } = await supabase.from('boulder_results').upsert(
-      { boulder_id: boulderId, climber_id: starter.climber_id, round_id: roundId, ...next, ...(lock ? { locked: true } : {}) },
-      { onConflict: 'boulder_id,climber_id' },
-    ).select(RESULT_COLUMNS);
-    if (error) { setState(prev); setStatus('error'); return false; }
-    setStatus('saved');
-    return true;
+  // Through the outbox: kept on the phone until the server has it (no revert without signal).
+  function save(next: BoulderResult, lock = false) {
+    queue?.enqueue({ key, table: 'boulder_results', lock, meta: label, row: { boulder_id: boulderId, climber_id: starter.climber_id,
+      round_id: roundId, attempts: next.attempts, zone_attempt: next.zone_attempt, top_attempt: next.top_attempt } });
+    setTouched(true);
   }
 
   function act(action: JudgeAction) {
@@ -277,7 +350,7 @@ function ScorePad({ roundId, boulderId, starter, initial, locked: initiallyLocke
     if (next === state || next.attempts === state.attempts && next.zone_attempt === state.zone_attempt && next.top_attempt === state.top_attempt) return;
     setHistory((h) => [...h, state]);
     setState(next);
-    void save(next, state);
+    save(next);
     if (action === 'attempt' && !onWall) void markWall(true); // counting an attempt means they're climbing
   }
   // Zone / Top before any attempt was counted: ask first (like the temporary app).
@@ -287,14 +360,16 @@ function ScorePad({ roundId, boulderId, starter, initial, locked: initiallyLocke
     const prev = history.at(-1);
     if (!prev) return;
     setHistory((h) => h.slice(0, -1));
-    const before = state;
     setState(prev);
-    void save(prev, before);
+    save(prev);
   }
 
-  async function lock() {
+  // Without signal too: the lock waits in the outbox, the climber counts as locked here.
+  function lock() {
     setAsk(null);
-    if (await save(state, state, true)) { setLockedNow(true); nav.onLocked(); }
+    save(state, true);
+    setLockedNow(true);
+    nav.onLocked();
   }
 
   const summary = !climbed ? t('notClimbedYet')
@@ -340,12 +415,10 @@ function ScorePad({ roundId, boulderId, starter, initial, locked: initiallyLocke
             <button className="primary" onClick={() => setAsk('lock')} disabled={blocked || !climbed}>{t('lockAndNext')}</button>
           </div>
         )}
-      <p className={`pad-status ${status}`} aria-live="polite">
-        {status === 'saved' ? t('saved') : status === 'error' ? t('saveFailed') : status === 'saving' ? '…' : ''}
-      </p>
+      <PadStatus outboxKey={key} show={touched} />
 
       {ask === 'lock' && (
-        <Sheet title={t('confirmLockTitle')} confirm={t('yesLock')} onConfirm={() => void lock()} onCancel={() => setAsk(null)}>
+        <Sheet title={t('confirmLockTitle')} confirm={t('yesLock')} onConfirm={lock} onCancel={() => setAsk(null)}>
           <p>{t('confirmLockText')}</p>
           <p className="sheet-result">#{starter.bib ?? '–'} · {summary} · <strong>{points.toFixed(1)}</strong></p>
         </Sheet>
@@ -361,28 +434,31 @@ function ScorePad({ roundId, boulderId, starter, initial, locked: initiallyLocke
 }
 
 /** Lead: the judge records the final height (hold, + or TOP); saving keeps it editable, locking ends it. */
-function LeadPad({ roundId, routeId, starter, initial, locked: initiallyLocked, ...nav }:
-  { roundId: string; routeId: string; starter: Starter; initial: LeadRow | undefined; locked: boolean } & PadNav) {
+function LeadPad({ roundId, routeId, starter, label, initial, locked: initiallyLocked, ...nav }:
+  { roundId: string; routeId: string; starter: Starter; label: PadLabel; initial: Pick<LeadRow, 'hold' | 'plus' | 'top'> | undefined; locked: boolean } & PadNav) {
   const { t } = useI18n();
   const { holder, mine, onWall, markWall } = useClaim(roundId, routeId, starter.climber_id, !initiallyLocked);
+  const { queue } = useOutbox();
+  const key = outboxKey('lead_results', routeId, starter.climber_id);
   const [hold, setHold] = useState(initial?.hold ?? 0);
   const [plus, setPlus] = useState(initial?.plus ?? false);
   const [top, setTop] = useState(initial?.top ?? false);
-  const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  // Edited since the last save: no status until saved; saved: what the outbox says.
+  const [edited, setEdited] = useState(false);
+  const [saved, setSaved] = useState(() => !!queue && keyState(queue.snapshot(), key) !== 'saved');
   const [ask, setAsk] = useState(false);
   const [lockedNow, setLockedNow] = useState(false);
   const locked = initiallyLocked || lockedNow;
-  const blocked = locked || !mine;
-  const changed = () => setStatus('idle');
+  const blocked = locked || !mine || !queue;
+  const changed = () => setEdited(true);
 
-  async function save(lock = false) {
-    setStatus('saving');
-    const { error } = await supabase.from('lead_results').upsert(
-      { boulder_id: routeId, climber_id: starter.climber_id, round_id: roundId, hold, plus: top ? false : plus, top, ...(lock ? { locked: true } : {}) },
-      { onConflict: 'boulder_id,climber_id' },
-    ).select(LEAD_COLUMNS);
-    setStatus(error ? 'error' : 'saved');
-    if (!error && lock) { setLockedNow(true); nav.onLocked(); }
+  // Through the outbox, like the boulder pad; locking without signal moves on as well.
+  function save(lock = false) {
+    queue?.enqueue({ key, table: 'lead_results', lock, meta: label,
+      row: { boulder_id: routeId, climber_id: starter.climber_id, round_id: roundId, hold, plus: top ? false : plus, top } });
+    setEdited(false);
+    setSaved(true);
+    if (lock) { setLockedNow(true); nav.onLocked(); }
   }
 
   return (
@@ -405,15 +481,13 @@ function LeadPad({ roundId, routeId, starter, initial, locked: initiallyLocked, 
         ? <button className="primary pad-save" disabled={nav.nextFree < 0} onClick={() => nav.onGo(nav.nextFree)}>{t('nextClimber')}</button>
         : (
           <div className="pad-actions">
-            <button className="secondary" onClick={() => void save()} disabled={blocked || status === 'saving'}>{t('save')}</button>
-            <button className="primary" onClick={() => setAsk(true)} disabled={blocked || status === 'saving'}>{t('lockAndNext')}</button>
+            <button className="secondary" onClick={() => save()} disabled={blocked}>{t('save')}</button>
+            <button className="primary" onClick={() => setAsk(true)} disabled={blocked}>{t('lockAndNext')}</button>
           </div>
         )}
-      <p className={`pad-status ${status}`} aria-live="polite">
-        {status === 'saved' ? t('saved') : status === 'error' ? t('saveFailed') : status === 'saving' ? '…' : ''}
-      </p>
+      {edited ? <p className="pad-status" /> : <PadStatus outboxKey={key} show={saved} />}
       {ask && (
-        <Sheet title={t('confirmLockTitle')} confirm={t('yesLock')} onCancel={() => setAsk(false)} onConfirm={() => { setAsk(false); void save(true); }}>
+        <Sheet title={t('confirmLockTitle')} confirm={t('yesLock')} onCancel={() => setAsk(false)} onConfirm={() => { setAsk(false); save(true); }}>
           <p>{t('confirmLockText')}</p>
           <p className="sheet-result" dir="ltr">#{starter.bib ?? '–'} · {formatHeight({ hold, plus, top })}</p>
         </Sheet>
