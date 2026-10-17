@@ -794,6 +794,23 @@ select pg_temp.assert(
   'season_rankings: a profile for every climber in the rounds');
 select pg_temp.assert(season_rankings('2026-27')::text !~* 'birth' and season_rankings('2026-27')::text !~ '2009-05-01',
   'season_rankings carries no birth dates');
+-- a draft competition with a ranked season and series stays invisible
+reset role;
+update competitions set season = '2026-27', series = 'premier_league' where id = '10000000-0000-0000-0000-000000000002';
+insert into rounds (id, category_id, kind, status) values ('3e000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002', 'qualification', 'live');
+insert into round_starters (round_id, climber_id) values ('3e000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-0000000000e1')
+  on conflict do nothing;
+select pg_temp.login(null);
+select pg_temp.assert(season_rankings('2026-27')::text !~ '3e000000-0000-0000-0000-000000000001'
+  and season_rankings('2026-27')::text !~ '10000000-0000-0000-0000-000000000002'
+  and climber_page('60000000-0000-0000-0000-0000000000e1')::text !~ '10000000-0000-0000-0000-000000000002'
+  and json_array_length(climber_page('60000000-0000-0000-0000-0000000000e1') -> 'history') = 0,
+  'season_rankings and climber_page: nothing of a draft competition');
+reset role;
+delete from round_starters where round_id = '3e000000-0000-0000-0000-000000000001';
+delete from rounds where id = '3e000000-0000-0000-0000-000000000001';
+update competitions set season = null, series = 'other' where id = '10000000-0000-0000-0000-000000000002';
+select pg_temp.login(null);
 select pg_temp.assert(json_array_length(season_rankings('2031-32') -> 'rounds') = 0
   and json_array_length(season_rankings('2031-32') -> 'profiles') = 0, 'season_rankings: empty season');
 select pg_temp.assert(

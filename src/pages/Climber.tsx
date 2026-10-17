@@ -16,11 +16,14 @@ export function Climber() {
 
   useEffect(() => {
     if (!id) return;
+    let live = true;
     // One request: public profile columns (private data lives in profile_private) and the history.
     supabase.rpc('climber_page', { p_climber: id }).then(({ data }) => {
+      if (!live) return;
       const d = data as { profile: Profile | null; history: HistoryRow[] } | null;
       setPage({ id, profile: d?.profile ?? null, history: (d?.history ?? []).filter((r) => r.round_status !== 'planned') });
     });
+    return () => { live = false; };
   }, [id]);
 
   const profile = page && page.id === id ? page.profile : undefined;

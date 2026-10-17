@@ -202,6 +202,7 @@ const dict = {
   },
   intlResults: { he: 'תוצאות בין-לאומיות', en: 'International results' },
   noRankings: { he: 'אין עדיין מדרג לעונה הזו', en: 'No rankings for this season yet' },
+  loadFailed: { he: 'הטעינה נכשלה, נסו שוב', en: 'Loading failed, try again' },
   updatedAt: { he: 'עודכן', en: 'Updated' },
   seasonOf: { he: 'עונת', en: 'Season' },
   staffApp: { he: 'ILCA צוות', en: 'ILCA Staff' },

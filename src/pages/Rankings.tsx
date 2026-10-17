@@ -29,8 +29,9 @@ interface SeasonData {
 const seasonCache = new Map<string, SeasonData>();
 
 /** season_rankings(): everything one season's ranking needs, in one request. */
-async function loadSeason(season: string): Promise<SeasonData> {
-  const { data: page } = await supabase.rpc('season_rankings', { p_season: season });
+async function loadSeason(season: string): Promise<SeasonData | null> {
+  const { data: page, error } = await supabase.rpc('season_rankings', { p_season: season });
+  if (error || !page) return null;
   const d = (page ?? {}) as {
     rounds?: RoundPlacing[]; age_classes?: { climber_id: string; age_class: RankClass }[]; too_young?: string[];
     intl?: IntlResult[]; adjustments?: (Adjustment & { season: string })[]; world?: SeasonData['world'];
@@ -45,7 +46,7 @@ async function loadSeason(season: string): Promise<SeasonData> {
     profiles: new Map((d.profiles ?? []).map((p) => [p.id, p])),
     world: d.world ?? [],
   };
-  if (page) seasonCache.set(season, data);
+  seasonCache.set(season, data);
   return data;
 }
 
@@ -58,6 +59,7 @@ export function Rankings() {
   const [discipline, setDiscipline] = useDiscipline();
   const [seasons, setSeasons] = useState<string[] | null>(null);
   const [data, setData] = useState<SeasonData | null>(null);
+  const [failed, setFailed] = useState(false);
   const season = params.get('season') ?? seasons?.[0] ?? null;
   const rankClass = (RANK_CLASSES.includes(params.get('c') as RankClass) ? params.get('c') : 'senior') as RankClass;
   const gender: Gender = params.get('g') === 'female' ? 'female' : 'male';
@@ -73,7 +75,9 @@ export function Rankings() {
     let live = true;
     // a season seen before shows at once, then refreshes
     setData(seasonCache.get(season) ?? null);
-    void loadSeason(season).then((d) => { if (live) setData(d); });
+    setFailed(false);
+    // a failed refresh keeps what is shown; a failed first load says so
+    void loadSeason(season).then((d) => { if (!live) return; if (d) setData(d); else setFailed(true); });
     return () => { live = false; };
   }, [season]);
 
@@ -124,7 +128,7 @@ export function Rankings() {
       {discipline === 'speed' ? <p className="muted">{t('speedSoon')}</p>
         : youth && season && season < FIRST_YOUTH_SEASON ? <p className="muted">{t('youthRankingsFrom')}</p>
         : !season || (seasons && seasons.length === 0) ? <p className="muted">{t('noRankings')}</p>
-        : !data ? <p className="muted">{t('loading')}</p>
+        : !data ? (failed ? <p className="error" role="alert">{t('loadFailed')}</p> : <p className="muted">{t('loading')}</p>)
         : rows.length === 0 ? <p className="muted">{t('noRankings')}</p>
         : (
           <div className="table-wrap">
