@@ -61,6 +61,7 @@ export function AdminRankings() {
       <h1>{t('rankings')}</h1>
       <AdminNav />
       <ErrorLine error={error} />
+      <IfscSync />
       <label className="inline-form">{t('season')}
         <input value={season} pattern="\d{4}-\d{2}" onChange={(e) => setSeason(e.target.value)} placeholder="2025-26" />
       </label>
@@ -201,5 +202,116 @@ function AdjustmentForm({ season, onAdd }: { season: string; onAdd: (row: Record
       <label>{t('note')}<input name="note" required /></label>
       <div className="form-actions"><button className="primary" disabled={!climber}>{t('add')}</button></div>
     </form>
+  );
+}
+
+type SyncRun = { id: number; started_at: string; status: 'running' | 'ok' | 'failed'; added: number; linked: number;
+  pending: number; world: number; error: string | null };
+type PendingAthlete = { ifsc_athlete_id: number; firstname: string; lastname: string; birthday: string | null;
+  suggested_profile: string | null; results: unknown[] };
+
+/** Calls the ifsc-sync function; a non-2xx answer comes back as an error whose body holds the reason. */
+async function invokeSync(body: { athlete?: number }, busy: string): Promise<string> {
+  const { data, error } = await supabase.functions.invoke('ifsc-sync', { body });
+  if (!error) return `+${data.added} / ${data.linked} / ${data.pending} / ${data.world}`;
+  const res = (error as { context?: Response }).context;
+  const j = res && typeof res.json === 'function' ? await res.json().catch(() => null) : null;
+  throw new Error(j?.status === 'busy' ? busy : j?.error ?? error.message);
+}
+
+/** The daily IFSC sync: last runs, run now, and athletes waiting for an admin to confirm who they are. */
+function IfscSync() {
+  const { t, lang } = useI18n();
+  const [runs, setRuns] = useState<SyncRun[]>([]);
+  const [pending, setPending] = useState<PendingAthlete[]>([]);
+  const [names, setNames] = useState(new Map<string, Profile>());
+  const [picking, setPicking] = useState<number | null>(null);
+  const [working, setWorking] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const none = useMemo(() => new Set<string>(), []);
+
+  const reload = useCallback(async () => {
+    const [{ data: r, error: e1 }, { data: p, error: e2 }] = await Promise.all([
+      supabase.from('ifsc_sync_runs').select('id, started_at, status, added, linked, pending, world, error')
+        .order('started_at', { ascending: false }).limit(5),
+      supabase.from('ifsc_pending').select('ifsc_athlete_id, firstname, lastname, birthday, suggested_profile, results')
+        .eq('status', 'pending').order('lastname'),
+    ]);
+    setRuns((r ?? []) as SyncRun[]);
+    const list = (p ?? []) as PendingAthlete[];
+    setPending(list);
+    setError(e1?.message ?? e2?.message ?? null);
+    const ids = list.map((a) => a.suggested_profile).filter((id): id is string => !!id);
+    if (ids.length) {
+      const { data: ps } = await supabase.from('profiles').select('id, full_name, full_name_he, club, country').in('id', ids);
+      setNames(new Map(((ps ?? []) as Profile[]).map((x) => [x.id, x])));
+    }
+  }, []);
+  useEffect(() => { void reload(); }, [reload]);
+
+  const sync = async (body: { athlete?: number }) => {
+    setWorking(true); setNote(null);
+    try { setNote(await invokeSync(body, t('ifscBusy'))); setError(null); }
+    catch (e) { setError((e as Error).message); }
+    setWorking(false);
+    await reload();
+  };
+  // The link stays even when the import fails: the next daily run imports the waiting results anyway.
+  const confirm = async (a: PendingAthlete, profileId: string) => {
+    const { error: e } = await supabase.from('profiles').update({ ifsc_id: String(a.ifsc_athlete_id) }).eq('id', profileId);
+    if (e) { setError(e.message); return; }
+    setPicking(null);
+    await sync({ athlete: a.ifsc_athlete_id });
+  };
+  const ignore = async (a: PendingAthlete) => {
+    const { error: e } = await supabase.from('ifsc_pending').update({ status: 'ignored' }).eq('ifsc_athlete_id', a.ifsc_athlete_id);
+    setError(e?.message ?? null);
+    await reload();
+  };
+  const suggested = (a: PendingAthlete) => {
+    const p = a.suggested_profile ? names.get(a.suggested_profile) : null;
+    return p ? localized(lang, p.full_name, p.full_name_he) : null;
+  };
+
+  return (
+    <div className="ifsc-sync">
+      <h2>{t('ifscSync')}</h2>
+      <ErrorLine error={error} />
+      <p>
+        <button className="secondary" disabled={working} onClick={() => sync({})}>{t('ifscRunNow')}</button>
+        {note && <span className="muted small"> {note}</span>}
+      </p>
+      <h3>{t('ifscLastRuns')}</h3>
+      <ul className="event-list">
+        {runs.map((r) => (
+          <li key={r.id} className="event">
+            <span className="event-main">
+              <span className="event-title">{new Date(r.started_at).toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB')} · {r.status}</span>
+              <span className="muted small">+{r.added} · {r.linked} · {r.pending} · {r.world}{r.error ? ` · ${r.error}` : ''}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <h3>{t('ifscPending')}</h3>
+      <ul className="event-list">
+        {pending.map((a) => (
+          <li key={a.ifsc_athlete_id} className="event">
+            <span className="event-main">
+              <span className="event-title">{a.firstname} {a.lastname}</span>
+              <span className="muted small">{a.birthday} · {a.results.length}{suggested(a) ? ` · ${suggested(a)}` : ''}</span>
+              {picking === a.ifsc_athlete_id && (
+                <ClimberPicker exclude={none} actionLabel={t('ifscConfirm')} defaultGender={null} onPick={(id) => confirm(a, id)} />
+              )}
+            </span>
+            {a.suggested_profile && (
+              <button className="primary" disabled={working} onClick={() => confirm(a, a.suggested_profile!)}>{t('ifscConfirm')}</button>
+            )}
+            <button className="link" onClick={() => setPicking(picking === a.ifsc_athlete_id ? null : a.ifsc_athlete_id)}>{t('ifscPickOther')}</button>
+            <button className="link danger" onClick={() => ignore(a)}>{t('ifscIgnore')}</button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

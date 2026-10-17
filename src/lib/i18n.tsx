@@ -298,6 +298,14 @@ const dict = {
   adjustments: { he: 'התאמות (כגון הפחתה משמעתית)', en: 'Adjustments (e.g. disciplinary deductions)' },
   allClasses: { he: 'כל המחלקות', en: 'All classes' },
   selectClimber: { he: 'בחר/י מטפס/ת', en: 'Select climber' },
+  ifscSync: { he: 'IFSC – עדכון אוטומטי', en: 'IFSC – automatic updates' },
+  ifscRunNow: { he: 'הרצה עכשיו', en: 'Run now' },
+  ifscLastRuns: { he: 'הרצות אחרונות', en: 'Last runs' },
+  ifscPending: { he: 'ספורטאי IFSC לאישור', en: 'IFSC athletes to confirm' },
+  ifscConfirm: { he: 'אישור', en: 'Confirm' },
+  ifscPickOther: { he: 'בחירת מטפס/ת אחר/ת', en: 'Pick another climber' },
+  ifscIgnore: { he: 'לא מהנבחרת', en: 'Not on the team' },
+  ifscBusy: { he: 'עדכון כבר רץ, נסו שוב בעוד כמה דקות', en: 'A run is already going; try again in a few minutes' },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type MsgKey = keyof typeof dict;
