@@ -54,8 +54,8 @@ Open work: first event fully on these apps; offline retry queue for the judge pa
 screen for qualification groups; merging duplicate climber profiles; speed discipline; calendar;
 notifications.
 
-Decisions: results are public like IFSC; climbers have no sign-in page (view-only app); no IFSC
-data imported (international results are admin-entered); LogLig test entries, simulations and
+Decisions: results are public like IFSC; climbers have no sign-in page (view-only app); international
+results come from IFSC (tools/ifsc, 2023-24 to 2025-26) where ILCA published no points, plus admin entries; LogLig test entries, simulations and
 training camps are not imported.
 
 Local toolchain: Node 25 (REA needs Node 24 at `~/.nvm/versions/node/v24.22.0`), Postgres 16 under

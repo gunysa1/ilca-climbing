@@ -153,7 +153,7 @@ export function seniorIntlPoints(r: IntlResult): number {
       if (place <= 40) return 60;
       return 0;
     case 'world_championship':
-      return 0; // the results count as events, but ILCA's points table for them isn't known yet
+      return 0; // no table in the ILCA 2025 criteria
     case 'european_cup':
       if (final && place <= 3) return 100;
       if (final && place <= 8) return 60;

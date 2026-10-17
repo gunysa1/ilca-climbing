@@ -104,6 +104,25 @@ python3 tools/loglig/import_loglig.py --check ARCHIVE SEASON_ID:COMP_ID [...]   
   every difference, then import live. Delete local SQL files afterwards (personal data).
 - Imported so far: 2020-21 to 2025-26, 80 competitions, 99.6% of ranks identical to LogLig.
 
+### IFSC international results (`tools/ifsc`)
+
+Reads the public IFSC results API (ifsc.results.info; curl, since other clients get 403) for every
+Israeli boulder/lead result at World Cups, World and European Championships, European Cups and the
+youth European/World events, then matches athletes to profiles by birth date and name:
+
+```bash
+python3 -I tools/ifsc/scrape.py OUT          # OUT/isr_results.json, isr_athletes.json (+ cache)
+# export profiles (id, full_name, full_name_he, gender, ifsc_id, birth_date) to OUT/profiles.json and
+# the current international_results to OUT/manual.json (supabase db query --linked … > file)
+python3 -I tools/ifsc/match.py OUT           # OUT/matches.json; review "check" and "name-only" lines
+python3 -I tools/ifsc/to_sql.py OUT tools/ifsc   # OUT/ifsc_import.sql: add-only, one transaction
+python3 -I tools/ifsc/compare.py OUT tools/ifsc  # computed vs ILCA-published points
+```
+
+The import skips groups (season, class, discipline) where ILCA published points, events without a
+table and athletes without a reliable match, and sets `profiles.ifsc_id`. Loaded 2026-10-17: 428
+results, 100 climbers. The exports hold birth dates: keep OUT outside git and delete it afterwards.
+
 ### Temporary scoring app (`tools/tempapp/mirror.py`)
 
 While events still run on the temporary app (ilca-boulder-score.netlify.app), its current round can

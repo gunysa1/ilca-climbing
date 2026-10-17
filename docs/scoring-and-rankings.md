@@ -72,7 +72,7 @@ senior events. International points (only in the top 60% of the field):
 | World Cup | 60 | 100 | 140 (boulder 1-20, lead 1-26) | 200 (boulder 1-6, lead 1-8) | 300 |
 | European Cup | | | | 60 (1-8) | 100 |
 | European Championships | | 60 | 100 (1-24) | 140 (1-8) | 200 |
-| World Championships | 0 for now: they earn points, but ILCA's table for them isn't known yet | | | | |
+| World Championships | 0: no table in the 2025 criteria | | | | |
 
 ### Youth U21 / U19 / U17
 
@@ -95,8 +95,16 @@ U17 = E-16…E-15.
 - Equal totals: the better (youth) championship place ranks higher; otherwise the rank is shared.
 - Only climbers with more than 0 points are listed.
 - Admin adjustments (e.g. disciplinary deductions published by ILCA) are added last.
-- International results are entered by admins (place, field size, last round reached, or the
-  points as ILCA published them); nothing is imported from IFSC.
+- International results: the points ILCA published (2023-24 seniors, 2024-25 youth bouldering),
+  results imported from IFSC for the other seasons and tables (`tools/ifsc`, 2023-24 to 2025-26),
+  and admin entries (place, field size, last round reached, or published points).
+- The season of an international event is its calendar year: the 24/25 ranking counts the events
+  of 2024 (the criteria's worked examples). Checked against ILCA's 24/25 youth bouldering bonus:
+  18 of 19 climbers identical.
+- 2026-27 follows ILCA's 2027 criteria, not yet built: seniors get points for their world ranking
+  (1-10: 400, 11-20: 300, 21-30: 200, 31-40: 100) in place of the weaker league event, instead of
+  points per international event; youth score only the World Youth Championships (final 60, podium
+  100) and European Youth Championships (40, 60). No IFSC results are imported for 2026-27 yet.
 - Seniors are ranked from 2023-24 on; youth from 2024-25 on (earlier youth leagues were organised
   differently).
 
