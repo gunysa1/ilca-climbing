@@ -59,7 +59,7 @@ screen for qualification groups; merging duplicate climber profiles; speed disci
 notifications.
 
 Decisions: results are public like IFSC; climbers have no sign-in page (view-only app); international
-results come from IFSC (tools/ifsc, 2023-24 to 2025-26) where ILCA published no points, plus admin entries; LogLig test entries, simulations and
+results come from IFSC (tools/ifsc, 2023-24 to 2026-27; world_rankings for 2026-27, provisional until the 1.1.2027 list) where ILCA published no points, plus admin entries; LogLig test entries, simulations and
 training camps are not imported.
 
 Local toolchain: Node 25 (REA needs Node 24 at `~/.nvm/versions/node/v24.22.0`), Postgres 16 under
