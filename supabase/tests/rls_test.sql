@@ -779,6 +779,36 @@ select pg_temp.assert(
     = (select count(*) from climber_history where climber_id = '60000000-0000-0000-0000-00000000000a')
   and (select count(*) from climber_history where climber_id = '60000000-0000-0000-0000-00000000000a') > 0,
   'climber_history_for() returns exactly the climbers'' climber_history rows');
+-- season_rankings() / climber_page(): one call per page, same rows as the separate functions
+select pg_temp.assert(
+  json_array_length(season_rankings('2026-27') -> 'rounds') = (select count(*) from season_ranking_rounds('2026-27'))
+  and json_array_length(season_rankings('2026-27') -> 'rounds') > 0
+  and json_array_length(season_rankings('2026-27') -> 'age_classes') = (select count(*) from season_age_classes('2026-27'))
+  and json_array_length(season_rankings('2026-27') -> 'intl') = (select count(*) from international_results where season = '2026-27')
+  and json_array_length(season_rankings('2026-27') -> 'world') = (select count(*) from world_rankings where season = '2026-27'),
+  'season_rankings returns the same rows as the separate queries');
+select pg_temp.assert(
+  (select count(*) from json_array_elements(season_rankings('2026-27') -> 'rounds') e
+    where not exists (select 1 from json_array_elements(season_rankings('2026-27') -> 'profiles') p
+                      where p ->> 'id' = e ->> 'climber_id')) = 0,
+  'season_rankings: a profile for every climber in the rounds');
+select pg_temp.assert(season_rankings('2026-27')::text !~* 'birth' and season_rankings('2026-27')::text !~ '2009-05-01',
+  'season_rankings carries no birth dates');
+select pg_temp.assert(json_array_length(season_rankings('2031-32') -> 'rounds') = 0
+  and json_array_length(season_rankings('2031-32') -> 'profiles') = 0, 'season_rankings: empty season');
+select pg_temp.assert(
+  json_array_length(climber_page('60000000-0000-0000-0000-00000000000a') -> 'history')
+    = (select count(*) from climber_history where climber_id = '60000000-0000-0000-0000-00000000000a')
+  and json_array_length(climber_page('60000000-0000-0000-0000-00000000000a') -> 'history') > 0
+  and climber_page('60000000-0000-0000-0000-00000000000a') -> 'profile' ->> 'full_name' is not null
+  and exists (select 1 from json_array_elements(climber_page('60000000-0000-0000-0000-00000000000a') -> 'competitions') c
+              where c ->> 'id' = '10000000-0000-0000-0000-000000000001' and c ->> 'series' = 'premier_league'),
+  'climber_page returns profile, history and the history''s competitions');
+select pg_temp.assert(climber_page('60000000-0000-0000-0000-00000000000a')::text !~* 'birth',
+  'climber_page carries no birth date');
+select pg_temp.assert((climber_page('99999999-0000-0000-0000-000000000009') -> 'profile')::text = 'null'
+  and json_array_length(climber_page('99999999-0000-0000-0000-000000000009') -> 'history') = 0,
+  'climber_page: nothing for an unknown climber');
 reset role;
 update competitions set season = null, series = 'other' where id = '10000000-0000-0000-0000-000000000001';
 

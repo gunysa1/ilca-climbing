@@ -26,11 +26,12 @@ export function useClimberHistory(climberId: string | undefined): HistoryRow[] |
  * A climber's results for ONE discipline: stats (events, medals, best, finals) and one line per
  * event with the placing and links to each round. Disciplines are never mixed.
  * Without a `discipline` prop it shows its own tabs (my history, coach view); the public climber
- * page passes the bottom-bar choice instead.
+ * page passes the bottom-bar choice instead, and the rows it already loaded (climber_page).
  */
-export function History({ climberId, discipline }: { climberId: string; discipline?: Discipline }) {
+export function History({ climberId, discipline, rows: preloaded }: { climberId: string; discipline?: Discipline; rows?: HistoryRow[] }) {
   const { t } = useI18n();
-  const rows = useClimberHistory(climberId);
+  const loaded = useClimberHistory(preloaded ? undefined : climberId);
+  const rows = preloaded ?? loaded;
   const events = useMemo(() => climberEvents(rows ?? []), [rows]);
   const available = DISCIPLINES.filter((d) => events.some((e) => e.discipline === d));
   const [tab, setTab] = useState<Discipline | null>(null);

@@ -289,6 +289,28 @@ await p.goto(`${view}/rankings?season=2026-27&c=senior&g=female&d=boulder`);
 await p.locator('.edition-line', { hasText: /^(Per|לפי) / }).filter({ hasText: 'אמות מידה לנבחרות 2027' }).waitFor();
 await p.screenshot({ path: `${out}/rankings-en.png`, fullPage: true });
 
+step('rankings and climber pages: one data request each');
+{
+  const pub = await (await browser.newContext()).newPage();
+  const reqs = [];
+  const t0 = { v: 0 };
+  pub.on('request', (r) => { if (r.url().includes('/rest/v1/')) reqs.push(r.url().split('/rest/v1/')[1].split('?')[0]); });
+  t0.v = Date.now();
+  await pub.goto(`${view}/rankings?season=2026-27&c=senior&g=female&d=boulder`);
+  await pub.locator('table.rankings tbody tr').first().waitFor();
+  console.log(`rankings: ${Date.now() - t0.v} ms, requests: ${reqs.join(', ')}`);
+  if (reqs.filter((r) => r !== 'competitions').join() !== 'rpc/season_rankings') problems.push(`rankings requests: ${reqs.join(', ')}`);
+  const href = await pub.locator('table.rankings a.athlete').first().getAttribute('href');
+  reqs.length = 0;
+  t0.v = Date.now();
+  await pub.goto(`${view}${href}`);
+  await pub.locator('h1').first().waitFor();
+  await pub.locator('.climber-stats, .muted').first().waitFor();
+  console.log(`climber page: ${Date.now() - t0.v} ms, requests: ${reqs.join(', ')}`);
+  if (reqs.join() !== 'rpc/climber_page') problems.push(`climber page requests: ${reqs.join(', ')}`);
+  await pub.close();
+}
+
 step('two apps: the viewer is view-only, the staff app needs sign-in');
 const anon = await (await browser.newContext()).newPage();
 await anon.goto(`${view}/admin`);

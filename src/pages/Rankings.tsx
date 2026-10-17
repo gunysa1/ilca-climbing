@@ -7,7 +7,6 @@ import {
   computeRanking, RANK_CLASSES, type Adjustment, type Gender, type IntlResult, type RankClass, type RoundPlacing,
 } from '../lib/rankings';
 import { criteriaForSeason } from '../lib/criteria';
-import { allRows } from '../lib/allRows';
 import { supabase } from '../lib/supabase';
 import type { Profile } from '../lib/types';
 
@@ -24,6 +23,30 @@ interface SeasonData {
   adjustments: (Adjustment & { season: string })[];
   profiles: Map<string, Profile & { gender: Gender | null }>;
   world: { climber_id: string; discipline: string; position: number; as_of: string }[];
+}
+
+/** Seasons already loaded in this visit: switching back shows them at once. */
+const seasonCache = new Map<string, SeasonData>();
+
+/** season_rankings(): everything one season's ranking needs, in one request. */
+async function loadSeason(season: string): Promise<SeasonData> {
+  const { data: page } = await supabase.rpc('season_rankings', { p_season: season });
+  const d = (page ?? {}) as {
+    rounds?: RoundPlacing[]; age_classes?: { climber_id: string; age_class: RankClass }[]; too_young?: string[];
+    intl?: IntlResult[]; adjustments?: (Adjustment & { season: string })[]; world?: SeasonData['world'];
+    profiles?: (Profile & { gender: Gender | null })[];
+  };
+  const data: SeasonData = {
+    rounds: d.rounds ?? [],
+    ageClass: new Map((d.age_classes ?? []).map((a) => [a.climber_id, a.age_class])),
+    tooYoung: new Set(d.too_young ?? []),
+    intl: (d.intl ?? []).map((r) => ({ ...r, points: r.points == null ? null : Number(r.points) })),
+    adjustments: (d.adjustments ?? []).map((a) => ({ ...a, points: Number(a.points) })),
+    profiles: new Map((d.profiles ?? []).map((p) => [p.id, p])),
+    world: d.world ?? [],
+  };
+  if (page) seasonCache.set(season, data);
+  return data;
 }
 
 const CLASS_LABEL: Record<RankClass, MsgKey | null> = { senior: 'seniors', U21: null, U19: null, U17: null };
@@ -47,34 +70,11 @@ export function Rankings() {
 
   useEffect(() => {
     if (!season) return;
-    setData(null);
-    (async () => {
-      const [rounds, { data: ages }, { data: young }, { data: intl }, { data: adjustments }, { data: world }] = await Promise.all([
-        // season_ranking_rounds() ranks only the season's rounds (the ranking_rounds view ranks every round)
-        allRows<RoundPlacing>((from, to) => supabase.rpc('season_ranking_rounds', { p_season: season }).range(from, to)),
-        supabase.rpc('season_age_classes', { p_season: season }),
-        supabase.rpc('season_senior_too_young', { p_season: season }),
-        supabase.from('international_results').select('*').eq('season', season),
-        supabase.from('ranking_adjustments').select('*').eq('season', season),
-        supabase.from('world_rankings').select('climber_id, discipline, position, as_of').eq('season', season),
-      ]);
-      const worldRows = (world ?? []) as SeasonData['world'];
-      const ids = [...new Set([...(rounds ?? []), ...(intl ?? []), ...worldRows].map((r) => r.climber_id as string))];
-      const profiles = new Map<string, Profile & { gender: Gender | null }>();
-      for (let i = 0; i < ids.length; i += 150) {
-        const { data: ps } = await supabase.from('profiles').select('id, full_name, full_name_he, club, country, gender').in('id', ids.slice(i, i + 150));
-        for (const p of (ps ?? []) as (Profile & { gender: Gender | null })[]) profiles.set(p.id, p);
-      }
-      setData({
-        rounds,
-        ageClass: new Map(((ages ?? []) as { climber_id: string; age_class: RankClass }[]).map((a) => [a.climber_id, a.age_class])),
-        tooYoung: new Set(((young ?? []) as { climber_id: string }[]).map((y) => y.climber_id)),
-        intl: (intl ?? []).map((r) => ({ ...r, points: r.points == null ? null : Number(r.points) })) as IntlResult[],
-        adjustments: (adjustments ?? []).map((a) => ({ ...a, points: Number(a.points) })) as SeasonData['adjustments'],
-        profiles,
-        world: worldRows,
-      });
-    })();
+    let live = true;
+    // a season seen before shows at once, then refreshes
+    setData(seasonCache.get(season) ?? null);
+    void loadSeason(season).then((d) => { if (live) setData(d); });
+    return () => { live = false; };
   }, [season]);
 
   const rows = useMemo(() => {
@@ -171,5 +171,4 @@ export function Rankings() {
   );
 }
 
-/** Every row of a query: the API returns at most 1000 rows per request (a season has more). */
 const fmt = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(2).replace(/0$/, ''));
