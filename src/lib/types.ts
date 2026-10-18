@@ -83,6 +83,12 @@ export interface HistoryRow {
   /** Scoring format of the round: 'ifsc2025' | 'classic' | 'lead'. */
   discipline: RoundFormat;
   round_id: string;
+  /** favorites_live() only: the climber's own result as text (alerts fire when it changes), and whether
+   * the round is the first of its category (its start list is the registration, not an advance). */
+  own?: string | null;
+  first_round?: boolean;
+  full_name?: string;
+  full_name_he?: string | null;
 }
 
 /** The history columns the climber page reads (climber_page() returns only these; SQL climber_page_entry). */

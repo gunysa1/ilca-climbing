@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { dwellMs, nextRoundId, screenRounds, SCREEN_SCROLL_PAUSE_MS, SCREEN_SCROLL_PX_PER_S } from '../lib/bigScreen';
 import { localized, useI18n } from '../lib/i18n';
@@ -54,7 +54,9 @@ export function Screen() {
   const [name, setName] = useState<{ name: string; name_he: string | null } | null | undefined>(undefined);
   const [categories, setCategories] = useState<CategoryRounds[] | null>(null);
   const [currentId, setCurrentId] = useState<string | null>(null);
-  const [overflow, setOverflow] = useState(0);
+  const overflow = useRef(0); // how far the current list scrolls (reported by the list)
+  const shownSince = useRef(Date.now());
+  const setOverflow = useCallback((px: number) => { overflow.current = px; }, []);
   useWakeLock();
 
   useEffect(() => {
@@ -76,16 +78,23 @@ export function Screen() {
   const roundsKey = rounds.map((r) => r.round_id).join(',');
   const current = rounds.find((r) => r.round_id === currentId) ?? rounds[0] ?? null;
 
-  // Stay on a round for its dwell time (longer when its list scrolls), then the next one.
-  const dwell = dwellMs(overflow);
+  // Stay on a round for its dwell time (longer when its list scrolls), then the next one. The deadline is
+  // checked each second against when the round came up, so a longer list (a changing on-wall banner, a
+  // late starter) extends it instead of restarting it.
+  const roundsRef = useRef(rounds);
+  roundsRef.current = rounds;
   useEffect(() => {
-    if (rounds.length < 2 || !current) return;
-    const upNext = nextRoundId(rounds, current.round_id);
-    if (upNext) prefetchRound(upNext); // loaded while this one is shown, so the switch is instant
-    const timer = setTimeout(() => setCurrentId(nextRoundId(rounds, current.round_id)), dwell);
-    return () => clearTimeout(timer);
-  }, [current?.round_id, roundsKey, dwell]); // not `rounds`: the 30 s refresh must not restart the timer
-  useEffect(() => { setOverflow(0); }, [current?.round_id]);
+    shownSince.current = Date.now();
+    overflow.current = 0;
+    if (!current) return;
+    const upNext = nextRoundId(roundsRef.current, current.round_id);
+    if (upNext && upNext !== current.round_id) prefetchRound(upNext); // loaded while this one is shown
+    const timer = setInterval(() => {
+      if (roundsRef.current.length < 2 || Date.now() - shownSince.current < dwellMs(overflow.current)) return;
+      setCurrentId(nextRoundId(roundsRef.current, current.round_id));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [current?.round_id, roundsKey]);
 
   const live = rounds.some((r) => r.live);
   return (
@@ -111,7 +120,7 @@ export function Screen() {
 
 function ScreenRound({ roundId, live, onOverflow }: { roundId: string; live: boolean; onOverflow: (px: number) => void }) {
   const { t, lang } = useI18n();
-  const { round, boulders, starters, results, leadResults, totals, loading } = useRoundData(roundId);
+  const { round, boulders, starters, results, leadResults, totals, loading } = useRoundData(roundId, { reuseMs: 20000 });
   const wallRows = useOnWall(roundId, live && round?.status === 'live');
   const wall = useMemo(() => onWallList(wallRows, boulders), [wallRows, boulders]);
   const wallBy = useMemo(() => onWallByClimber(wall), [wall]);
@@ -135,18 +144,20 @@ function ScreenRound({ roundId, live, onOverflow }: { roundId: string; live: boo
     let since = performance.now();
     let last = since;
     let reported = 0;
+    let pos = 0; // fractional: scrollTop alone snaps to whole pixels, which loses slow steps
     const tick = (now: number) => {
       const el = box.current;
       if (el) {
         const max = el.scrollHeight - el.clientHeight;
         const rounded = max > 4 ? Math.round(max / 50) * 50 : 0;
         if (rounded !== reported) { reported = rounded; onOverflow(rounded); }
-        if (max <= 4) { el.scrollTop = 0; phase = 'top'; since = now; }
+        if (max <= 4) { el.scrollTop = 0; pos = 0; phase = 'top'; since = now; }
         else if (phase === 'top' && now - since >= SCREEN_SCROLL_PAUSE_MS) { phase = 'scroll'; }
         else if (phase === 'scroll') {
-          el.scrollTop = Math.min(max, el.scrollTop + ((now - last) / 1000) * SCREEN_SCROLL_PX_PER_S);
-          if (el.scrollTop >= max - 1) { phase = 'bottom'; since = now; }
-        } else if (phase === 'bottom' && now - since >= SCREEN_SCROLL_PAUSE_MS) { el.scrollTop = 0; phase = 'top'; since = now; }
+          pos = Math.min(max, pos + (Math.min(now - last, 100) / 1000) * SCREEN_SCROLL_PX_PER_S);
+          el.scrollTop = pos;
+          if (pos >= max - 1) { phase = 'bottom'; since = now; }
+        } else if (phase === 'bottom' && now - since >= SCREEN_SCROLL_PAUSE_MS) { el.scrollTop = 0; pos = 0; phase = 'top'; since = now; }
       }
       last = now;
       raf = requestAnimationFrame(tick);

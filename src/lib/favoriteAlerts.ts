@@ -22,8 +22,12 @@ export interface AlertState {
   wall: string[];
   seen: Record<string, string>;
   known: string[];
+  /** When the history was last read (ms). After a day without a read everything is a new baseline. */
+  lastRead: number;
 }
-export const EMPTY_STATE: AlertState = { wallKnown: false, wall: [], seen: {}, known: [] };
+export const EMPTY_STATE: AlertState = { wallKnown: false, wall: [], seen: {}, known: [], lastRead: 0 };
+/** A history read older than this is not compared with: stale keys must not alert. */
+export const STALE_MS = 24 * 3600 * 1000;
 
 export interface Alert {
   /** Unique per event: used as the notification tag, so the same event never shows twice. */
@@ -48,8 +52,10 @@ export interface AlertInput {
   names: Map<string, { full_name: string; full_name_he: string | null }>;
   /** home_page's live part; null when not fetched this time. */
   live: HomeLiveRound[] | null;
-  /** favorites_page's history; null when not fetched this time. */
+  /** favorites_live's rows; null when not fetched this time. */
   history: HistoryRow[] | null;
+  /** Now (ms); a parameter for tests. */
+  now?: number;
 }
 
 export function parseSettings(raw: string | null): AlertSettings {
@@ -69,6 +75,7 @@ export function parseState(raw: string | null): AlertState {
       wall: Array.isArray(v.wall) ? v.wall.filter((x): x is string => typeof x === 'string') : [],
       seen: v.seen && typeof v.seen === 'object' && !Array.isArray(v.seen) ? v.seen : {},
       known: Array.isArray(v.known) ? v.known.filter((x): x is string => typeof x === 'string') : [],
+      lastRead: typeof v.lastRead === 'number' ? v.lastRead : 0,
     };
   } catch { return EMPTY_STATE; }
 }
@@ -107,7 +114,9 @@ export function diffAlerts(state: AlertState, input: AlertInput, settings: Alert
   }
 
   if (input.history) {
-    const baselined = new Set(state.known);
+    const now = input.now ?? Date.now();
+    // a long gap (or never read): everything is a new baseline, so old events never alert late
+    const baselined = new Set(state.lastRead > 0 && now - state.lastRead <= STALE_MS ? state.known : []);
     const nameOf = (id: string) => input.names.get(id) ?? { full_name: '', full_name_he: null };
     for (const h of input.history) {
       if (!fav.has(h.climber_id)) continue;
@@ -116,17 +125,25 @@ export function diffAlerts(state: AlertState, input: AlertInput, settings: Alert
         climber_id: h.climber_id, round_id: h.round_id, name: nameOf(h.climber_id).full_name, name_he: nameOf(h.climber_id).full_name_he,
         competition: h.competition, competition_he: h.competition_he, round_kind: h.round,
       };
-      // a new result in a live round: boulder rounds when the climber's own totals changed, lead when the place did
+      // a new result in a live round: when the climber's own result changed (not when others move their place)
       if (h.round_status === 'live' && h.rank != null) {
         const key = `result:${h.round_id}:${h.climber_id}`;
-        const sig = h.discipline === 'lead' ? `${h.rank}` : [h.tops, h.zones, h.top_attempts, h.zone_attempts, h.points].join('|');
-        if (next.seen[key] !== sig) {
+        const sig = h.own ?? [h.tops, h.zones, h.top_attempts, h.zone_attempts, h.points].join('|');
+        if (sig !== '' && next.seen[key] !== sig) {
           if (told) alerts.push({ ...base, key: `${key}:${sig}`, kind: 'result', rank: h.rank, of: h.starters });
           next.seen[key] = sig;
         }
       }
-      // on the start list of a round after the qualification
-      if (h.round !== 'qualification') {
+      // lead: the final place once the round is finished (live changes are the climber's own heights, above)
+      if (h.round_status === 'closed' && h.discipline === 'lead' && h.rank != null && !(h.round === 'final' && h.rank <= 3)) {
+        const key = `resultfinal:${h.round_id}:${h.climber_id}`;
+        if (next.seen[key] === undefined) {
+          if (told) alerts.push({ ...base, key, kind: 'result', rank: h.rank, of: h.starters });
+          next.seen[key] = '1';
+        }
+      }
+      // on the start list of a round after the first one of the category
+      if (h.first_round === undefined ? h.round !== 'qualification' : !h.first_round) {
         const key = `advance:${h.round_id}:${h.climber_id}`;
         if (next.seen[key] === undefined) {
           if (told) alerts.push({ ...base, key, kind: 'advance' });
@@ -142,7 +159,7 @@ export function diffAlerts(state: AlertState, input: AlertInput, settings: Alert
         }
       }
     }
-    next = { ...next, known: [...new Set([...state.known, ...input.favorites])] };
+    next = { ...next, known: [...new Set([...baselined, ...input.favorites])], lastRead: now };
   }
 
   return { alerts: alerts.filter((a) => settings.kinds[a.kind]), state: trimState(next) };

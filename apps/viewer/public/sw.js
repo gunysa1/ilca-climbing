@@ -27,8 +27,11 @@ self.addEventListener('fetch', (e) => {
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
   const path = (e.notification.data && e.notification.data.url) || '/';
-  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
-    for (const c of list) if ('focus' in c) { c.navigate(path).catch(() => {}); return c.focus(); }
+  // only controlled windows can be navigated; when that fails, open a new one
+  e.waitUntil(self.clients.matchAll({ type: 'window' }).then(async (list) => {
+    for (const c of list) {
+      try { await c.navigate(path); return await c.focus(); } catch { /* try the next, then a new window */ }
+    }
     return self.clients.openWindow(path);
   }));
 });

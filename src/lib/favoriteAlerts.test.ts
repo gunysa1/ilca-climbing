@@ -56,10 +56,45 @@ describe('favorite alerts', () => {
     expect(run(r.state, input({ history: [hist({ tops: 2, top_attempts: 3, points: 49.6, rank: 1 })] })).alerts).toEqual([]);
   });
 
-  it('lead rounds alert when the place changes; a closed round never does', () => {
-    const s0 = run(EMPTY_STATE, input({ history: [hist({ discipline: 'lead', tops: null, zones: null, top_attempts: null, zone_attempts: null, points: null, rank: 5 })] })).state;
-    expect(run(s0, input({ history: [hist({ discipline: 'lead', tops: null, zones: null, top_attempts: null, zone_attempts: null, points: null, rank: 2 })] })).alerts).toHaveLength(1);
-    expect(run(s0, input({ history: [hist({ round_status: 'closed', tops: 3 })] })).alerts).toEqual([]);
+  const lead = (o: Partial<HistoryRow>) => hist({ discipline: 'lead', tops: null, zones: null, top_attempts: null, zone_attempts: null, points: null, own: '12', rank: 5, ...o });
+
+  it("lead: alerts on the climber's own heights, not when others move their place", () => {
+    const s0 = run(EMPTY_STATE, input({ history: [lead({})] })).state;
+    expect(run(s0, input({ history: [lead({ rank: 2 })] })).alerts).toEqual([]);
+    const r = run(s0, input({ history: [lead({ own: '30+', rank: 1 })] }));
+    expect(r.alerts.map((a) => [a.kind, a.rank])).toEqual([['result', 1]]);
+  });
+
+  it('lead: the final place once when the round is finished, not twice with a podium', () => {
+    const s0 = run(EMPTY_STATE, input({ history: [lead({})] })).state;
+    const r = run(s0, input({ history: [lead({ round_status: 'closed', rank: 7 })] }));
+    expect(r.alerts.map((a) => a.key)).toEqual(['resultfinal:r1:a']);
+    expect(run(r.state, input({ history: [lead({ round_status: 'closed', rank: 7 })] })).alerts).toEqual([]);
+    const f = run(s0, input({ history: [lead({ round: 'final', round_status: 'closed', rank: 2, first_round: true })] }));
+    expect(f.alerts.map((a) => a.kind)).toEqual(['podium']);
+  });
+
+  it('a closed boulder round never gives a result alert', () => {
+    const s0 = run(EMPTY_STATE, input({ history: [hist({})] })).state;
+    expect(run(s0, input({ history: [hist({ round_status: 'closed', tops: 3, own: '3|3|4|3' })] })).alerts).toEqual([]);
+  });
+
+  it('the first round of a category is not an advance, whatever its kind', () => {
+    const s0 = run(EMPTY_STATE, input({ history: [] })).state;
+    expect(run(s0, input({ history: [hist({ round: 'final', round_status: 'planned', rank: null, first_round: true })] })).alerts).toEqual([]);
+    expect(run(s0, input({ history: [hist({ round: 'final', round_status: 'planned', rank: null, first_round: false })] })).alerts).toHaveLength(1);
+  });
+
+  it('after a gap of more than a day the next read is a silent baseline', () => {
+    const t0 = 1_800_000_000_000;
+    const s0 = diffAlerts(EMPTY_STATE, input({ history: [], now: t0 }), DEFAULT_SETTINGS).state;
+    const rows = [hist({ round: 'final', round_id: 'old', round_status: 'closed', rank: 1, first_round: false })];
+    expect(diffAlerts(s0, input({ history: rows, now: t0 + 3600_000 }), DEFAULT_SETTINGS).alerts).toHaveLength(2); // advance + podium, within the day
+    const late = diffAlerts(s0, input({ history: rows, now: t0 + 25 * 3600_000 }), DEFAULT_SETTINGS);
+    expect(late.alerts).toEqual([]);
+    expect(late.state.lastRead).toBe(t0 + 25 * 3600_000);
+    const more = [...rows, hist({ round: 'final', round_id: 'new', round_status: 'closed', rank: 2, first_round: false })];
+    expect(diffAlerts(late.state, input({ history: more, now: t0 + 25 * 3600_000 + 60_000 }), DEFAULT_SETTINGS).alerts).toHaveLength(2);
   });
 
   it('a climber who has not climbed yet (no rank) does not alert', () => {
@@ -107,7 +142,7 @@ describe('favorite alerts', () => {
     expect(parseSettings('nonsense')).toEqual(DEFAULT_SETTINGS);
     expect(parseSettings('{"enabled":true,"kinds":{"wall":false}}')).toEqual({ enabled: true, kinds: { wall: false, result: true, advance: true, podium: true } });
     expect(parseState('[1]').seen).toEqual({});
-    expect(parseState('{"wallKnown":true,"wall":["x",1],"known":["a"]}')).toEqual({ wallKnown: true, wall: ['x'], seen: {}, known: ['a'] });
+    expect(parseState('{"wallKnown":true,"wall":["x",1],"known":["a"]}')).toEqual({ wallKnown: true, wall: ['x'], seen: {}, known: ['a'], lastRead: 0 });
   });
 
   it('trims the remembered keys, keeping the newest', () => {

@@ -54,6 +54,7 @@ export function buildIcs(events: IcsEvent[], calendarName: string, now = new Dat
     const end = e.ends_on < e.starts_on ? e.starts_on : e.ends_on;
     lines.push('BEGIN:VEVENT', `UID:${icsUid(e.id)}`, `DTSTAMP:${stamp(now)}`,
       `DTSTART;VALUE=DATE:${compact(e.starts_on)}`, `DTEND;VALUE=DATE:${compact(nextDay(end))}`,
+      `LAST-MODIFIED:${stamp(now)}`, `SEQUENCE:${Math.floor(now.getTime() / 1000)}`, // grows with every export, so a re-import replaces the event
       `SUMMARY:${icsEscape(e.title)}`);
     if (e.venue) lines.push(`LOCATION:${icsEscape(e.venue)}`);
     if (e.description) lines.push(`DESCRIPTION:${icsEscape(e.description)}`);

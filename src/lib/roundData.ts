@@ -81,6 +81,8 @@ const EMPTY: RoundData = { round: null, category: null, categories: [], boulders
 /** Round pages already loaded or prefetched in this visit: switching men / women (or Q / S / F)
  *  shows them at once, then refreshes. */
 const pageCache = new Map<string, RoundPage>();
+/** When each cached page was fetched (ms). */
+const pageAt = new Map<string, number>();
 const inFlight = new Map<string, Promise<RoundPage | null>>();
 
 function fetchRoundPage(roundId: string): Promise<RoundPage | null> {
@@ -88,7 +90,7 @@ function fetchRoundPage(roundId: string): Promise<RoundPage | null> {
   if (!p) {
     p = Promise.resolve(supabase.rpc('round_page', { p_round: roundId })).then(({ data }) => {
       const page = data as RoundPage | null;
-      if (page) pageCache.set(roundId, page);
+      if (page) { pageCache.set(roundId, page); pageAt.set(roundId, Date.now()); }
       return page;
     }).finally(() => inFlight.delete(roundId));
     inFlight.set(roundId, p);
@@ -132,7 +134,7 @@ const toState = (page: RoundPage): RoundData => ({
 
 /** Loads a round with its boulders, starters and results, and keeps results live via Realtime.
  *  `offlineKey`: keep the page on the device and show it when it can't be loaded (judge pad). */
-export function useRoundData(roundId: string | undefined, { offlineKey }: { offlineKey?: string } = {}): RoundData {
+export function useRoundData(roundId: string | undefined, { offlineKey, reuseMs = 0 }: { offlineKey?: string; reuseMs?: number } = {}): RoundData {
   const [state, setState] = useState<RoundData>(() => {
     const cached = roundId ? pageCache.get(roundId) : undefined;
     return cached ? toState(cached) : EMPTY;
@@ -145,8 +147,11 @@ export function useRoundData(roundId: string | undefined, { offlineKey }: { offl
     // round's data; then load it fresh in one request (round_page).
     const cached = pageCache.get(roundId);
     setState(cached ? toState(cached) : EMPTY);
-    pageCache.delete(roundId); // so this load fetches fresh data
-    void fetchRoundPage(roundId).then((loaded) => {
+    // `reuseMs`: a copy fetched that recently is used as it is (the big screen prefetches the next round a
+    // moment before showing it); live changes arrive through Realtime below
+    const recent = reuseMs > 0 && cached && Date.now() - (pageAt.get(roundId) ?? 0) < reuseMs;
+    if (!recent) pageCache.delete(roundId); // so this load fetches fresh data
+    if (!recent) void fetchRoundPage(roundId).then((loaded) => {
       if (cancelled) return;
       if (loaded && offlineKey) keepOffline(offlineKey, roundId, loaded);
       const page = loaded ?? (offlineKey ? readOffline(offlineKey)[roundId] : undefined);

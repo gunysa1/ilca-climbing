@@ -20,6 +20,8 @@ describe('ics', () => {
     expect(ics.startsWith('BEGIN:VCALENDAR\r\nVERSION:2.0\r\n')).toBe(true);
     expect(ics.endsWith('END:VCALENDAR\r\n')).toBe(true);
     expect(ics).toContain('UID:abc-1@ilca-climbing\r\n');
+    expect(ics).toContain('LAST-MODIFIED:20261018T083000Z\r\n');
+    expect(ics).toContain(`SEQUENCE:${Math.floor(NOW.getTime() / 1000)}\r\n`);
     expect(ics).toContain('DTSTAMP:20261018T083000Z\r\n');
     expect(ics).toContain('DTSTART;VALUE=DATE:20261028\r\n');
     expect(ics).toContain('DTEND;VALUE=DATE:20261030\r\n');
