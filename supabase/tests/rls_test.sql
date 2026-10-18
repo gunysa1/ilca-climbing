@@ -1525,6 +1525,35 @@ select pg_temp.login('00000000-0000-0000-0000-00000000000a');
 select pg_temp.denied($$select delete_account_profile('dddd0000-0000-0000-0000-000000000002')$$, 'admin calls delete_account_profile directly');
 reset role;
 
+-- ---------------------------------------------------------------- release_claim: only the caller's own claim
+reset role;
+insert into competitions (id, name, starts_on, ends_on, status, season) values
+  ('ee000000-0000-0000-0000-0000000000c1', 'Merge Cup', '2025-11-01', '2025-11-01', 'finished', '2025-26');
+insert into categories (id, competition_id, name, gender) values
+  ('ee000000-0000-0000-0000-0000000000a1', 'ee000000-0000-0000-0000-0000000000c1', 'Open Women', 'female'),
+  ('ee000000-0000-0000-0000-0000000000a2', 'ee000000-0000-0000-0000-0000000000c1', 'U17 Women', 'female');
+insert into rounds (id, category_id, kind, status) values
+  ('ee000000-0000-0000-0001-000000000001', 'ee000000-0000-0000-0000-0000000000a1', 'qualification', 'closed'),
+  ('ee000000-0000-0000-0001-000000000002', 'ee000000-0000-0000-0000-0000000000a1', 'final', 'closed'),
+  ('ee000000-0000-0000-0001-000000000003', 'ee000000-0000-0000-0000-0000000000a2', 'qualification', 'live');
+insert into boulders (id, round_id, number) values
+  ('ee000000-0000-0000-0002-000000000001', 'ee000000-0000-0000-0001-000000000001', 1),
+  ('ee000000-0000-0000-0002-000000000002', 'ee000000-0000-0000-0001-000000000002', 1),
+  ('ee000000-0000-0000-0002-000000000003', 'ee000000-0000-0000-0001-000000000003', 1);
+insert into judge_claims (boulder_id, climber_id, round_id, judge_id) values
+  ('ee000000-0000-0000-0002-000000000003', '00000000-0000-0000-0000-000000000001', 'ee000000-0000-0000-0001-000000000003',
+   '00000000-0000-0000-0000-00000000000e');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select release_claim('ee000000-0000-0000-0002-000000000003', '00000000-0000-0000-0000-000000000001');
+reset role;
+select pg_temp.assert(exists (select 1 from judge_claims where boulder_id = 'ee000000-0000-0000-0002-000000000003'),
+  'release_claim: an admin does not free another judge''s claim');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select release_claim('ee000000-0000-0000-0002-000000000003', '00000000-0000-0000-0000-000000000001');
+reset role;
+select pg_temp.assert(not exists (select 1 from judge_claims where boulder_id = 'ee000000-0000-0000-0002-000000000003'),
+  'release_claim: the judge holding the claim frees it');
+
 -- ---------------------------------------------------------------- function privileges (Supabase advisors)
 -- Supabase grants EXECUTE on new functions to anon directly; admin-only and trigger functions must not keep it.
 select pg_temp.assert(not has_function_privilege('anon', f, 'execute'), 'anon cannot execute ' || f)
