@@ -64,6 +64,14 @@ one-year cache for `/assets/*`; Cloudflare serves `index.html` for app routes (s
 - The first admin: `supabase/admin.sql`. After that: staff app → ניהול → אנשים (roles judge /
   coach / admin, linking a login to an existing climber profile, coach ↔ athlete links).
 - Judges score only boulders they are assigned to (round page → judges), only while the round is live.
+- **Duplicate climber profiles**: ניהול → אנשים → "איחוד פרופילים כפולים" (`merge_profiles()`, migration 039).
+  Preview first (rows moving, differences, conflicts), then merge after a second confirmation; the duplicate is
+  deleted, its results/registrations/rankings inputs/login move to the kept profile, and the rankings and
+  climber page caches rebuild within a minute. Not during a competition (a profile in a live round is refused).
+  "Not the same person" hides a pair from the suggestions (`profile_not_duplicates`). Merges are logged in
+  `profile_merges` (private fields only as "differed", no values); deleting an account deletes that person's
+  merge records. A new table or column holding profile ids: see the CLAUDE.md ground rule (a merge refuses,
+  changing nothing, while a row it doesn't handle still points at the duplicate).
 
 ## Running a competition
 
