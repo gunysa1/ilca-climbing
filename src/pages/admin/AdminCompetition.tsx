@@ -294,6 +294,15 @@ function RoundRowEditor({ round, first, discipline, run }: { round: RoundRow; fi
   }
 
   const status = (s: Round['status']) => run(supabase.from('rounds').update({ status: s }).eq('id', round.id));
+  // Says what happened: how many start, or why nobody does (the previous round has no ranked climbers yet).
+  const [made, setMade] = useState<string | null>(null);
+  async function makeStartList() {
+    if ((round.round_starters[0]?.count ?? 0) > 0 && !window.confirm(t('confirmRegenerate'))) return;
+    setMade(null);
+    const { data, error } = await supabase.rpc('generate_start_list', { p_round: round.id });
+    await run(Promise.resolve({ error }));
+    if (!error) setMade(data ? t('startListMade').replace('{n}', String(data)) : t('startListEmpty'));
+  }
 
   return (
     <li className="admin-row">
@@ -323,9 +332,10 @@ function RoundRowEditor({ round, first, discipline, run }: { round: RoundRow; fi
                 if (q !== round.advance_quota) void run(supabase.from('rounds').update({ advance_quota: q }).eq('id', round.id));
               }} />
           </label>
-          <button className="secondary" onClick={() => void run(supabase.rpc('generate_start_list', { p_round: round.id }))}>
+          <button className="secondary" onClick={() => void makeStartList()}>
             {t('generateStartList')}
           </button>
+          {made && <span className="notice small" role="status">{made}</span>}
         </>
       )}
       <Link to={`/admin/round/${round.id}`}>{t('manageRound')}</Link>

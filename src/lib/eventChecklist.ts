@@ -8,6 +8,8 @@ export type CheckId = 'published' | 'category_rounds' | 'round_boulders' | 'firs
 export interface CheckItem {
   label?: string;
   label_he?: string | null;
+  /** The category's gender (two categories can share a name, e.g. men's and women's "Seniors"). */
+  gender?: 'female' | 'male' | 'mixed' | null;
   round_id?: string;
   category_id?: string;
   profile_id?: string;
