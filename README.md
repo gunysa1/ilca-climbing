@@ -43,6 +43,11 @@ viewer's bundle doesn't even contain sign-in, judge, coach or admin code.
 - **Fast pages**: a round page is one database request (`round_page`), the other category's round
   (men / women) is prefetched so the switch is instant, the public app ships without sign-in code,
   and the database is in Frankfurt (a full live round page loads in under 2 s from Israel).
+- **Calendar** of competitions by season with an .ics export per event; a **big-screen mode**
+  (`/screen/<competition>`) that rotates the live rounds for a venue TV; **alerts for followed climbers** (on the
+  wall, result, advancing, podium) while the app is open.
+- **Admin tools for event day**: an event checklist (automatic checks plus manual ticks), error
+  reports from the apps, and merging of duplicate climber profiles (logged).
 - **National rankings** (מדרג לאומי) per the ILCA 2025 criteria: seniors and U21 / U19 / U17, boulder
   and lead, validated against ILCA's published ranking tables.
 
@@ -73,6 +78,7 @@ supabase/tests              RLS and scoring tests (rls_test.sql)
 e2e                         end-to-end test of both apps (Postgres + PostgREST + Playwright)
 tools/loglig                importer for the recovered LogLig archive
 tools/tempapp               live mirror of the temporary scoring app
+tools/backup                data-only database dump to a folder outside the repo
 supabase/functions          edge functions for admins: invite-judge, delete-account
 docs                        architecture, scoring and rankings, operations, Hebrew user guide
 ```

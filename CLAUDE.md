@@ -63,9 +63,15 @@ pg_cron + Vault; admin "run now" on the rankings admin page) adds new IFSC resul
 Hosting: Cloudflare Pages builds both apps on every push to main (settings in the committed `.env`):
 https://ilca-climbing.pages.dev (viewer), https://ilca-climbing-staff.pages.dev (staff); both noindex
 until the public launch. Pushing to main publishes. The old Seoul project was deleted 2026-10-17; sign-up is off in Frankfurt.
+Live since 2026-10-17/18: merging duplicate profiles (admin), competition calendar with .ics export, big-screen mode
+(`/screen/<competition>`), in-app alerts for followed climbers (only while the viewer is open; nothing is sent to a server),
+event-day checklist and error reports (admin), `home_page` one-request home.
+Safety net: security headers + CSP in both `_headers` (a new external origin must be added there), `.github/workflows/ci.yml`
+(the five checks on every push), `tools/backup/dump.sh` (data-only dump outside the repo; see docs/operations.md, Backups),
+viewer and staff service workers cache the shell per build (`/sw.js?v=`), Supabase errors shown via `src/lib/errors.ts`, dates via `src/lib/dates.ts`.
 Open work: first event fully on these apps (dry run: docs/dry-run-2026-10.md); admin
-screen for qualification groups; speed discipline; calendar;
-notifications.
+screen for qualification groups; speed discipline; push notifications while the app is closed (would need
+a viewer write path: not built).
 
 Decisions: results are public like IFSC; climbers have no sign-in page (view-only app); international
 results come from IFSC (tools/ifsc for 2023-24 to 2026-27, then `ifsc-sync` daily; world_rankings for 2026-27, provisional until the 1.1.2027 list) where ILCA published no points, plus admin entries; LogLig test entries, simulations and
