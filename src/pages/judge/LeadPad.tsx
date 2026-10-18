@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Sheet } from '../../components/Sheet';
-import { formatClimbTime, leadPadRow, parseClimbTime } from '../../lib/climbTime';
+import { formatClimbTime, formatSeconds, leadPadRow, parseClimbTime } from '../../lib/climbTime';
 import { useI18n } from '../../lib/i18n';
 import { useOutbox } from '../../lib/judgeOutbox';
 import { formatHeight } from '../../lib/lead';
@@ -24,7 +24,7 @@ export function LeadPad({ roundId, routeId, starter, label, baseRow, initial, lo
   const [plus, setPlus] = useState(initial?.plus ?? false);
   const [top, setTop] = useState(initial?.top ?? false);
   // Lead finals: the time as typed (seconds or m:ss), stored as ms.
-  const [timeText, setTimeText] = useState(() => formatClimbTime(initial?.time_ms));
+  const [timeText, setTimeText] = useState(() => formatSeconds(initial?.time_ms));
   const timeMs = timed ? parseClimbTime(timeText) : null;
   const badTime = timeMs === undefined;
   // Edited since the last save: no status until saved; saved: what the outbox says.

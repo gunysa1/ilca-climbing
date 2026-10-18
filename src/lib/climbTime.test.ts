@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatClimbTime, isTimedRound, leadPadRow, parseClimbTime } from './climbTime';
+import { formatClimbTime, formatSeconds, isTimedRound, leadPadRow, parseClimbTime } from './climbTime';
 
 describe('climbing time', () => {
   it('reads seconds, with or without decimals (comma too)', () => {
@@ -19,7 +19,7 @@ describe('climbing time', () => {
   it('empty is no time; anything else is invalid', () => {
     expect(parseClimbTime('')).toBeNull();
     expect(parseClimbTime('   ')).toBeNull();
-    for (const bad of ['0', '0:00', 'abc', '1:60', '1:5', '1:5.5', '1:2:3', '-5', '2.5.1', '61:00', '99999']) expect(parseClimbTime(bad), bad).toBeUndefined();
+    for (const bad of ['0', '0:00', 'abc', '1:60', '1:5', '1:5.5', '1:2:3', '-5', '2.5.1', '61:00', '99999', '0.001', '0.999']) expect(parseClimbTime(bad), bad).toBeUndefined();
   });
 
   it('shows m:ss with the decimals that matter', () => {
@@ -28,6 +28,15 @@ describe('climbing time', () => {
     expect(formatClimbTime(52_250)).toBe('0:52.25');
     expect(formatClimbTime(null)).toBe('');
     expect(formatClimbTime(undefined)).toBe('');
+  });
+
+  it('the pad field shows seconds, as typed', () => {
+    expect(formatSeconds(83_400)).toBe('83.4');
+    expect(formatSeconds(130_500)).toBe('130.5');
+    expect(formatSeconds(118_000)).toBe('118');
+    expect(formatSeconds(83_450)).toBe('83.45');
+    expect(formatSeconds(null)).toBe('');
+    for (const ms of [1_000, 52_250, 83_400, 130_500, 359_999]) expect(parseClimbTime(formatSeconds(ms))).toBe(ms);
   });
 
   it('format and parse round-trip', () => {

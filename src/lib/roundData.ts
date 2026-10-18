@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { pickPadPage } from './judgePad';
 import { isTransient } from './saveQueue';
 import { supabase } from './supabase';
 import { type Boulder, type Profile, type Round } from './types';
@@ -189,11 +190,17 @@ export function useRoundData(roundId: string | undefined, { offlineKey, reuseMs 
     // moment before showing it); live changes arrive through Realtime below
     const recent = reuseMs > 0 && cached && Date.now() - (pageAt.get(roundId) ?? 0) < reuseMs;
     if (!recent) pageCache.delete(roundId); // so this load fetches fresh data
-    if (!recent) void fetchRoundPage(roundId).then((loaded) => {
+    if (!recent && offlineKey) {
+      // Judge pad: with a timeout; the copy on the phone only when the server can't be reached.
+      void fetchPageTimed(roundId).then((fetched) => {
+        if (cancelled) return;
+        if (fetched.page) keepOffline(offlineKey, roundId, fetched.page);
+        const { page, offline } = pickPadPage(fetched, readOffline(offlineKey)[roundId]);
+        setState(page ? { ...toState(page), offline } : (s) => ({ ...s, loading: false, offline: false }));
+      });
+    } else if (!recent) void fetchRoundPage(roundId).then((loaded) => {
       if (cancelled) return;
-      if (loaded && offlineKey) keepOffline(offlineKey, roundId, loaded);
-      const page = loaded ?? (offlineKey ? readOffline(offlineKey)[roundId] : undefined);
-      setState(page ? { ...toState(page), offline: !loaded } : (s) => ({ ...s, loading: false }));
+      setState(loaded ? toState(loaded) : (s) => ({ ...s, loading: false }));
     });
     // Offline-capable (judge pad): back online, catch up with what others saved meanwhile.
     const reload = () => {
@@ -205,6 +212,7 @@ export function useRoundData(roundId: string | undefined, { offlineKey, reuseMs 
     reloadRef.current = async () => {
       const { page, reachable } = await fetchPageTimed(roundId);
       if (!cancelled && page) { if (offlineKey) keepOffline(offlineKey, roundId, page); setState(toState(page)); }
+      else if (!cancelled && reachable) setState((s) => ({ ...s, offline: false })); // the server answered: not the copy's say
       return reachable;
     };
 

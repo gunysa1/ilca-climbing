@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../../lib/auth';
 import { localized, useI18n } from '../../lib/i18n';
 import { judgeRoundsKey, useOutbox } from '../../lib/judgeOutbox';
+import { padIndex, type PadPosition } from '../../lib/judgePad';
 import { formatClimbTime, isTimedRound } from '../../lib/climbTime';
 import { formatHeight } from '../../lib/lead';
 import { resultKey, useRoundData, type LeadRow, type Starter } from '../../lib/roundData';
@@ -29,7 +30,8 @@ export function JudgeBoulder() {
   const { snap } = useOutbox();
   const lead = round?.scoring === 'lead';
   const table: ResultTable = lead ? 'lead_results' : 'boulder_results';
-  const [index, setIndex] = useState<number | null>(null);
+  // The current climber, by id (a start list reloaded while the round isn't live keeps them).
+  const [position, setPosition] = useState<PadPosition | null>(null);
   const [showList, setShowList] = useState(false);
   const [toast, setToast] = useState('');
   const timed = isTimedRound(round, boulders.length);
@@ -41,6 +43,14 @@ export function JudgeBoulder() {
   const status = round?.status;
   const fromDevice = !!offline || unreachable;
   const notLive = !!round && status !== 'live' && !(fromDevice && status === 'planned');
+  // Times a read-only pad opened because the round went live (or was reopened): part of the pads' key
+  // (below). Not when it opens on the copy without signal: something typed there must stay.
+  const [openings, setOpenings] = useState(0);
+  const wasNotLive = useRef(notLive);
+  useEffect(() => {
+    if (wasNotLive.current && !notLive && status === 'live') setOpenings((n) => n + 1);
+    wasNotLive.current = notLive;
+  }, [notLive, status]);
   useEffect(() => {
     if (!status || status === 'live' || !reload) return;
     // Not live: load the page again every 20 s (status, start list made meanwhile), so the pad opens by
@@ -69,16 +79,19 @@ export function JudgeBoulder() {
   }, [starters, locked, claims]);
   // Start with the first climber still to judge.
   useEffect(() => {
-    if (index === null && starters.length) setIndex(Math.max(0, nextFree(-1)));
-  }, [index, starters, nextFree]);
+    if (position === null && starters.length) {
+      const k = Math.max(0, nextFree(-1));
+      setPosition({ id: starters[k].climber_id, at: k });
+    }
+  }, [position, starters, nextFree]);
   useEffect(() => { if (!toast) return; const h = setTimeout(() => setToast(''), 2500); return () => clearTimeout(h); }, [toast]);
 
   if (loading) return <p className="muted">{t('loading')}</p>;
   if (!boulder || !round) return <p className="notice">{t('noAccess')}</p>;
-  const i = Math.min(index ?? 0, Math.max(0, starters.length - 1));
+  const i = padIndex(starters.map((s) => s.climber_id), position) ?? 0;
   const current = starters[i];
   const done = starters.filter(locked).length;
-  const go = (to: number) => { setIndex(to); setShowList(false); };
+  const go = (to: number) => { if (starters[to]) setPosition({ id: starters[to].climber_id, at: to }); setShowList(false); };
   const afterLock = (bib: number | null) => {
     const next = nextFree(i);
     setToast(next >= 0 ? `${t('lockedToast')} #${bib ?? ''}` : `${t('lockedToast')} #${bib ?? ''} · ${t('endOfList')}`);
@@ -134,7 +147,9 @@ export function JudgeBoulder() {
         // The pad builds on `saved`: a row that waits is checked against it before it's sent.
         const shown = pending?.row ?? saved;
         // A refused row (or dismissing it) reopens the pad on the server's values.
-        const padKey = `${current.climber_id}:${failed?.id ?? ''}`;
+        // … and when the round opens (live, reopened): the pad starts again from the server's values (it was
+        // read-only, so nothing typed is lost).
+        const padKey = `${current.climber_id}:${failed?.id ?? ''}:${openings}`;
         return lead
           ? <LeadPad key={padKey} roundId={roundId!} routeId={boulder.id} starter={current} label={label(current)} baseRow={saved ?? null}
               initial={shown as unknown as LeadRow | undefined} locked={locked(current)} timed={timed} notLive={notLive}
