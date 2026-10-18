@@ -2189,4 +2189,42 @@ select pg_temp.assert(not exists (select 1 from json_array_elements(home_page() 
   'home_page: a competition whose last day has passed is not upcoming');
 reset role;
 
+-- ---------------------------------------------------------------- link_account: "has data" from the profile-id inventory (migration 044)
+-- two new accounts (their auto-created profiles): one with a lead result, one with only an error report; and
+-- two imported profiles to link them to
+select set_config('request.jwt.claim.sub', '', false);
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('00000000-0000-0000-0000-0000000000d1', 'leadkid@test', '{"full_name":"Lead Kid"}'),
+  ('00000000-0000-0000-0000-0000000000d2', 'errkid@test', '{"full_name":"Error Kid"}'),
+  ('00000000-0000-0000-0000-0000000000d3', 'emptykid@test', '{"full_name":"Empty Kid"}');
+insert into profiles (id, full_name) values
+  ('5d000000-0000-0000-0000-0000000000d1', 'Imported Lead Kid'),
+  ('5d000000-0000-0000-0000-0000000000d2', 'Imported Error Kid'),
+  ('5d000000-0000-0000-0000-0000000000d3', 'Imported Empty Kid');
+alter table lead_results disable trigger user;  -- a bare lead result, without a start list row
+insert into lead_results (boulder_id, climber_id, round_id, hold, plus, top) values
+  ('40000000-0000-0000-0000-000000000061', '00000000-0000-0000-0000-0000000000d1', '30000000-0000-0000-0000-000000000061', 12, false, false);
+alter table lead_results enable trigger user;
+insert into client_errors (profile_id, app, message) values ('00000000-0000-0000-0000-0000000000d2', 'staff', 'test');
+select pg_temp.assert((select count(*) from lead_results where climber_id = '00000000-0000-0000-0000-0000000000d1') = 1
+  and not exists (select 1 from round_starters where climber_id = '00000000-0000-0000-0000-0000000000d1'),
+  'fixture: an account''s own profile with a lead result only');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.denied($$select link_account('5d000000-0000-0000-0000-0000000000d1', '00000000-0000-0000-0000-0000000000d1')$$,
+  'link_account refuses an account whose own profile has a lead result (not on the old hand list)');
+select pg_temp.denied($$select link_account('5d000000-0000-0000-0000-0000000000d2', '00000000-0000-0000-0000-0000000000d2')$$,
+  'link_account refuses an account whose own profile has an error report');
+select link_account('5d000000-0000-0000-0000-0000000000d3', '00000000-0000-0000-0000-0000000000d3');
+reset role;
+select pg_temp.assert(
+  exists (select 1 from profiles where id = '00000000-0000-0000-0000-0000000000d1')
+  and exists (select 1 from lead_results where climber_id = '00000000-0000-0000-0000-0000000000d1')
+  and (select user_id from profiles where id = '5d000000-0000-0000-0000-0000000000d1') is null
+  and exists (select 1 from client_errors where profile_id = '00000000-0000-0000-0000-0000000000d2'),
+  'link_account: a refused link keeps the own profile, its rows and the imported profile unlinked');
+select pg_temp.assert(
+  (select user_id from profiles where id = '5d000000-0000-0000-0000-0000000000d3') = '00000000-0000-0000-0000-0000000000d3'
+  and not exists (select 1 from profiles where id = '00000000-0000-0000-0000-0000000000d3'),
+  'link_account: an empty own profile (roles and its private row only) is still dropped');
+
 \echo ALL RLS TESTS PASSED
