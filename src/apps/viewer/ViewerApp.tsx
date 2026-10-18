@@ -3,6 +3,7 @@ import { BrowserRouter, NavLink, Outlet, Route, Routes } from 'react-router-dom'
 import { prefetchClimberRoute } from '../../lib/climberPage';
 import { I18nProvider, useI18n } from '../../lib/i18n';
 import { supabaseConfigured } from '../../lib/supabase';
+import { useFavoriteAlerts } from '../../lib/useFavoriteAlerts';
 import { CompetitionPage } from '../../pages/CompetitionPage';
 import { Home } from '../../pages/Home';
 import { Live } from '../../pages/Live';
@@ -14,6 +15,8 @@ const loadClimber = () => import('../../pages/Climber');
 const Climber = lazy(() => loadClimber().then((m) => ({ default: m.Climber })));
 prefetchClimberRoute(location.pathname, loadClimber);
 const Favorites = lazy(() => import('../../pages/Favorites').then((m) => ({ default: m.Favorites })));
+const Calendar = lazy(() => import('../../pages/Calendar').then((m) => ({ default: m.Calendar })));
+const Screen = lazy(() => import('../../pages/Screen').then((m) => ({ default: m.Screen })));
 const Search = lazy(() => import('../../pages/Search').then((m) => ({ default: m.Search })));
 /** The public app: view only, no sign-in (like the IFSC app). Staff work happens in the staff app. */
 export function ViewerApp() {
@@ -21,14 +24,17 @@ export function ViewerApp() {
     <I18nProvider>
       <BrowserRouter>
         <Routes>
+          {/* the venue screen has no top bar: outside the layout */}
+          <Route path="screen/:competitionId" element={<Suspense fallback={null}><Screen /></Suspense>} />
           <Route element={<ViewerLayout />}>
             <Route index element={<Home />} />
             <Route path="competitions" element={<Live />} />
-            <Route path="competition/:id" element={<CompetitionPage />} />
+            <Route path="competition/:id" element={<CompetitionPage bigScreen />} />
             <Route path="round/:id" element={<RoundResults />} />
             <Route path="climber/:id" element={<Climber />} />
             <Route path="favorites" element={<Favorites />} />
             <Route path="search" element={<Search />} />
+            <Route path="calendar" element={<Calendar />} />
             <Route path="rankings" element={<Rankings />} />
             <Route path="*" element={<Home />} />
           </Route>
@@ -42,6 +48,7 @@ const STAFF_URL = import.meta.env.VITE_STAFF_URL as string | undefined;
 
 function ViewerLayout() {
   const { t, lang, setLang } = useI18n();
+  useFavoriteAlerts(); // alerts for starred climbers while the app is open (off until switched on on the favorites page)
   return (
     <>
       <header className="topbar">

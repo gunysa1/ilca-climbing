@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FavoriteStar } from '../components/FavoriteStar';
+import { NotifySettings } from '../components/NotifySettings';
 import { climberEvents, type ClimberEvent } from '../lib/climberStats';
 import { useFavorites } from '../lib/favorites';
 import { localized, useI18n } from '../lib/i18n';
@@ -37,6 +38,7 @@ export function Favorites() {
   return (
     <section>
       <h1>★ {t('favorites')}</h1>
+      <NotifySettings />
       {profiles === null && <p className="muted">{t('loading')}</p>}
       {profiles?.length === 0 && <p className="muted">{t('noFavorites')}</p>}
       <ul className="event-list">

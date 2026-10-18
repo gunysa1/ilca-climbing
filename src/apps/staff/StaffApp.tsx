@@ -16,6 +16,7 @@ import { RoundResults } from '../../pages/RoundResults';
 const Climber = lazy(() => import('../../pages/Climber').then((m) => ({ default: m.Climber })));
 const Coach = lazy(() => import('../../pages/Coach').then((m) => ({ default: m.Coach })));
 const Rankings = lazy(() => import('../../pages/Rankings').then((m) => ({ default: m.Rankings })));
+const Calendar = lazy(() => import('../../pages/Calendar').then((m) => ({ default: m.Calendar })));
 const Search = lazy(() => import('../../pages/Search').then((m) => ({ default: m.Search })));
 const AdminCompetition = lazy(() => import('../../pages/admin/AdminCompetition').then((m) => ({ default: m.AdminCompetition })));
 const AdminHome = lazy(() => import('../../pages/admin/AdminHome').then((m) => ({ default: m.AdminHome })));
@@ -48,6 +49,7 @@ export function StaffApp() {
                 <Route path="round/:id" element={<RoundResults />} />
                 <Route path="climber/:id" element={<Climber />} />
                 <Route path="search" element={<Search />} />
+                <Route path="calendar" element={<Calendar />} />
                 <Route path="rankings" element={<Rankings />} />
                 <Route path="*" element={<StaffHome />} />
               </Route>
