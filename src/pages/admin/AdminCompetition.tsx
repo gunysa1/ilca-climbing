@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { RoundStatus } from '../../components/RoundStatus';
 import { localized, useI18n } from '../../lib/i18n';
+import { isRankedCompetition, uncountedCategories } from '../../lib/mixedCategories';
 import { supabase } from '../../lib/supabase';
 import type { Category, Competition, Profile, Round } from '../../lib/types';
 import { AdminNav, ErrorLine } from './AdminHome';
+import { AdminLog } from './AdminLog';
 import { ClimberPicker } from './ClimberPicker';
 import { RosterImport } from './RosterImport';
 
@@ -18,7 +20,7 @@ export type CategoryRow = Category & { rounds: RoundRow[]; registrations: Regist
 
 export function AdminCompetition() {
   const { id } = useParams();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const navigate = useNavigate();
   const [comp, setComp] = useState<Competition | null>(null);
   const [cats, setCats] = useState<CategoryRow[]>([]);
@@ -104,6 +106,7 @@ export function AdminCompetition() {
       </form>
 
       <h2>{t('categories')}</h2>
+      <MixedWarning comp={comp} cats={cats} run={run} />
       {cats.map((c) => <CategoryPanel key={c.id} cat={c} run={run} />)}
 
       <form className="panel form grid-form" onSubmit={addCategory}>
@@ -118,12 +121,39 @@ export function AdminCompetition() {
         <button className="primary">{t('add')}</button>
       </form>
 
-      <RosterImport competitionId={comp.id} categories={cats} onDone={reload} />
+      <RosterImport competitionId={comp.id} categories={cats} ranked={isRankedCompetition(comp)} onDone={reload} />
+
+      <AdminLog by="competition_id" id={comp.id} stamp={cats} roundLabel={new Map(cats.flatMap((c) =>
+        c.rounds.map((r) => [r.id, `${localized(lang, c.name, c.name_he)} · ${t(r.kind)}`] as const)))} />
     </section>
   );
 }
 
 type Run = (p: PromiseLike<{ error: { message: string } | null }>) => Promise<void>;
+
+/** A ranked competition's mixed-gender categories never count in the national rankings (they rank men and
+ * women): warn, and let the admin set the gender right here. */
+function MixedWarning({ comp, cats, run }: { comp: Competition; cats: CategoryRow[]; run: Run }) {
+  const { t, lang } = useI18n();
+  const mixed = uncountedCategories(comp, cats);
+  if (mixed.length === 0) return null;
+  return (
+    <div className="notice mixed-warning" role="status">
+      <p>{t('mixedNotRanked')}</p>
+      <ul>
+        {mixed.map((c) => (
+          <li key={c.id}>
+            <strong>{localized(lang, c.name, c.name_he)}</strong>{' '}
+            <select aria-label={t('gender')} value={c.gender}
+              onChange={(e) => void run(supabase.from('categories').update({ gender: e.target.value }).eq('id', c.id))}>
+              {(['mixed', 'female', 'male'] as const).map((g) => <option key={g} value={g}>{t(g)}</option>)}
+            </select>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 function CategoryPanel({ cat, run }: { cat: CategoryRow; run: Run }) {
   const { t, lang } = useI18n();

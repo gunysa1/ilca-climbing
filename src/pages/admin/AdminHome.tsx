@@ -3,6 +3,7 @@ import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { localized, useI18n } from '../../lib/i18n';
 import { supabase } from '../../lib/supabase';
 import type { Competition } from '../../lib/types';
+import { SystemStatus } from './SystemStatus';
 
 export function AdminNav() {
   const { t } = useI18n();
@@ -51,6 +52,7 @@ export function AdminHome() {
       <h1>{t('admin')}</h1>
       <AdminNav />
       <ErrorLine error={error} />
+      <SystemStatus />
       <div className="panel">
         <h2>{t('newCompetition')}</h2>
         <form className="form grid-form" onSubmit={create}>

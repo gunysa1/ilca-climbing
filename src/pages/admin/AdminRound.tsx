@@ -8,6 +8,7 @@ import { loadStarters, resultKey, type LeadRow, type ResultRow, type Starter } f
 import { supabase } from '../../lib/supabase';
 import { LEAD_COLUMNS, RESULT_COLUMNS, type AdminAccount, type Boulder, type Round } from '../../lib/types';
 import { AdminNav, ErrorLine } from './AdminHome';
+import { AdminLog } from './AdminLog';
 
 interface RoundInfo extends Round {
   category: { name: string; name_he: string | null; competition_id: string };
@@ -239,6 +240,8 @@ export function AdminRound() {
           </tbody>
         </table>
       </div>
+
+      <AdminLog by="round_id" id={round.id} stamp={round} boulderNo={boulderNo} />
     </section>
   );
 }

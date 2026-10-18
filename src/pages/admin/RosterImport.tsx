@@ -8,8 +8,9 @@ import { ErrorLine } from './AdminHome';
 
 const HEBREW = /[֐-׿]/;
 
-export function RosterImport({ competitionId, categories, onDone }: {
-  competitionId: string; categories: CategoryRow[]; onDone: () => Promise<void>;
+/** ranked: the competition feeds a national ranking (a new mixed category would not count; warned in the preview). */
+export function RosterImport({ competitionId, categories, ranked, onDone }: {
+  competitionId: string; categories: CategoryRow[]; ranked: boolean; onDone: () => Promise<void>;
 }) {
   const { t } = useI18n();
   const [plan, setPlan] = useState<ImportPlan | null>(null);
@@ -81,7 +82,13 @@ export function RosterImport({ competitionId, categories, onDone }: {
           <h3>{t('importPreview')}</h3>
           <ul>
             <li>{t('willCreateCategories')}: {plan.newCategories.length}
-              {plan.newCategories.length > 0 && <span className="muted"> ({plan.newCategories.map((c) => `${c.name} · ${t(c.gender)}`).join(', ')})</span>}
+              {plan.newCategories.length > 0 && (
+                <ul>
+                  {plan.newCategories.map((c) => (
+                    <li key={c.key}>{c.name} · {t('gender')}: <strong>{t(c.gender)}</strong></li>
+                  ))}
+                </ul>
+              )}
             </li>
             <li>{t('willCreateProfiles')}: {plan.newProfiles.length}</li>
             <li>{t('willRegister')}: {plan.registrations.length}</li>
@@ -89,6 +96,7 @@ export function RosterImport({ competitionId, categories, onDone }: {
               <li>{t('skippedRows')}: {plan.skipped.map((s) => `${t('line')} ${s.line} (${s.reason})`).join(', ')}</li>
             )}
           </ul>
+          {ranked && plan.newCategories.some((c) => c.gender === 'mixed') && <p className="notice">{t('importMixedNotRanked')}</p>}
           <button className="primary" disabled={busy || plan.registrations.length === 0} onClick={() => void apply()}>
             {t('importApply')}
           </button>

@@ -105,7 +105,8 @@ export function Home() {
                 {home.upcoming.map((c) => (
                   <li key={c.id}>
                     <Link to={`/competition/${c.id}`} className="card">
-                      <span className="card-date">{date(c.starts_on)}{c.ends_on !== c.starts_on && <> – {date(c.ends_on)}</>}</span>
+                      <span className="card-date">{date(c.starts_on)}{c.ends_on !== c.starts_on && <> – {date(c.ends_on)}</>}
+                        {c.today && <> <span className="badge badge-live">{t('calToday')}</span></>}</span>
                       <span className="card-title">{localized(lang, c.name, c.name_he)}</span>
                       {c.venue && <span className="muted">{c.venue}</span>}
                     </Link>

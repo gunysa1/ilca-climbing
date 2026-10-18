@@ -34,6 +34,8 @@ view only, no sign-in; `src/apps/viewer`) and the **staff** app (sign-in; judge,
 - Who climbs a round = `round_starters` (first rounds follow registrations by trigger; later rounds via
   `generate_start_list()`, top `rounds.advance_quota`). Results are only accepted for starters.
 - Clients must select `RESULT_COLUMNS` from `boulder_results` (never `*`): `updated_by` is not granted.
+- `profiles` has column grants (042): clients select named public columns only (never `*`; `user_id`, `created_at`
+  are not granted). A new profiles column needs an explicit `grant select (col)` if clients should read it.
 - Dependencies are pinned exact; `.npmrc` sets legacy-peer-deps (npm 10 crashes on vitest 5 peers).
 - Before claiming done: `npm run typecheck && npm test && npm run build && npm run test:db`; for UI/admin
   changes also `npm run test:e2e` (Docker + Playwright Chromium; screenshots in `$E2E_OUT`).

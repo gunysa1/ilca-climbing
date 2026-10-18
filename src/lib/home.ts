@@ -13,6 +13,8 @@ export interface HomeLiveRound {
   on_wall: HomeOnWall[];
 }
 export interface HomeCompetition { id: string; name: string; name_he: string | null; venue: string | null; starts_on: string; ends_on: string }
+/** An upcoming competition; `today`: it is on today (started, last day not passed; Israel's date, migration 043). */
+export type HomeUpcoming = HomeCompetition & { today?: boolean };
 export interface HomeWinner {
   category_id: string; category: string; category_he: string | null; gender: string;
   round_id: string; round_kind: Round['kind'];
@@ -20,7 +22,7 @@ export interface HomeWinner {
 }
 export interface HomeData {
   live: HomeLiveRound[];
-  upcoming: HomeCompetition[];
+  upcoming: HomeUpcoming[];
   latest: (HomeCompetition & { winners: HomeWinner[] })[];
 }
 

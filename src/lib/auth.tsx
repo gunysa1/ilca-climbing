@@ -45,14 +45,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!supabaseConfigured) return;
     if (!session) { setRoles([]); setProfileId(null); setLoading(false); return; }
     setLoading(true);
-    // RLS returns only the caller's own roles; profiles are public, user_id identifies ours.
+    // RLS returns only the caller's own roles; profiles.user_id is not readable (migration 042), so our
+    // profile comes from my_profile_id().
     Promise.all([
       supabase.from('user_roles').select('role').eq('user_id', session.user.id),
-      supabase.from('profiles').select('id').eq('user_id', session.user.id).maybeSingle(),
+      supabase.rpc('my_profile_id'),
     ]).then(([{ data: roleRows, error: e1 }, { data: profile, error: e2 }]) => {
       // No signal (judge pad reopened offline): the roles and profile last seen on this device.
       const known = e1 || e2 ? readKnown(session.user.id) : null;
-      const next = known ?? { roles: (roleRows ?? []).map((r) => r.role as AppRole), profileId: (profile?.id as string | undefined) ?? null };
+      const next = known ?? { roles: (roleRows ?? []).map((r) => r.role as AppRole), profileId: (profile as string | null) ?? null };
       if (!e1 && !e2) writeKnown(session.user.id, next);
       setRoles(next.roles);
       setProfileId(next.profileId);

@@ -299,7 +299,8 @@ insert into profile_private (id, email, medical_notes) values
   ('50000000-0000-0000-0000-000000000001', 'kid@test', 'peanut allergy');
 insert into registrations values
   ('20000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', 3);
-select pg_temp.assert((select user_id from profiles where id = '50000000-0000-0000-0000-000000000001') is null,
+select pg_temp.assert(exists (select 1 from profiles where id = '50000000-0000-0000-0000-000000000001')
+  and not exists (select 1 from admin_accounts() where profile_id = '50000000-0000-0000-0000-000000000001'),
   'admin creates a climber profile without an account');
 select pg_temp.assert(
   (select count(*) from admin_accounts() where email in ('noa@test', 'judge@test')) = 2,
@@ -332,7 +333,7 @@ insert into auth.users (id, email, raw_user_meta_data) values
 select pg_temp.login('00000000-0000-0000-0000-00000000000a');
 select link_account('50000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000f');
 select pg_temp.assert(
-  (select user_id from profiles where id = '50000000-0000-0000-0000-000000000001') = '00000000-0000-0000-0000-00000000000f'
+  (select user_id from admin_accounts() where profile_id = '50000000-0000-0000-0000-000000000001') = '00000000-0000-0000-0000-00000000000f'
   and not exists (select 1 from profiles where id = '00000000-0000-0000-0000-00000000000f'),
   'link_account attaches the account and drops its empty auto profile');
 select pg_temp.denied($$select link_account('50000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')$$,
@@ -2143,5 +2144,219 @@ select pg_temp.assert(favorites_live(array['00000000-0000-0000-0000-000000000001
 reset role;
 select pg_temp.assert(not prosecdef, 'favorites_live runs with the caller''s rights (RLS as the caller)')
 from pg_proc where oid = 'public.favorites_live(uuid[])'::regprocedure;
+
+-- ---------------------------------------------------------------- profiles: public columns only (migration 042)
+select pg_temp.login(null);
+select pg_temp.assert((select count(*) from (select id, full_name, full_name_he, gender, club, country, ifsc_id from profiles) p) > 0,
+  'anon reads the public profile columns');
+select pg_temp.denied($$select user_id from profiles$$, 'anon reads profiles.user_id (the account id of a linked profile)');
+select pg_temp.denied($$select created_at from profiles$$, 'anon reads profiles.created_at');
+select pg_temp.denied($$select * from profiles$$, 'anon selects every profile column');
+select pg_temp.denied($$select id from profiles where user_id is not null$$, 'anon filters profiles by user_id');
+reset role;
+select pg_temp.login('00000000-0000-0000-0000-000000000001');
+select pg_temp.denied($$select user_id from profiles where id = auth.uid()$$, 'a climber reads profiles.user_id, even their own');
+select pg_temp.assert(my_profile_id() = '00000000-0000-0000-0000-000000000001', 'a climber finds their own profile through my_profile_id()');
+reset role;
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.denied($$select user_id from profiles$$, 'an admin reads profiles.user_id through the table (admin_accounts() instead)');
+select pg_temp.assert((select profile_id from admin_accounts() where user_id = '00000000-0000-0000-0000-000000000001')
+  = '00000000-0000-0000-0000-000000000001', 'an admin sees which profile an account has through admin_accounts()');
+reset role;
+select pg_temp.assert(not has_column_privilege('anon', 'public.profiles', 'user_id', 'select')
+  and not has_column_privilege('authenticated', 'public.profiles', 'user_id', 'select')
+  and not has_column_privilege('authenticated', 'public.profiles', 'created_at', 'select')
+  and has_column_privilege('service_role', 'public.profiles', 'user_id', 'select'),
+  'profiles.user_id / created_at: no select grant for anon or authenticated (service role keeps it)');
+
+-- ---------------------------------------------------------------- home_page: upcoming until the last day (migration 043)
+-- a 2-day competition that started yesterday and ends today, nothing live: still on the home page, flagged today
+insert into competitions (id, name, starts_on, ends_on, status) values
+  ('1c000000-0000-0000-0000-000000000001', 'Two-day cup', (now() at time zone 'Asia/Jerusalem')::date - 1, (now() at time zone 'Asia/Jerusalem')::date, 'published'),
+  ('1c000000-0000-0000-0000-000000000002', 'Next day cup', (now() at time zone 'Asia/Jerusalem')::date + 1, (now() at time zone 'Asia/Jerusalem')::date + 2, 'published');
+select pg_temp.login(null);
+select pg_temp.assert((select (e ->> 'today')::boolean from json_array_elements(home_page() -> 'upcoming') e
+    where e ->> 'id' = '1c000000-0000-0000-0000-000000000001'),
+  'home_page: a competition on its second day, between rounds, is under upcoming flagged today');
+select pg_temp.assert((select json_agg(e ->> 'id') -> 0 from json_array_elements(home_page() -> 'upcoming') e)::text
+    = '"1c000000-0000-0000-0000-000000000001"',
+  'home_page: upcoming is ordered by the first day (the one on today first)');
+select pg_temp.assert((select (e ->> 'today')::boolean from json_array_elements(home_page() -> 'upcoming') e
+    where e ->> 'id' = '1c000000-0000-0000-0000-000000000002') = false,
+  'home_page: a competition starting tomorrow is not flagged today');
+select pg_temp.assert(not exists (select 1 from json_array_elements(home_page() -> 'upcoming') e
+    where e ->> 'id' in ('1b000000-0000-0000-0000-000000000001', '1a000000-0000-0000-0000-000000000002')),
+  'home_page: a competition whose last day has passed is not upcoming');
+reset role;
+
+-- ---------------------------------------------------------------- link_account: "has data" from the profile-id inventory (migration 044)
+-- new accounts (their auto-created profiles): one with a lead result, one with only an error report, one empty;
+-- and imported profiles to link them to
+select set_config('request.jwt.claim.sub', '', false);
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('00000000-0000-0000-0000-0000000000d1', 'leadkid@test', '{"full_name":"Lead Kid"}'),
+  ('00000000-0000-0000-0000-0000000000d2', 'errkid@test', '{"full_name":"Error Kid"}'),
+  ('00000000-0000-0000-0000-0000000000d3', 'emptykid@test', '{"full_name":"Empty Kid"}');
+insert into profiles (id, full_name) values
+  ('5d000000-0000-0000-0000-0000000000d1', 'Imported Lead Kid'),
+  ('5d000000-0000-0000-0000-0000000000d2', 'Imported Error Kid'),
+  ('5d000000-0000-0000-0000-0000000000d3', 'Imported Empty Kid');
+alter table lead_results disable trigger user;  -- a bare lead result, without a start list row
+insert into lead_results (boulder_id, climber_id, round_id, hold, plus, top) values
+  ('40000000-0000-0000-0000-000000000061', '00000000-0000-0000-0000-0000000000d1', '30000000-0000-0000-0000-000000000061', 12, false, false);
+alter table lead_results enable trigger user;
+insert into client_errors (profile_id, app, message) values ('00000000-0000-0000-0000-0000000000d2', 'staff', 'test');
+select pg_temp.assert((select count(*) from lead_results where climber_id = '00000000-0000-0000-0000-0000000000d1') = 1
+  and not exists (select 1 from round_starters where climber_id = '00000000-0000-0000-0000-0000000000d1'),
+  'fixture: an account''s own profile with a lead result only');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.denied($$select link_account('5d000000-0000-0000-0000-0000000000d1', '00000000-0000-0000-0000-0000000000d1')$$,
+  'link_account refuses an account whose own profile has a lead result (not on the old hand list)');
+select link_account('5d000000-0000-0000-0000-0000000000d2', '00000000-0000-0000-0000-0000000000d2');
+select link_account('5d000000-0000-0000-0000-0000000000d3', '00000000-0000-0000-0000-0000000000d3');
+reset role;
+select pg_temp.assert(
+  exists (select 1 from profiles where id = '00000000-0000-0000-0000-0000000000d1')
+  and exists (select 1 from lead_results where climber_id = '00000000-0000-0000-0000-0000000000d1')
+  and (select user_id from profiles where id = '5d000000-0000-0000-0000-0000000000d1') is null,
+  'link_account: a refused link keeps the own profile, its rows and the imported profile unlinked');
+select pg_temp.assert(
+  (select user_id from profiles where id = '5d000000-0000-0000-0000-0000000000d2') = '00000000-0000-0000-0000-0000000000d2'
+  and not exists (select 1 from profiles where id = '00000000-0000-0000-0000-0000000000d2')
+  and exists (select 1 from client_errors where profile_id = '5d000000-0000-0000-0000-0000000000d2' and message = 'test'),
+  'link_account: error reports of the own profile do not block the link; they move to the linked profile');
+select pg_temp.assert(
+  (select user_id from profiles where id = '5d000000-0000-0000-0000-0000000000d3') = '00000000-0000-0000-0000-0000000000d3'
+  and not exists (select 1 from profiles where id = '00000000-0000-0000-0000-0000000000d3'),
+  'link_account: an empty own profile (roles and its private row only) is still dropped');
+
+-- ---------------------------------------------------------------- system_status(): the admin home's system box (migration 045)
+select pg_temp.login(null);
+select pg_temp.denied($$select system_status()$$, 'anon reads the system status');
+select pg_temp.login('00000000-0000-0000-0000-000000000001');
+select pg_temp.denied($$select system_status()$$, 'a climber reads the system status');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select pg_temp.denied($$select system_status()$$, 'a judge reads the system status');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert(system_status() -> 'cron' = 'null'::jsonb and system_status() ->> 'cron_error' = 'pg_cron is not installed',
+  'system_status works without pg_cron (the cron part reported as unavailable)');
+select pg_temp.assert(jsonb_typeof(system_status() -> 'rankings') = 'array'
+  and jsonb_typeof(system_status() -> 'ranking_tables_due') = 'array'
+  and jsonb_typeof(system_status() -> 'climber_cache' -> 'pending') = 'number'
+  and jsonb_typeof(system_status() -> 'rankings_pending' -> 'count') = 'number'
+  and system_status() -> 'ifsc' ? 'last_run' and system_status() -> 'ifsc' ? 'last_ok'
+  and system_status() ? 'now',
+  'system_status: rankings cache per season, waiting changes, ranking tables due, climber cache backlog, IFSC runs');
+reset role;
+-- a stand-in pg_cron (the two tables, the columns read): jobs, their runs, a job never scheduled
+create schema cron;
+create table cron.job (jobid bigint primary key, schedule text, command text, jobname text, active boolean);
+create table cron.job_run_details (runid bigint primary key, jobid bigint, status text, return_message text,
+                                   start_time timestamptz, end_time timestamptz);
+insert into cron.job values (1, '* * * * *', 'x', 'rankings-cache', true), (2, '* * * * *', 'x', 'climber-cache', true),
+  (3, '0 3 * * *', 'x', 'ifsc-sync', true);
+insert into cron.job_run_details values
+  (1, 1, 'succeeded', '1 row', now() - interval '3 minutes', now() - interval '3 minutes'),
+  (2, 2, 'succeeded', '1 row', now() - interval '30 minutes', now() - interval '30 minutes'),
+  (3, 1, 'succeeded', '1 row', now() - interval '2 minutes', now() - interval '2 minutes'),
+  (4, 2, 'failed', 'ERROR: boom', now() - interval '1 minute', now() - interval '1 minute');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert(system_status() ->> 'cron_error' is null and jsonb_array_length(system_status() -> 'cron') = 4,
+  'system_status: with pg_cron, the four jobs');
+select pg_temp.assert((select e ->> 'last_status' = 'failed' and e ->> 'last_message' = 'ERROR: boom'
+    and (e ->> 'last_success')::timestamptz < now() - interval '29 minutes'
+    from jsonb_array_elements(system_status() -> 'cron') e where e ->> 'name' = 'climber-cache'),
+  'system_status: a job''s last run (failed, with its message) and its last success');
+select pg_temp.assert((select (e ->> 'last_success')::timestamptz > now() - interval '150 seconds'
+    from jsonb_array_elements(system_status() -> 'cron') e where e ->> 'name' = 'rankings-cache'),
+  'system_status: the latest success of a job');
+select pg_temp.assert((select not (e ->> 'scheduled')::boolean and e -> 'last_success' = 'null'::jsonb
+    from jsonb_array_elements(system_status() -> 'cron') e where e ->> 'name' = 'ranking-tables'),
+  'system_status: a job that is not scheduled says so');
+reset role;
+drop table cron.job_run_details, cron.job;
+drop schema cron;
+select pg_temp.assert(prosecdef and not has_function_privilege('anon', 'public.system_status()', 'execute'),
+  'system_status is a definer function anon cannot call')
+from pg_proc where oid = 'public.system_status()'::regprocedure;
+
+-- ---------------------------------------------------------------- admin_log: admin changes (migration 045)
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+insert into competitions (id, name, starts_on, ends_on, status) values
+  ('1d000000-0000-0000-0000-000000000001', 'Logged cup', '2026-12-10', '2026-12-10', 'draft');
+insert into categories (id, competition_id, name, gender) values
+  ('2d000000-0000-0000-0000-000000000001', '1d000000-0000-0000-0000-000000000001', 'Logged Women', 'female');
+insert into rounds (id, category_id, kind, status) values
+  ('3d100000-0000-0000-0000-000000000001', '2d000000-0000-0000-0000-000000000001', 'qualification', 'planned');
+insert into boulders (id, round_id, number) values ('4d100000-0000-0000-0000-000000000001', '3d100000-0000-0000-0000-000000000001', 1);
+update competitions set status = 'published' where id = '1d000000-0000-0000-0000-000000000001';
+update rounds set status = 'live', advance_quota = 8 where id = '3d100000-0000-0000-0000-000000000001';
+update rounds set status = 'live' where id = '3d100000-0000-0000-0000-000000000001';  -- no change: no entry
+insert into judge_assignments (id, round_id, boulder_id, judge_id) values
+  ('5d100000-0000-0000-0000-000000000001', '3d100000-0000-0000-0000-000000000001', '4d100000-0000-0000-0000-000000000001',
+   '00000000-0000-0000-0000-00000000000e');
+insert into registrations values ('2d000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 1);
+insert into appeals (id, round_id, climber_id) values
+  ('6d100000-0000-0000-0000-000000000001', '3d100000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001');
+insert into appeal_details (appeal_id, reason) values ('6d100000-0000-0000-0000-000000000001', 'Noa says the zone was held, asthma');
+update appeals set status = 'upheld', resolved_at = now() where id = '6d100000-0000-0000-0000-000000000001';
+insert into user_roles values ('00000000-0000-0000-0000-000000000002', 'judge');
+select pg_temp.assert((select changes = '{"status": ["draft", "published"]}'::jsonb and actor_id = '00000000-0000-0000-0000-00000000000a'
+    and competition_id = '1d000000-0000-0000-0000-000000000001' and round_id is null
+    from admin_log where table_name = 'competitions' and action = 'update' and row_id = '1d000000-0000-0000-0000-000000000001'),
+  'admin_log: publishing a competition (changed column old/new, who, which competition)');
+select pg_temp.assert((select count(*) from admin_log where table_name = 'rounds' and action = 'update'
+    and row_id = '3d100000-0000-0000-0000-000000000001') = 1
+  and (select changes from admin_log where table_name = 'rounds' and action = 'update' and row_id = '3d100000-0000-0000-0000-000000000001')
+    = '{"status": ["planned", "live"], "advance_quota": [null, 8]}'::jsonb,
+  'admin_log: a round''s status and quota change once (an update changing nothing is not logged)');
+select pg_temp.assert((select count(*) from admin_log where round_id = '3d100000-0000-0000-0000-000000000001'
+    and competition_id = '1d000000-0000-0000-0000-000000000001' and table_name in ('rounds', 'judge_assignments', 'appeals')) = 5,
+  'admin_log: the round, its judge assignment and appeal (opened, decided) on the round and competition pages');
+select pg_temp.assert((select changes ->> 'judge_id' from admin_log where table_name = 'judge_assignments' and action = 'insert'
+    and row_id = '5d100000-0000-0000-0000-000000000001') = '00000000-0000-0000-0000-00000000000e',
+  'admin_log: a judge assignment with its judge');
+select pg_temp.assert(exists (select 1 from admin_log where table_name = 'user_roles' and action = 'insert'
+    and row_id = '00000000-0000-0000-0000-000000000002:judge' and changes ->> 'role' = 'judge'),
+  'admin_log: a role given');
+select pg_temp.assert(not exists (select 1 from admin_log where changes::text ~* 'asthma|zone was held|050-1111111|050-2222222|birth'),
+  'admin_log: no personal data (the appeal''s reason is not logged)');
+delete from competitions where id = '1d000000-0000-0000-0000-000000000001';
+reset role;
+select pg_temp.assert(exists (select 1 from admin_log where table_name = 'competitions' and action = 'delete'
+    and row_id = '1d000000-0000-0000-0000-000000000001' and changes ->> 'name' = 'Logged cup')
+  and not exists (select 1 from admin_log where action = 'delete' and competition_id = '1d000000-0000-0000-0000-000000000001'
+    and table_name <> 'competitions'),
+  'admin_log: deleting a competition is one entry (its rounds, assignments and appeals go with it unlogged)');
+-- deleting a category (with a live round) is logged on its competition
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+insert into categories (id, competition_id, name, gender) values
+  ('2d000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'Logged Men', 'male');
+insert into rounds (id, category_id, kind, status) values
+  ('3d100000-0000-0000-0000-000000000002', '2d000000-0000-0000-0000-000000000002', 'qualification', 'live');
+delete from categories where id = '2d000000-0000-0000-0000-000000000002';
+reset role;
+select pg_temp.assert(exists (select 1 from admin_log where table_name = 'categories' and action = 'insert'
+    and row_id = '2d000000-0000-0000-0000-000000000002' and competition_id = '10000000-0000-0000-0000-000000000001')
+  and exists (select 1 from admin_log where table_name = 'categories' and action = 'delete'
+    and row_id = '2d000000-0000-0000-0000-000000000002' and competition_id = '10000000-0000-0000-0000-000000000001'
+    and changes ->> 'name' = 'Logged Men' and actor_id = '00000000-0000-0000-0000-00000000000a'),
+  'admin_log: adding and deleting a category (with its live round) are logged on the competition');
+-- who reads it
+select pg_temp.login(null);
+select pg_temp.denied($$select * from admin_log$$, 'anon reads the admin log');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select pg_temp.assert(not exists (select 1 from admin_log), 'a judge sees no admin log rows');
+select pg_temp.login('00000000-0000-0000-0000-00000000000c');
+select pg_temp.assert(not exists (select 1 from admin_log), 'a coach sees no admin log rows');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert(exists (select 1 from admin_log), 'an admin reads the admin log');
+select pg_temp.denied($$insert into admin_log (table_name, row_id, action, changes) values ('rounds', 'x', 'update', '{}')$$,
+  'an admin writes the admin log by hand');
+select pg_temp.denied($$update admin_log set changes = '{}'$$, 'an admin edits the admin log');
+select pg_temp.denied($$delete from admin_log$$, 'an admin deletes from the admin log');
+reset role;
+select pg_temp.assert(not has_function_privilege('authenticated', 'private.admin_log_write()', 'execute')
+  and not has_function_privilege('anon', 'private.admin_log_write()', 'execute'), 'nobody calls the admin log trigger function');
 
 \echo ALL RLS TESTS PASSED
