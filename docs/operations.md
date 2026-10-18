@@ -94,6 +94,14 @@ one-year cache for `/assets/*`; Cloudflare serves `index.html` for app routes (s
 - Judges use one tab, don't clear browser data and don't sign out while "⏳ N ממתינים" shows (results
   wait on the phone and are sent by themselves). Results a judge reports from "N תוצאות לא נשמרו"
   (held by another judge, changed by an admin meanwhile, locked) are fixed on the round page.
+- **Event day, admin**: open the competition in ניהול and its "רשימת בדיקה ליום התחרות"
+  (`/admin/competition/<id>/checklist`) the day before and on the morning: the automatic checks must be
+  green (every red line links to where it is fixed; "judges signed in" is read from the login time of
+  each assigned judge, nothing else of the account); tick the manual items on the phone you will use.
+  During the event watch ניהול → "שגיאות מהאפליקציה" (`/admin/errors`): unexpected errors in the staff
+  app and judge-pad results that could not be saved, grouped by message (last 7 days; "clear" removes a
+  group). The `client_errors` table is written only by `report_client_error` (30 per profile per 10
+  minutes) and is trimmed to 30 days; the viewer reports nothing.
 
 ## Imports
 

@@ -170,6 +170,8 @@ export interface SaveQueueOptions {
   /** This tab sends (one tab per profile); others only queue. Default true. */
   leader?: boolean;
   now?: () => number;
+  /** A row was refused for good (moved to `failed`): for error reporting. Not called for retries. */
+  onFailed?: (entry: FailedEntry) => void;
 }
 
 let ids = 0;
@@ -351,6 +353,7 @@ export class SaveQueue {
         } else if (!replaced) {
           const code = result.code === 'held' || result.code === 'changed' ? result.code : undefined;
           const server = code === 'changed' ? result.row : undefined;
+          try { this.opts.onFailed?.({ ...entry, error: result.message, ...(code ? { code } : {}) }); } catch { /* reporting only */ }
           this.mutate((s) => ({
             ...s,
             pending: s.pending.filter((e) => e.id !== entry.id),

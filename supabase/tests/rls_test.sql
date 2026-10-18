@@ -1638,4 +1638,110 @@ select pg_temp.assert(has_function_privilege('authenticated', 'public.admin_acco
   and has_function_privilege('anon', 'public.has_role(public.app_role)', 'execute'),
   'admins (authenticated) keep admin RPCs; RLS helpers stay executable');
 
+-- Event day (migration 040): error reports and the checklist.
+select pg_temp.login(null);
+select pg_temp.denied($$select report_client_error('staff', '/', 'boom')$$, 'anon reports a client error');
+select pg_temp.denied($$select * from client_errors$$, 'anon reads client errors');
+select pg_temp.denied($$select event_checklist('10000000-0000-0000-0000-000000000001')$$, 'anon reads the event checklist');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select report_client_error('staff', '/judge', repeat('m', 800), repeat('s', 6000), 'ua', 'index-abc.js', jsonb_build_object('k', repeat('c', 3000)));
+select pg_temp.assert((select count(*) from client_errors) = 0, 'a judge cannot read client errors (not even their own)');
+select pg_temp.denied($$insert into client_errors (app, message) values ('staff', 'direct')$$, 'judge inserts a client error directly');
+select pg_temp.denied($$update client_errors set message = 'x'$$, 'judge updates client errors');
+select pg_temp.denied($$delete from client_errors$$, 'judge deletes client errors');
+select pg_temp.denied($$select event_checklist('10000000-0000-0000-0000-000000000001')$$, 'judge reads the event checklist');
+select pg_temp.login('00000000-0000-0000-0000-000000000001');
+select report_client_error('staff', '/', 'climber report');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert((select length(message) = 500 and length(stack) = 4000 and length(context::text) <= 2100 and profile_id = '00000000-0000-0000-0000-00000000000e'
+    from client_errors where app = 'staff' and path = '/judge'), 'report_client_error caps the field sizes and records the reporter');
+select pg_temp.assert((select count(*) from client_errors) = 2, 'admin reads all client errors');
+reset role;
+-- rate limit: 30 per profile per 10 minutes, quietly
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select report_client_error('staff', '/', 'flood ' || g) from generate_series(1, 40) g;
+reset role;
+select pg_temp.assert((select count(*) from client_errors where profile_id = '00000000-0000-0000-0000-00000000000e') = 30,
+  'report_client_error stops at 30 per profile per 10 minutes');
+-- an account without a profile reports nothing (nobody to attribute it to)
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000f1', 'noprofile@test');
+delete from profiles where id = '00000000-0000-0000-0000-0000000000f1';
+select pg_temp.login('00000000-0000-0000-0000-0000000000f1');
+select report_client_error('staff', '/', 'from nobody');
+reset role;
+select pg_temp.assert(not exists (select 1 from client_errors where message = 'from nobody'), 'report_client_error ignores an account without a profile');
+delete from auth.users where id = '00000000-0000-0000-0000-0000000000f1';
+-- rows older than 30 days go with the next report
+insert into client_errors (created_at, profile_id, app, message) values (now() - interval '31 days', null, 'staff', 'ancient');
+select pg_temp.login('00000000-0000-0000-0000-000000000002');
+select report_client_error('staff', '/', 'fresh');
+reset role;
+select pg_temp.assert(not exists (select 1 from client_errors where message = 'ancient'), 'client errors older than 30 days are removed');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+delete from client_errors where message like 'flood%';
+select pg_temp.assert(not exists (select 1 from client_errors where message like 'flood%'), 'admin deletes client errors');
+reset role;
+
+-- The checklist (admin only), on a competition of its own; of a judge's account only "signed in / when" is returned.
+insert into competitions (id, name, starts_on, ends_on, status) values
+  ('c0000000-0000-0000-0000-000000000001', 'Checklist Cup', '2026-10-28', '2026-10-29', 'draft');
+insert into categories (id, competition_id, name, gender) values
+  ('c1000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'CL Women', 'female'),
+  ('c1000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000001', 'CL Empty', 'female');
+insert into rounds (id, category_id, kind) values
+  ('c2000000-0000-0000-0000-000000000001', 'c1000000-0000-0000-0000-000000000001', 'qualification'),
+  ('c2000000-0000-0000-0000-000000000002', 'c1000000-0000-0000-0000-000000000001', 'final');
+insert into boulders (id, round_id, number) values
+  ('c3000000-0000-0000-0000-000000000001', 'c2000000-0000-0000-0000-000000000001', 1),
+  ('c3000000-0000-0000-0000-000000000002', 'c2000000-0000-0000-0000-000000000001', 2);
+insert into registrations (category_id, climber_id, bib) values
+  ('c1000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', null);
+insert into judge_assignments (round_id, boulder_id, judge_id) values
+  ('c2000000-0000-0000-0000-000000000001', 'c3000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000e');
+insert into appeals (round_id, climber_id, status, created_at) values
+  ('c2000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'open', now() - interval '3 days');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+create temp table chk as select event_checklist('c0000000-0000-0000-0000-000000000001') j;
+grant select on chk to public;
+create function pg_temp.check_of(cid text) returns jsonb language sql as $$
+  select c from chk, jsonb_array_elements(j->'checks') c where c->>'id' = cid $$;
+create function pg_temp.red(cid text, n int) returns boolean language sql as $$
+  select not (pg_temp.check_of(cid)->>'ok')::boolean and jsonb_array_length(pg_temp.check_of(cid)->'items') = n $$;
+select pg_temp.assert(pg_temp.red('published', 0), 'checklist: a draft competition is red');
+select pg_temp.assert(pg_temp.red('category_rounds', 1), 'checklist: a category without rounds is red');
+select pg_temp.assert(pg_temp.red('round_boulders', 1), 'checklist: a round without boulders is red');
+select pg_temp.assert((pg_temp.check_of('first_starters')->>'ok')::boolean and pg_temp.red('starter_bibs', 1),
+  'checklist: first-round starters exist but one has no bib');
+select pg_temp.assert(pg_temp.red('advance_quota', 1), 'checklist: a qualification without quota is red');
+select pg_temp.assert(pg_temp.red('boulder_judges', 1) and (pg_temp.check_of('boulder_judges')->'items'->0->>'number')::int = 2,
+  'checklist: a boulder nobody judges is listed');
+select pg_temp.assert(pg_temp.red('judges_signed_in', 1) and (pg_temp.check_of('judges_signed_in')->'items'->0->>'signed_in')::boolean = false,
+  'checklist: a judge who never signed in is red');
+select pg_temp.assert(pg_temp.red('old_appeals', 1), 'checklist: an appeal left open from an earlier day is red');
+select pg_temp.assert(not exists (select 1 from chk, jsonb_array_elements(j->'checks') c, jsonb_array_elements(c->'items') i
+    where i ? 'email' or i ? 'user_id' or i::text like '%judge@test%'), 'checklist: no account details beyond signed in / when');
+reset role;
+-- everything fixed
+update competitions set status = 'published' where id = 'c0000000-0000-0000-0000-000000000001';
+delete from categories where id = 'c1000000-0000-0000-0000-000000000002';
+insert into boulders (round_id, number) values ('c2000000-0000-0000-0000-000000000002', 1);
+update registrations set bib = 7 where category_id = 'c1000000-0000-0000-0000-000000000001';
+update rounds set advance_quota = 6 where id = 'c2000000-0000-0000-0000-000000000001';
+insert into judge_assignments (round_id, boulder_id, judge_id) values
+  ('c2000000-0000-0000-0000-000000000001', null, '00000000-0000-0000-0000-00000000000e'),
+  ('c2000000-0000-0000-0000-000000000002', null, '00000000-0000-0000-0000-00000000000e');
+update appeals set status = 'rejected', resolved_at = now() where round_id = 'c2000000-0000-0000-0000-000000000001';
+update auth.users set last_sign_in_at = '2026-10-17 10:00+03' where id = '00000000-0000-0000-0000-00000000000e';
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+drop table chk;
+create temp table chk as select event_checklist('c0000000-0000-0000-0000-000000000001') j;
+select pg_temp.assert(not exists (select 1 from jsonb_array_elements((select j from chk)->'checks') c where not (c->>'ok')::boolean),
+  'checklist: every check turns green once fixed');
+reset role;
+delete from competitions where id = 'c0000000-0000-0000-0000-000000000001';
+update auth.users set last_sign_in_at = null;
+delete from client_errors;
+select pg_temp.assert(not has_function_privilege('anon', 'public.report_client_error(text,text,text,text,text,text,jsonb)', 'execute')
+  and not has_function_privilege('anon', 'public.event_checklist(uuid)', 'execute'), 'anon cannot execute the event-day functions');
+
 \echo ALL RLS TESTS PASSED

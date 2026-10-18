@@ -6,6 +6,7 @@ import { isAuthRetryableFetchError } from '@supabase/supabase-js';
 import { useEffect, useSyncExternalStore } from 'react';
 import { useAuth } from './auth';
 import { conflict, landed, outboxStorageKey, SaveQueue, type AuthRefresh, type OutboxEntry, type OutboxSnapshot, type SendResult } from './saveQueue';
+import { reportClientError } from './errorReport';
 import { supabase } from './supabase';
 import { LEAD_COLUMNS, RESULT_COLUMNS } from './types';
 
@@ -91,6 +92,10 @@ export function outboxFor(profileId: string): SaveQueue {
   const queue = new SaveQueue({
     storageKey: key, storage: storage(), send, verify: verifier(profileId), refreshAuth,
     isCurrent: () => currentProfile === profileId, leader: !locks,
+    // Permanent failures (not the retries) go to the admins' error list; no names, just where.
+    onFailed: (f) => reportClientError(`Result not saved: ${f.error}`, {
+      context: { table: f.table, boulder: f.meta?.boulder, code: f.code ?? null, tries: f.tries, boulderId: f.key.split('|')[1] },
+    }),
   });
   const online = () => queue.kick();
   const visible = () => {
