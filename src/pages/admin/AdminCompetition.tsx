@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { RoundStatus } from '../../components/RoundStatus';
+import { climbsRoutes, DISC_LABEL, DISCIPLINES, problemsWord, roundFormatsFor, type Discipline } from '../../lib/discipline';
 import { errorText } from '../../lib/errors';
 import { localized, useI18n } from '../../lib/i18n';
 import { isRankedCompetition, uncountedCategories } from '../../lib/mixedCategories';
 import { supabase } from '../../lib/supabase';
-import type { Category, Competition, Profile, Round } from '../../lib/types';
+import type { Category, Competition, Profile, Round, RoundFormat } from '../../lib/types';
 import { AdminNav, ErrorLine } from './AdminHome';
 import { AdminLog } from './AdminLog';
 import { ClimberPicker } from './ClimberPicker';
@@ -58,7 +59,7 @@ export function AdminCompetition() {
     await run(supabase.from('competitions').update({
       name: v('name'), name_he: v('name_he') || null, venue: v('venue') || null,
       starts_on: v('starts_on'), ends_on: v('ends_on') || v('starts_on'), status: v('status'),
-      season: v('season') || null, series: v('series'),
+      season: v('season') || null, series: v('series'), discipline: v('discipline') || null,
     }).eq('id', comp!.id));
   }
 
@@ -83,10 +84,16 @@ export function AdminCompetition() {
       <ErrorLine error={error} />
       <p><Link to={`/admin/competition/${comp.id}/checklist`}>{t('eventChecklist')}</Link></p>
 
-      <form className="panel form grid-form" onSubmit={saveComp} key={comp.id + comp.status}>
+      <form className="panel form grid-form" onSubmit={saveComp} key={comp.id + comp.status + (comp.discipline ?? '')}>
         <label>{t('nameEn')}<input name="name" required defaultValue={comp.name} /></label>
         <label>{t('nameHe')}<input name="name_he" defaultValue={comp.name_he ?? ''} dir="rtl" /></label>
         <label>{t('venue')}<input name="venue" defaultValue={comp.venue ?? ''} /></label>
+        <label>{t('discipline')}
+          <select name="discipline" defaultValue={comp.discipline ?? ''}>
+            {!comp.discipline && <option value="">{t('disciplineNotSet')}</option>}
+            {DISCIPLINES.map((d) => <option key={d} value={d}>{t(DISC_LABEL[d])}</option>)}
+          </select>
+        </label>
         <label>{t('startsOn')}<input name="starts_on" type="date" required defaultValue={comp.starts_on} /></label>
         <label>{t('endsOn')}<input name="ends_on" type="date" defaultValue={comp.ends_on} /></label>
         <label>{t('status')}
@@ -107,8 +114,9 @@ export function AdminCompetition() {
       </form>
 
       <h2>{t('categories')}</h2>
+      {comp.discipline === 'speed' && <p className="notice">{t('speedScoringSoon')}</p>}
       <MixedWarning comp={comp} cats={cats} run={run} />
-      {cats.map((c) => <CategoryPanel key={c.id} cat={c} run={run} />)}
+      {cats.map((c) => <CategoryPanel key={c.id} cat={c} discipline={comp.discipline} run={run} />)}
 
       <form className="panel form grid-form" onSubmit={addCategory}>
         <h2 className="span-all">{t('newCategory')}</h2>
@@ -156,7 +164,7 @@ function MixedWarning({ comp, cats, run }: { comp: Competition; cats: CategoryRo
   );
 }
 
-function CategoryPanel({ cat, run }: { cat: CategoryRow; run: Run }) {
+function CategoryPanel({ cat, discipline, run }: { cat: CategoryRow; discipline: Discipline | null; run: Run }) {
   const { t, lang } = useI18n();
   const rounds = [...cat.rounds].sort((a, b) => KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind));
   const missing = KINDS.filter((k) => !rounds.some((r) => r.kind === k));
@@ -172,19 +180,9 @@ function CategoryPanel({ cat, run }: { cat: CategoryRow; run: Run }) {
 
       <h3>{t('rounds')}</h3>
       <ul className="admin-rows">
-        {rounds.map((r, i) => <RoundRowEditor key={r.id} round={r} first={i === 0} run={run} />)}
+        {rounds.map((r, i) => <RoundRowEditor key={r.id} round={r} first={i === 0} discipline={discipline} run={run} />)}
       </ul>
-      {missing.length > 0 && (
-        <form className="inline-form" onSubmit={(e) => {
-          e.preventDefault();
-          const f = new FormData(e.currentTarget);
-          void run(supabase.from('rounds').insert({ category_id: cat.id, kind: f.get('kind'), scoring: f.get('scoring') }));
-        }}>
-          <select name="kind">{missing.map((k) => <option key={k} value={k}>{t(k)}</option>)}</select>
-          <select name="scoring"><option value="ifsc2025">{t('ifsc2025')}</option><option value="classic">{t('classic')}</option><option value="lead">{t('lead')}</option></select>
-          <button className="secondary">{t('addRound')}</button>
-        </form>
-      )}
+      {missing.length > 0 && <NewRoundForm key={discipline ?? ''} categoryId={cat.id} missing={missing} discipline={discipline} run={run} />}
 
       <h3>{t('registrations')} ({regs.length})</h3>
       <table className="admin-table">
@@ -228,9 +226,55 @@ function CategoryPanel({ cat, run }: { cat: CategoryRow; run: Run }) {
   );
 }
 
-function RoundRowEditor({ round, first, run }: { round: RoundRow; first: boolean; run: Run }) {
+/** Adds a round with its boulders / routes. The scoring defaults from the competition's discipline: lead only
+ *  for lead, IFSC 2025 (or classic) for boulder; speed has no scoring yet (the round takes the table default). */
+function NewRoundForm({ categoryId, missing, discipline, run }: {
+  categoryId: string; missing: Round['kind'][]; discipline: Discipline | null; run: Run;
+}) {
+  const { t } = useI18n();
+  const formats = roundFormatsFor(discipline);
+  const [scoring, setScoring] = useState<RoundFormat | null>(formats[0] ?? null);
+  const routes = climbsRoutes(discipline, scoring);
+
+  function add(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const f = new FormData(form);
+    const n = Math.min(30, Math.max(0, Number(f.get('count')) || 0));
+    void run((async () => {
+      const { data, error } = await supabase.from('rounds')
+        .insert({ category_id: categoryId, kind: f.get('kind'), ...(scoring ? { scoring } : {}) }).select('id').single();
+      if (error) return { error };
+      form.reset();
+      if (n === 0) return { error: null };
+      return supabase.from('boulders').insert(Array.from({ length: n }, (_, i) => ({ round_id: data.id, number: i + 1 })));
+    })());
+  }
+
+  return (
+    <form className="inline-form" onSubmit={add}>
+      <select name="kind" aria-label={t('round')}>{missing.map((k) => <option key={k} value={k}>{t(k)}</option>)}</select>
+      {formats.length > 1 && (
+        <select name="scoring" aria-label={t('scoring')} value={scoring ?? ''} onChange={(e) => setScoring(e.target.value as RoundFormat)}>
+          {formats.map((s) => <option key={s} value={s}>{t(s)}</option>)}
+        </select>
+      )}
+      {formats.length === 1 && <span className="muted">{t(formats[0])}</span>}
+      <label className="inline">{t(problemsWord(routes))}
+        <input name="count" className="bib-input" type="number" min={0} max={30} />
+      </label>
+      <button className="secondary">{t('addRound')}</button>
+    </form>
+  );
+}
+
+function RoundRowEditor({ round, first, discipline, run }: { round: RoundRow; first: boolean; discipline: Discipline | null; run: Run }) {
   const { t } = useI18n();
   const count = round.boulders.length;
+  const routes = climbsRoutes(discipline, round.scoring);
+  // The formats this competition offers, plus the round's own if it differs (an older round, a changed discipline).
+  const formats = roundFormatsFor(discipline);
+  const shownFormats = discipline === 'speed' ? [] : formats.includes(round.scoring) ? formats : [...formats, round.scoring];
 
   async function setBoulderCount(n: number) {
     if (n === count || n < 0 || n > 30) return;
@@ -244,7 +288,7 @@ function RoundRowEditor({ round, first, run }: { round: RoundRow; first: boolean
       const drop = round.boulders.filter((b) => b.number > n).map((b) => b.id);
       const { count: scored } = await supabase.from(round.scoring === 'lead' ? 'lead_results' : 'boulder_results').select('boulder_id', { count: 'exact', head: true })
         .in('boulder_id', drop);
-      if (scored) { await run(Promise.resolve({ error: { message: `${t('boulders')}: results exist` } })); return; }
+      if (scored) { await run(Promise.resolve({ error: { message: `${t(problemsWord(routes))}: results exist` } })); return; }
       await run(supabase.from('boulders').delete().in('id', drop));
     }
   }
@@ -255,15 +299,15 @@ function RoundRowEditor({ round, first, run }: { round: RoundRow; first: boolean
     <li className="admin-row">
       <strong>{t(round.kind)}</strong>
       <RoundStatus status={round.status} />
-      <label className="inline">{t(round.scoring === 'lead' ? 'routes' : 'boulders')}
+      <label className="inline">{t(problemsWord(routes))}
         <input className="bib-input" type="number" min={0} max={30} defaultValue={count} key={count}
           onBlur={(e) => void setBoulderCount(Number(e.target.value))} />
       </label>
-      <select value={round.scoring} onChange={(e) => void run(supabase.from('rounds').update({ scoring: e.target.value }).eq('id', round.id))}>
-        <option value="ifsc2025">{t('ifsc2025')}</option>
-        <option value="classic">{t('classic')}</option>
-        <option value="lead">{t('lead')}</option>
-      </select>
+      {shownFormats.length > 0 && (
+        <select aria-label={t('scoring')} value={round.scoring} onChange={(e) => void run(supabase.from('rounds').update({ scoring: e.target.value }).eq('id', round.id))}>
+          {shownFormats.map((s) => <option key={s} value={s}>{t(s)}</option>)}
+        </select>
+      )}
       {round.status === 'planned' && <button className="secondary" onClick={() => void status('live')}>{t('goLive')}</button>}
       {round.status === 'live' && <button className="secondary" onClick={() => void status('closed')}>{t('closeRound')}</button>}
       {/* Reopen a closed round: live again (planned would hide it from the public and the rankings). */}

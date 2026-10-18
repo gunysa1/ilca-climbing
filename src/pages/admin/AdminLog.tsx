@@ -13,7 +13,7 @@ const ACTION_KEY = { insert: 'logInsert', update: 'logUpdate', delete: 'logDelet
 const FIELD_KEY: Record<string, MsgKey> = {
   status: 'status', kind: 'round', scoring: 'scoring', advance_quota: 'advanceQuota', judge_id: 'judge', climber_id: 'athlete',
   boulder_id: 'boulder', role: 'roles', name: 'nameEn', name_he: 'nameHe', venue: 'venue', starts_on: 'startsOn',
-  ends_on: 'endsOn', season: 'season', series: 'series', time_tiebreak: 'logTimeTiebreak', gender: 'gender',
+  ends_on: 'endsOn', season: 'season', series: 'series', discipline: 'discipline', time_tiebreak: 'logTimeTiebreak', gender: 'gender',
 };
 const VALUE_KEY: Record<string, MsgKey> = {
   planned: 'planned', live: 'liveNow', closed: 'closed', draft: 'draft', published: 'published', finished: 'finished',
@@ -21,14 +21,17 @@ const VALUE_KEY: Record<string, MsgKey> = {
   rejected: 'appealRejected', female: 'female', male: 'male', mixed: 'mixed', judge: 'judge', coach: 'coach', admin: 'admin',
   ifsc2025: 'ifsc2025', classic: 'classic', lead: 'lead', premier_league: 'seriesPremier', premier_league_u17: 'seriesPremierU17',
   israeli_championship: 'seriesChamp', youth_championship: 'seriesYouthChamp', other: 'seriesOther',
+  boulder: 'discBoulder', speed: 'discSpeed',
 };
 const LIMIT = 100;
 
 /** The admin_log entries of a round or a competition (migration 045), newest first. stamp: reload when it
  * changes (the page's own reload after a change). roundLabel / boulderNo name rounds and boulders by id. */
-export function AdminLog({ by, id, stamp, roundLabel, boulderNo }: {
+export function AdminLog({ by, id, stamp, roundLabel, boulderNo, problem = 'boulder' }: {
   by: 'round_id' | 'competition_id'; id: string; stamp?: unknown;
   roundLabel?: Map<string, string>; boulderNo?: Map<string, number>;
+  /** What boulder_id names here: 'boulder' or (lead, speed) 'route'. */
+  problem?: MsgKey;
 }) {
   const { t, lang } = useI18n();
   const [rows, setRows] = useState<AdminLogEntry[]>([]);
@@ -62,7 +65,8 @@ export function AdminLog({ by, id, stamp, roundLabel, boulderNo }: {
     if (field === 'boulder_id') return boulderNo?.has(s) ? `#${boulderNo.get(s)}` : s.slice(0, 8);
     return VALUE_KEY[s] ? t(VALUE_KEY[s]) : s;
   };
-  const fieldText = (f: LogField) => `${FIELD_KEY[f.field] ? t(FIELD_KEY[f.field]) : f.field}: `
+  const fieldKey = (field: string): MsgKey | undefined => (field === 'boulder_id' ? problem : FIELD_KEY[field]);
+  const fieldText = (f: LogField) => `${fieldKey(f.field) ? t(fieldKey(f.field)!) : f.field}: `
     + (f.before !== undefined ? `${value(f.field, f.before)} → ` : '') + value(f.field, f.after);
 
   if (missing) return null;

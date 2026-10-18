@@ -2423,4 +2423,35 @@ reset role;
 select pg_temp.assert(not has_function_privilege('authenticated', 'private.admin_log_write()', 'execute')
   and not has_function_privilege('anon', 'private.admin_log_write()', 'execute'), 'nobody calls the admin log trigger function');
 
+-- ---------------------------------------------------------------- competition discipline (migration 047)
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+update competitions set discipline = 'lead' where id = '10000000-0000-0000-0000-000000000001';
+insert into competitions (id, name, starts_on, ends_on, status, discipline) values
+  ('10000000-0000-0000-0000-0000000000d1', 'Speed draft', '2026-11-01', '2026-11-01', 'draft', 'speed');
+select pg_temp.assert((select discipline from competitions where id = '10000000-0000-0000-0000-0000000000d1') = 'speed',
+  'an admin creates a competition with a discipline');
+select pg_temp.denied($$update competitions set discipline = 'bouldering' where id = '10000000-0000-0000-0000-000000000001'$$,
+  'a discipline outside boulder / lead / speed');
+select pg_temp.assert(exists (select 1 from admin_log where table_name = 'competitions' and action = 'update'
+    and row_id = '10000000-0000-0000-0000-000000000001' and changes -> 'discipline' = '[null, "lead"]'::jsonb),
+  'admin_log: a discipline change is logged');
+select pg_temp.login(null);
+select pg_temp.assert((select discipline from competitions where id = '10000000-0000-0000-0000-000000000001') = 'lead',
+  'public reads a competition''s discipline');
+select pg_temp.denied($$update competitions set discipline = 'boulder' where id = '10000000-0000-0000-0000-000000000001'$$,
+  'anon changes a competition''s discipline');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select pg_temp.denied($$update competitions set discipline = 'boulder' where id = '10000000-0000-0000-0000-000000000001'$$,
+  'a judge changes a competition''s discipline');
+select pg_temp.login('00000000-0000-0000-0000-00000000000c');
+select pg_temp.denied($$update competitions set discipline = 'boulder' where id = '10000000-0000-0000-0000-000000000001'$$,
+  'a coach changes a competition''s discipline');
+select pg_temp.denied($$insert into competitions (name, starts_on, ends_on, discipline) values ('Coach comp', '2026-11-01', '2026-11-01', 'lead')$$,
+  'a coach creates a competition');
+reset role;
+select pg_temp.assert((select discipline from competitions where id = '10000000-0000-0000-0000-000000000001') = 'lead',
+  'the discipline is unchanged after the refused writes');
+delete from competitions where id = '10000000-0000-0000-0000-0000000000d1';
+update competitions set discipline = null where id = '10000000-0000-0000-0000-000000000001';
+
 \echo ALL RLS TESTS PASSED

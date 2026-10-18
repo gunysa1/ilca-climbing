@@ -1,3 +1,4 @@
+import type { Discipline } from './discipline';
 import type { ScoringFormat } from './scoring';
 
 /** Boulder formats (scoring.ts) plus lead (lead.ts). */
@@ -35,6 +36,8 @@ export interface Competition {
   /** Ranking season ('2025-26') and which national ranking the event feeds. */
   season: string | null;
   series: 'premier_league' | 'premier_league_u17' | 'israeli_championship' | 'youth_championship' | 'other';
+  /** Chosen when the competition is created (migration 047); null on old rows whose rounds mix formats. */
+  discipline: Discipline | null;
 }
 
 export interface Category {

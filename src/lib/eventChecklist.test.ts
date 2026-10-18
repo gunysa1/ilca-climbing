@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fixPath, type CheckId, readTicks, writeTicks } from './eventChecklist';
+import { checkText, fixPath, manualItemsFor, type CheckId, readTicks, writeTicks } from './eventChecklist';
 
 describe('eventChecklist', () => {
   it('keeps ticks per competition and survives broken storage', () => {
@@ -24,5 +24,16 @@ describe('eventChecklist', () => {
     };
     for (const id of Object.keys(expected) as CheckId[]) expect(fixPath('c1', id, item), id).toBe(expected[id]);
     expect(fixPath('c1', 'boulder_judges')).toBe('/admin/competition/c1');
+  });
+  it('names boulders or routes by the competition discipline', () => {
+    expect(checkText('round_boulders', 'lead')).toBe('checkRoundHasRoutes');
+    expect(checkText('boulder_judges', 'lead')).toBe('checkRouteHasJudge');
+    expect(checkText('round_boulders', 'boulder')).toBe('checkRoundHasBoulders');
+    expect(checkText('boulder_judges', 'boulder')).toBe('checkBoulderHasJudge');
+    expect(checkText('round_boulders', null)).toBe('checkRoundBoulders');
+    expect(checkText('published', 'lead')).toBe('checkPublished');
+    expect(manualItemsFor('boulder').some((m) => m.id === 'score_sheets')).toBe(false);
+    expect(manualItemsFor('lead').some((m) => m.id === 'score_sheets')).toBe(true);
+    expect(manualItemsFor(null).some((m) => m.id === 'score_sheets')).toBe(true);
   });
 });

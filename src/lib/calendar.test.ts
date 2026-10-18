@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { calendarSeasons, calendarStatus, disciplinesOfCompetition, groupByMonth, israelToday, todayMarkerBefore, type CalendarCompetition } from './calendar';
 
 const comp = (id: string, starts_on: string, ends_on: string, extra: Partial<CalendarCompetition> = {}): CalendarCompetition => ({
-  id, name: id, name_he: null, venue: null, starts_on, ends_on, status: 'published', season: null, series: 'other', categories: [], ...extra,
+  id, name: id, name_he: null, venue: null, starts_on, ends_on, status: 'published', season: null, series: 'other', discipline: null, categories: [], ...extra,
 });
 
 describe('calendar', () => {
@@ -37,6 +37,12 @@ describe('calendar', () => {
     expect(todayMarkerBefore(list, '2026-10-18')).toBe('b');
     expect(todayMarkerBefore(list, '2026-10-20')).toBe('c');
     expect(todayMarkerBefore(list, '2026-12-01')).toBeNull();
+  });
+
+  it('the chosen discipline wins over the rounds; a lead competition without rounds is lead', () => {
+    expect(disciplinesOfCompetition(comp('a', '2026-10-28', '2026-10-29', { discipline: 'lead' }))).toEqual(['lead']);
+    expect(disciplinesOfCompetition(comp('a', '2026-10-28', '2026-10-29', { discipline: 'speed',
+      categories: [{ rounds: [{ scoring: 'ifsc2025', status: 'planned' }] }] }))).toEqual(['speed']);
   });
 
   it('disciplines come from the rounds', () => {

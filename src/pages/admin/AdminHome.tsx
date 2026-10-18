@@ -1,4 +1,5 @@
 import { formatDate } from '../../lib/dates';
+import { DISC_LABEL, DISCIPLINES } from '../../lib/discipline';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { localized, useI18n } from '../../lib/i18n';
@@ -28,7 +29,7 @@ export function AdminHome() {
   const navigate = useNavigate();
   const [comps, setComps] = useState<Competition[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: '', name_he: '', venue: '', starts_on: '', ends_on: '' });
+  const [form, setForm] = useState({ name: '', name_he: '', venue: '', starts_on: '', ends_on: '', discipline: '' });
 
   useEffect(() => {
     // Admins see drafts too (RLS).
@@ -40,7 +41,7 @@ export function AdminHome() {
     e.preventDefault();
     const { data, error } = await supabase.from('competitions').insert({
       name: form.name.trim(), name_he: form.name_he.trim() || null, venue: form.venue.trim() || null,
-      starts_on: form.starts_on, ends_on: form.ends_on || form.starts_on, status: 'draft',
+      starts_on: form.starts_on, ends_on: form.ends_on || form.starts_on, status: 'draft', discipline: form.discipline,
     }).select('id').single();
     if (error) return setError(error.message);
     navigate(`/admin/competition/${data.id}`);
@@ -60,6 +61,12 @@ export function AdminHome() {
           <label>{t('nameEn')}<input required value={form.name} onChange={set('name')} /></label>
           <label>{t('nameHe')}<input value={form.name_he} onChange={set('name_he')} dir="rtl" /></label>
           <label>{t('venue')}<input value={form.venue} onChange={set('venue')} /></label>
+          <label>{t('discipline')}
+            <select name="discipline" required value={form.discipline} onChange={set('discipline')}>
+              <option value="" disabled>{t('chooseDiscipline')}</option>
+              {DISCIPLINES.map((d) => <option key={d} value={d}>{t(DISC_LABEL[d])}</option>)}
+            </select>
+          </label>
           <label>{t('startsOn')}<input type="date" required value={form.starts_on} onChange={set('starts_on')} /></label>
           <label>{t('endsOn')}<input type="date" value={form.ends_on} min={form.starts_on} onChange={set('ends_on')} /></label>
           <button className="primary">{t('create')}</button>
@@ -72,6 +79,7 @@ export function AdminHome() {
             <Link to={`/admin/competition/${c.id}`} className="card">
               <span className="card-date">{formatDate(c.starts_on, lang)}</span>
               <span className="card-title">{localized(lang, c.name, c.name_he)}</span>
+              {c.discipline && <span className="muted">{t(DISC_LABEL[c.discipline])}</span>}
               <span className={`badge ${c.status === 'draft' ? '' : 'badge-closed'}`}>{t(c.status)}</span>
             </Link>
           </li>

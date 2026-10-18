@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../lib/auth';
 import { israelToday } from '../../lib/calendar';
+import { climbsRoutes, problemWord } from '../../lib/discipline';
 import { localized, useI18n } from '../../lib/i18n';
 import { judgeAssignmentsShown, roundsToKeep, type JudgeAssignment } from '../../lib/judgeHome';
 import { judgeAssignmentsKey, judgeRoundsKey } from '../../lib/judgeOutbox';
@@ -25,7 +26,7 @@ export function JudgeHome() {
     const key = judgeAssignmentsKey(profileId);
     const today = israelToday();
     supabase.from('judge_assignments')
-      .select('id, round_id, boulder_id, round:rounds!inner(kind, status, scoring, boulders(id, round_id, number), category:categories(name, name_he, competition:competitions(name, name_he, starts_on, ends_on)))')
+      .select('id, round_id, boulder_id, round:rounds!inner(kind, status, scoring, boulders(id, round_id, number), category:categories(name, name_he, competition:competitions(name, name_he, starts_on, ends_on, discipline)))')
       .eq('judge_id', profileId).in('round.status', ['live', 'planned'])
       .then(async ({ data, error }) => {
         if (cancelled) return;
@@ -70,7 +71,7 @@ export function JudgeHome() {
             )}
             <div className="chips">
               {[...boulders].sort((x, y) => x.number - y.number).map((b) => (
-                <Link key={b.id} className="chip" to={`/judge/${a.round_id}/${b.id}`}>{t(a.round.scoring === 'lead' ? 'route' : 'boulder')} {b.number}</Link>
+                <Link key={b.id} className="chip" to={`/judge/${a.round_id}/${b.id}`}>{t(problemWord(climbsRoutes(a.round.category.competition.discipline, a.round.scoring)))} {b.number}</Link>
               ))}
             </div>
           </div>

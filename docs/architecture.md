@@ -27,7 +27,7 @@ build, so the public app carries no sign-in or storage code (~30% smaller). Less
 ## Data model
 
 ```
-competitions (season, series)
+competitions (season, series, discipline)
   └─ categories (gender)
        ├─ registrations (climber, bib, age_class)
        └─ rounds (kind: qualification|semifinal|final, status: planned|live|closed,
@@ -256,3 +256,4 @@ rows wait, keeps them for that judge's next sign-in, and removes the other copie
 | 20261018000043 | `home_page`: upcoming until a competition's last day (`ends_on >= today`), flagged `today` while it is on |
 | 20261018000044 | `link_account()`: "the account's own profile has data" from `private.profile_refs()` (every table referencing profiles; the staff app's error reports move to the linked profile) |
 | 20261018000045 | `system_status()` (admins: pg_cron jobs, caches, ranking tables due, IFSC runs) and `admin_log` (triggers on competitions, categories, rounds, judge_assignments, user_roles, appeals; admins read) |
+| 20261018000047 | `competitions.discipline` (boulder / lead / speed; null on old rows the backfill from rounds, then name, cannot place): names boulders / routes in the staff app, defaults new rounds' scoring, lists the competition in the viewer |

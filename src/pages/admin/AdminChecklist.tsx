@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { CHECK_TEXT, fixPath, MANUAL_ITEMS, readTicks, writeTicks, type Check, type CheckItem, type ChecklistResult } from '../../lib/eventChecklist';
+import { climbsRoutes, problemWord, type Discipline } from '../../lib/discipline';
+import { checkText, fixPath, manualItemsFor, readTicks, writeTicks, type Check, type CheckItem, type ChecklistResult } from '../../lib/eventChecklist';
 import { localized, useI18n } from '../../lib/i18n';
 import { supabase } from '../../lib/supabase';
 import { AdminNav, ErrorLine } from './AdminHome';
@@ -11,13 +12,19 @@ export function AdminChecklist() {
   const { id } = useParams();
   const { t, lang } = useI18n();
   const [result, setResult] = useState<ChecklistResult | null>(null);
+  const [discipline, setDiscipline] = useState<Discipline | null>(null);
   const [errors, setErrors] = useState<ClientErrorRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [ticks, setTicks] = useState<string[]>(() => (id ? readTicks(id) : []));
 
   const load = useCallback(async () => {
     if (!id) return;
-    const { data, error: e } = await supabase.rpc('event_checklist', { p_competition: id });
+    const [{ data, error: e }, { data: comp }] = await Promise.all([
+      supabase.rpc('event_checklist', { p_competition: id }),
+      // Names boulders or routes in the texts (event_checklist predates the discipline).
+      supabase.from('competitions').select('discipline').eq('id', id).maybeSingle(),
+    ]);
+    setDiscipline((comp as { discipline: Discipline | null } | null)?.discipline ?? null);
     setError(e?.message ?? null);
     if (!data) return;
     const res = data as ChecklistResult;
@@ -49,7 +56,7 @@ export function AdminChecklist() {
         : t('judgeSignedInAt').replace('{when}', new Date(i.last_sign_in_at ?? '').toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB'));
       return `${name(i)} · ${state}`;
     }
-    return [name(i), i.kind && t(i.kind), i.number != null && `${t('boulder')} ${i.number}`].filter(Boolean).join(' · ');
+    return [name(i), i.kind && t(i.kind), i.number != null && `${t(problemWord(climbsRoutes(discipline)))} ${i.number}`].filter(Boolean).join(' · ');
   };
 
   return (
@@ -70,7 +77,7 @@ export function AdminChecklist() {
           {result?.checks.map((c) => (
             <li key={c.id}>
               <span className={c.ok ? 'success' : 'error'} aria-hidden="true">{c.ok ? '✓' : '✗'}</span>{' '}
-              <strong>{t(CHECK_TEXT[c.id])}</strong>
+              <strong>{t(checkText(c.id, discipline))}</strong>
               <span className="sr-only"> {c.ok ? t('checklistAllGood') : ''}</span>
               {!c.ok && c.id === 'published' && <> · <Link to={fixPath(id!, c.id)}>{t('checklistFix')}</Link></>}
               {(c.id === 'judges_signed_in' || !c.ok) && c.items.length > 0 && (
@@ -91,7 +98,7 @@ export function AdminChecklist() {
       <div className="panel">
         <h2>{t('checklistManual')}</h2>
         <ul className="checklist">
-          {MANUAL_ITEMS.map((m) => (
+          {manualItemsFor(discipline).map((m) => (
             <li key={m.id}>
               <label className="inline">
                 <input type="checkbox" checked={ticks.includes(m.id)} onChange={() => toggle(m.id)} /> {t(m.text)}

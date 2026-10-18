@@ -130,6 +130,7 @@ await p.goto(`${base}/admin`);
 await p.getByLabel('Name (English)').fill('Israeli Cup #2');
 await p.getByLabel('Name (Hebrew)').fill('גביע ישראל 2');
 await p.getByLabel('Starts').fill('2026-11-20');
+await p.getByLabel('Discipline').selectOption('boulder');
 await p.getByRole('button', { name: 'Create' }).click();
 await p.waitForURL(/\/admin\/competition\//);
 const compUrl = p.url();
@@ -764,6 +765,7 @@ await p.goto(`${base}/admin`);
 await p.getByLabel('Name (English)').fill('Lead League');
 await p.getByLabel('Name (Hebrew)').fill('ליגת העל בהובלה');
 await p.getByLabel('Starts').fill(israelDay(1));
+await p.getByLabel('Discipline').selectOption('lead');
 await p.getByRole('button', { name: 'Create' }).click();
 await p.waitForURL(/\/admin\/competition\//);
 const leadCompUrl = p.url();
@@ -774,13 +776,19 @@ const leadCompUrl = p.url();
   await form.getByRole('button', { name: 'Add' }).click();
   await expectText(p, 'Lead Women');
 }
-await p.locator('select[name=scoring]').selectOption('lead');
+{
+  // A lead competition: the new-round form counts routes, offers lead scoring only (no boulder formats).
+  const roundForm = p.locator('form.inline-form', { has: p.getByRole('button', { name: 'Add round' }) });
+  if (!(await roundForm.getByLabel('Routes').count())) problems.push('lead competition: the new-round form does not say "Routes"');
+  if (await roundForm.getByLabel('Boulders').count()) problems.push('lead competition: the new-round form says "Boulders"');
+  if (await roundForm.locator('select[name=scoring]').count()) problems.push('lead competition: the new-round form offers boulder scoring');
+  await roundForm.getByLabel('Routes').fill('2');
+}
 await p.getByRole('button', { name: 'Add round' }).click();
 const leadQualRow = p.locator('.admin-row', { hasText: 'Qualification' });
 await leadQualRow.getByLabel('Routes').waitFor();
-await leadQualRow.getByLabel('Routes').fill('2');
-await leadQualRow.getByLabel('Routes').press('Tab');
 await p.waitForFunction(() => document.querySelector('.admin-row input[type=number]')?.value === '2');
+await p.screenshot({ path: `${out}/admin-lead-competition-en.png`, fullPage: true });
 await p.locator('input[type=file]').setInputFiles(new URL('./roster.csv', import.meta.url).pathname);
 await expectText(p, 'Preview');
 await p.getByRole('button', { name: 'Import', exact: true }).click();
@@ -906,7 +914,6 @@ step('lead: public results show 12+ / TOP and the geometric mean (a tie for firs
 step('lead final (1 route): the judge enters times; the tie after countback breaks on time');
 await p.goto(leadCompUrl);
 await p.locator('select[name=kind]').selectOption('final');
-await p.locator('select[name=scoring]').selectOption('lead');
 await p.getByRole('button', { name: 'Add round' }).click();
 const leadFinalRow = p.locator('.admin-row', { hasText: 'Final' });
 await leadFinalRow.waitFor();

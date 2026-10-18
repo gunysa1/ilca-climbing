@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ContinueBar } from '../components/ContinueBar';
 import { DisciplineBar, useDiscipline } from '../components/DisciplineBar';
-import { disciplinesOf } from '../lib/discipline';
+import { competitionDisciplines } from '../lib/discipline';
 import { localized, useI18n } from '../lib/i18n';
 import { bySeason, seasonOf } from '../lib/season';
 import { supabase } from '../lib/supabase';
@@ -23,9 +23,9 @@ export function Live() {
       .then(({ data }) => setComps((data as CompetitionRow[]) ?? []));
   }, []);
 
-  // A competition is listed under every discipline its rounds use.
+  // A competition is listed under its discipline; older ones (none chosen) under every discipline their rounds use.
   const shown = useMemo(() => (comps ?? []).filter((c) =>
-    disciplinesOf(c.categories.flatMap((cat) => cat.rounds.map((r) => r.scoring))).has(discipline)), [comps, discipline]);
+    competitionDisciplines(c.discipline, c.categories.flatMap((cat) => cat.rounds.map((r) => r.scoring))).has(discipline)), [comps, discipline]);
   // One section per season (September to August), newest first; only the newest is open.
   const seasons = useMemo(() => bySeason(shown, (c) => c.season ?? seasonOf(c.starts_on)), [shown]);
 

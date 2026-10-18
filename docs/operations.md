@@ -84,16 +84,23 @@ already have published it: fix or revert at once, and not on an event day.
 
 ## Running a competition
 
-1. **Competition**: ניהול → new competition (draft; the public doesn't see drafts). Set its season
-   and series if it counts for the national rankings.
+1. **Competition**: ניהול → new competition (draft; the public doesn't see drafts). Choose its
+   discipline (boulder / lead / speed, required; editable on the competition page): it names the
+   problems in the admin and judge screens (boulders or routes), sets the scoring new rounds get
+   (lead: lead only; boulder: IFSC 2025, or classic) and lists the competition under that discipline
+   in the viewer even before it has rounds. Speed has no scoring yet: rounds and start lists can be
+   made, results can't. Set its season and series if it counts for the national rankings.
+   (`competitions.discipline`, migration 047; older rows were backfilled from their rounds, then the
+   name, and stay null when mixed: the viewer then goes by the rounds.)
 2. **Categories** (one per group; age classes inside a group are fine) and **registrations**:
    search/create climbers, or import the roster CSV (same Hebrew/English headers as the temporary
    app; a "קבוצה" column becomes the category and the row's category the age class).
-3. **Rounds**: qualification with its number of boulders (lead: routes). Later rounds: set
+3. **Rounds**: qualification with its number of boulders (lead: routes), set in the add-round form
+   or on the round row. Later rounds: set
    "advance from previous round" and generate the start list (ties at the cutoff advance; seeds are
    kept for countback). Qualification groups have no admin screen yet: set `round_starters.group_label`
    in the database (each group is ranked separately).
-4. **Judges**: assign each judge to the whole round or one boulder.
+4. **Judges**: assign each judge to the whole round or one boulder (route).
 5. **Publish** the competition and set the round **live**. Judges work in the staff app; the public
    follows in the viewer.
 6. **During the round**: corrections and unlocks on the round page (every change is in the audit

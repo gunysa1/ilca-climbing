@@ -5,6 +5,7 @@ import { useAuth } from '../../lib/auth';
 import { errorText } from '../../lib/errors';
 import { localized, useI18n } from '../../lib/i18n';
 import { formatClimbTime, isTimedRound, parseClimbTime } from '../../lib/climbTime';
+import { climbsRoutes, problemWord, type Discipline } from '../../lib/discipline';
 import { formatHeight } from '../../lib/lead';
 import { loadStarters, resultKey, type LeadRow, type ResultRow, type Starter } from '../../lib/roundData';
 import { supabase } from '../../lib/supabase';
@@ -13,7 +14,7 @@ import { AdminNav, ErrorLine } from './AdminHome';
 import { AdminLog } from './AdminLog';
 
 interface RoundInfo extends Round {
-  category: { name: string; name_he: string | null; competition_id: string };
+  category: { name: string; name_he: string | null; competition_id: string; competition: { discipline: Discipline | null } | null };
 }
 interface Assignment { id: string; boulder_id: string | null; judge: { id: string; full_name: string; full_name_he: string | null } }
 /** Row of score_events (boulder) or lead_events (lead). */
@@ -50,7 +51,7 @@ export function AdminRound() {
   const reload = useCallback(async () => {
     if (!id) return;
     const { data: r, error } = await supabase.from('rounds')
-      .select('*, category:categories(name, name_he, competition_id)').eq('id', id).single();
+      .select('*, category:categories(name, name_he, competition_id, competition:competitions(discipline))').eq('id', id).single();
     if (error || !r) return setError(errorText(error, t));
     const lead = r.scoring === 'lead';
     const [b, regs, res, asg, acc, ev, ap] = await Promise.all([
@@ -94,6 +95,8 @@ export function AdminRound() {
 
   if (!round) return <section><AdminNav /><ErrorLine error={error} /><p className="muted">{t('loading')}</p></section>;
   const lead = round.scoring === 'lead';
+  const discipline = round.category.competition?.discipline ?? null;
+  const problem = problemWord(climbsRoutes(discipline, round.scoring));
   const timed = isTimedRound(round, boulders.length);
 
   function assign(e: FormEvent<HTMLFormElement>) {
@@ -112,6 +115,7 @@ export function AdminRound() {
       <p><Link to={`/admin/competition/${round.category.competition_id}`}>{lang === 'he' ? '→' : '←'} {t('competition')}</Link>
         {lead && <> · <Link to={`/admin/round/${round.id}/sheets`}>🖨 {t('scoreSheets')}</Link></>}</p>
       <ErrorLine error={error} />
+      {discipline === 'speed' && <p className="notice">{t('speedScoringSoon')}</p>}
 
       <div className="panel">
         <h2>{t('judges')}</h2>
@@ -119,7 +123,7 @@ export function AdminRound() {
           {assignments.map((a) => (
             <li key={a.id} className="admin-row">
               <strong>{localized(lang, a.judge.full_name, a.judge.full_name_he)}</strong>
-              <span>{a.boulder_id ? `${t('boulder')} ${boulderNo.get(a.boulder_id)}` : t('wholeRound')}</span>
+              <span>{a.boulder_id ? `${t(problem)} ${boulderNo.get(a.boulder_id)}` : t('wholeRound')}</span>
               <button className="link danger-text" onClick={() => void run(supabase.from('judge_assignments').delete().eq('id', a.id))}>{t('remove')}</button>
             </li>
           ))}
@@ -130,7 +134,7 @@ export function AdminRound() {
           </select>
           <select name="boulder">
             <option value="all">{t('wholeRound')}</option>
-            {boulders.map((b) => <option key={b.id} value={b.id}>{t(lead ? 'route' : 'boulder')} {b.number}</option>)}
+            {boulders.map((b) => <option key={b.id} value={b.id}>{t(problem)} {b.number}</option>)}
           </select>
           <button className="secondary" disabled={judges.length === 0}>{t('assign')}</button>
         </form>
@@ -184,7 +188,7 @@ export function AdminRound() {
           {appeals.map((a) => (
             <li key={a.id} className="admin-row">
               <strong>{names.get(a.climber_id) ?? a.climber_id.slice(0, 8)}</strong>
-              <span>{a.boulder_id ? `${t(lead ? 'route' : 'boulder')} ${boulderNo.get(a.boulder_id)}` : t('wholeRound')}</span>
+              <span>{a.boulder_id ? `${t(problem)} ${boulderNo.get(a.boulder_id)}` : t('wholeRound')}</span>
               <span className="muted">{a.details?.reason}</span>
               {a.status === 'open' ? <>
                 <span className="appeal-badge">{t('appealOpen')}</span>
@@ -219,9 +223,9 @@ export function AdminRound() {
           <select name="climber" required aria-label={t('athlete')}>
             {starters.map((s) => <option key={s.climber_id} value={s.climber_id}>{s.bib ? `${s.bib} · ` : ''}{localized(lang, s.profile.full_name, s.profile.full_name_he)}</option>)}
           </select>
-          <select name="boulder" aria-label={t(lead ? 'route' : 'boulder')}>
+          <select name="boulder" aria-label={t(problem)}>
             <option value="all">{t('wholeRound')}</option>
-            {boulders.map((b) => <option key={b.id} value={b.id}>{t(lead ? 'route' : 'boulder')} {b.number}</option>)}
+            {boulders.map((b) => <option key={b.id} value={b.id}>{t(problem)} {b.number}</option>)}
           </select>
           <input name="reason" required placeholder={t('appealReason')} />
           <button className="secondary">{t('openAppeal')}</button>
@@ -237,7 +241,7 @@ export function AdminRound() {
               <tr key={e.id}>
                 <td className="muted small">{new Date(e.created_at).toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB')}</td>
                 <td>{names.get(e.climber_id) ?? e.climber_id.slice(0, 8)}</td>
-                <td>{t(lead ? 'route' : 'boulder')} {boulderNo.get(e.boulder_id)}</td>
+                <td>{t(problem)} {boulderNo.get(e.boulder_id)}</td>
                 <td className="mono">{eventText(e)}</td>
                 <td className="muted">{t('by')} {e.judge_id ? names.get(e.judge_id) ?? '?' : '—'}</td>
               </tr>
@@ -246,7 +250,7 @@ export function AdminRound() {
         </table>
       </div>
 
-      <AdminLog by="round_id" id={round.id} stamp={round} boulderNo={boulderNo} />
+      <AdminLog by="round_id" id={round.id} stamp={round} boulderNo={boulderNo} problem={problem} />
     </section>
   );
 }

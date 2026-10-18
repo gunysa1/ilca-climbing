@@ -1,5 +1,5 @@
 // The calendar page's pure steps: status of a competition, seasons and months.
-import { disciplinesOf, type Discipline } from './discipline';
+import { competitionDisciplines, type Discipline } from './discipline';
 import { seasonOf } from './season';
 import type { Competition, Round, RoundFormat } from './types';
 
@@ -50,4 +50,4 @@ export function todayMarkerBefore(comps: CalendarCompetition[], today: string): 
 }
 
 export const disciplinesOfCompetition = (c: CalendarCompetition): Discipline[] =>
-  [...disciplinesOf(c.categories.flatMap((cat) => cat.rounds.map((r) => r.scoring)))];
+  [...competitionDisciplines(c.discipline, c.categories.flatMap((cat) => cat.rounds.map((r) => r.scoring)))];

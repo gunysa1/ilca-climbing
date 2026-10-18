@@ -1,5 +1,6 @@
 // The judge's home list: assignments in live rounds, and in planned rounds of competitions starting
 // soon (Israel dates), so a judge who opens the app the evening before has the pad on the phone.
+import type { Discipline } from './discipline';
 import type { Boulder, Round, RoundFormat } from './types';
 
 export interface JudgeAssignment {
@@ -13,7 +14,7 @@ export interface JudgeAssignment {
     boulders: Boulder[];
     category: { name: string; name_he: string | null;
       /** Dates: missing in lists kept on the device before they were added. */
-      competition: { name: string; name_he: string | null; starts_on?: string; ends_on?: string } };
+      competition: { name: string; name_he: string | null; starts_on?: string; ends_on?: string; discipline?: Discipline | null } };
   };
 }
 

@@ -247,9 +247,11 @@ def to_rows(comps: list[dict]) -> dict:
     seen_profiles = set()
     for comp in comps:
         comp_id = uid('competition', comp['id'])
-        t['competitions'].append({'id': comp_id, 'name': comp['title'], 'name_he': comp['title'],
-                                  'starts_on': comp['date'], 'ends_on': comp['date'], 'status': 'finished',
-                                  'season': season_of(comp['date']), 'series': series_of(comp['title'])})
+        comp_row = {'id': comp_id, 'name': comp['title'], 'name_he': comp['title'],
+                    'starts_on': comp['date'], 'ends_on': comp['date'], 'status': 'finished',
+                    'season': season_of(comp['date']), 'series': series_of(comp['title'])}
+        t['competitions'].append(comp_row)
+        disciplines = set()  # of the rounds imported: one -> competitions.discipline (as migration 047's backfill)
         for cat in comp['categories']:
             cat_id = uid('category', cat['id'])
             t['categories'].append({'id': cat_id, 'competition_id': comp_id, 'name': cat['name'], 'name_he': cat['name'],
@@ -260,6 +262,7 @@ def to_rows(comps: list[dict]) -> dict:
                 if not rnd['climbers']:
                     continue
                 round_id = uid('round', cat['id'], rnd['kind'])
+                disciplines.add('lead' if cat['discipline'] == 'lead' else 'boulder')
                 t['rounds'].append({'id': round_id, 'category_id': cat_id, 'kind': rnd['kind'], 'status': 'closed',
                                     'scoring': {'lead': 'lead', 'boulder_totals': 'classic'}.get(cat['discipline'], 'ifsc2025'),
                                     'time_tiebreak': not time_tie_left(rnd)})
@@ -303,6 +306,7 @@ def to_rows(comps: list[dict]) -> dict:
                                                   'hold': h[0], 'plus': h[1], 'top': h[2],
                                                   'time_ms': (int(mm[1]) * 60 + int(mm[2])) * 1000 if mm and (mm[1], mm[2]) != ('00', '00') else None})
                 prev_rank = ranks
+        comp_row['discipline'] = disciplines.pop() if len(disciplines) == 1 else None
     return t
 
 
@@ -315,7 +319,7 @@ def sql(comps: list[dict]) -> str:
              f'delete from public.competitions where id in ({comp_ids});',  # cascades to categories/rounds/results
              f"create temp table _loglig on commit drop as select $loglig${payload}$loglig$::jsonb as d;"]
     cols = {
-        'competitions': 'id, name, name_he, starts_on, ends_on, status, season, series',
+        'competitions': 'id, name, name_he, starts_on, ends_on, status, season, series, discipline',
         'categories': 'id, competition_id, name, name_he, gender',
         'rounds': 'id, category_id, kind, status, scoring, time_tiebreak',
         'boulders': 'id, round_id, number',

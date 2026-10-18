@@ -1,4 +1,5 @@
 // The event-day checklist (admin): result of the `event_checklist` RPC and the manual ticks kept on the device.
+import type { Discipline } from './discipline';
 import type { MsgKey } from './i18n';
 
 export type CheckId = 'published' | 'category_rounds' | 'round_boulders' | 'first_starters' | 'starter_bibs'
@@ -35,6 +36,14 @@ export const CHECK_TEXT: Record<CheckId, MsgKey> = {
   old_appeals: 'checkOldAppeals',
 };
 
+/** A check's text for the competition's discipline: "boulders" or "routes" when it is known, both otherwise. */
+export function checkText(id: CheckId, discipline: Discipline | null | undefined): MsgKey {
+  const routes = discipline === 'lead' || discipline === 'speed';
+  if (id === 'round_boulders' && discipline) return routes ? 'checkRoundHasRoutes' : 'checkRoundHasBoulders';
+  if (id === 'boulder_judges' && discipline) return routes ? 'checkRouteHasJudge' : 'checkBoulderHasJudge';
+  return CHECK_TEXT[id];
+}
+
 /** Where an admin fixes a failing check: judges and appeals on the round page, accounts under people,
  *  everything else (boulders, bibs, quota, start lists, status) on the competition page. */
 export function fixPath(competitionId: string, id: CheckId, item?: CheckItem): string {
@@ -52,6 +61,11 @@ export const MANUAL_ITEMS = [
   { id: 'power', text: 'manualPower' },
   { id: 'pdf', text: 'manualPdf' },
 ] as const satisfies readonly { id: string; text: MsgKey }[];
+
+/** The manual items for a competition: paper score sheets exist for lead rounds only, so a boulder
+ *  competition skips that one. */
+export const manualItemsFor = (discipline: Discipline | null | undefined) =>
+  MANUAL_ITEMS.filter((m) => m.id !== 'score_sheets' || discipline !== 'boulder');
 
 const storageKey = (competitionId: string) => `ilca.checklist.${competitionId}`;
 
