@@ -43,7 +43,7 @@ export function ScoreSheets() {
             <tbody>
               {starters.map((s, i) => (
                 <tr key={s.climber_id}>
-                  <td>{s.start_order ?? i + 1}</td>
+                  <td>{i + 1}</td>
                   <td>{s.bib ?? ''}</td>
                   <td>
                     {localized(lang, s.profile.full_name, s.profile.full_name_he)}
