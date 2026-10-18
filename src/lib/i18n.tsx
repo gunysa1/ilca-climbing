@@ -348,6 +348,7 @@ const dict = {
   onWallShown: { he: 'מוצג/ת לקהל כמטפס/ת עכשיו', en: 'Shown to the public as climbing now' },
   onWallHint: { he: 'כשהמטפס/ת עולה לקיר', en: 'When the climber starts' },
   printPdf: { he: 'הדפסה / שמירה כ-PDF', en: 'Print / save as PDF' },
+  printedAt: { he: 'הודפס', en: 'Printed' },
   youthRankingsFrom: { he: 'מדרגי הנוער מוצגים מעונת 2024-25 (לפני כן ליגות הנוער נוהלו במבנה אחר)', en: 'Youth rankings start with 2024-25 (youth leagues were organised differently before)' },
   series: { he: 'סדרה (למדרג)', en: 'Series (rankings)' },
   seriesPremier: { he: 'ליגת העל', en: 'Premier league' },

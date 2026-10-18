@@ -7,10 +7,11 @@ import { onWallByClimber, onWallList, useOnWall } from '../lib/onWall';
 import { switchTarget } from '../lib/categorySwitch';
 import { saveLastViewed } from '../lib/lastViewed';
 import { localized, useI18n, type Lang } from '../lib/i18n';
-import { isTimedRound } from '../lib/climbTime';
+import { formatClimbTime, isTimedRound } from '../lib/climbTime';
 import { formatHeight } from '../lib/lead';
 import { prefetchRound, resultKey, useRoundData, type LeadRow, type ResultRow, type Starter } from '../lib/roundData';
 import { roundRows, type Row } from '../lib/roundRows';
+import { boulderCellText, usePrinting } from '../lib/printing';
 import { boulderPoints } from '../lib/scoring';
 import type { Boulder } from '../lib/types';
 
@@ -46,6 +47,7 @@ export function RoundResults() {
   const [ageClass, setAgeClass] = useState<string | null>(null);
   const [onlyFavorites, setOnlyFavorites] = useState(false);
   const [tab, setTab] = useState<'result' | 'startlist'>('result');
+  const { printing, print } = usePrinting();
   // Breadcrumbs, the Q / S / F chips (like IFSC) and the men / women switch all come with the
   // round (round_page), so they show with the results instead of after more requests.
   const context = category ? { category: category.name, category_he: category.name_he, competition: category.competition } : null;
@@ -131,7 +133,7 @@ export function RoundResults() {
       <div className="round-meta">
         {lastUpdate && <span className="muted small">{t('updatedAt')} {lastUpdate.toLocaleTimeString(lang === 'he' ? 'he-IL' : 'en-GB')}</span>}
         {openAppeals.size > 0 && <span className="appeal-badge">{t('appealOpen')}</span>}
-        <button className="chip no-print" onClick={() => window.print()} title={t('printPdf')}>PDF ⤓</button>
+        <button className="chip no-print" onClick={print} title={t('printPdf')}>PDF ⤓</button>
       </div>
       {wall.length > 0 && (
         <div className="on-wall no-print" aria-live="polite">
@@ -158,7 +160,17 @@ export function RoundResults() {
         <button role="tab" aria-selected={tab === 'result'} className={tab === 'result' ? 'active' : ''} onClick={() => setTab('result')}>{t('resultTab')}</button>
         <button role="tab" aria-selected={tab === 'startlist'} className={tab === 'startlist' ? 'active' : ''} onClick={() => setTab('startlist')}>{t('startList')}</button>
       </div>
-      {tab === 'startlist' ? <StartList starters={groups.length ? starters.filter((s) => s.group_label === group) : starters} groups={groups} group={group} onGroup={setGroup} climbing={wallByClimber} /> : <>
+      {printing && (
+        <p className="print-meta">
+          {[group && `${t('group')} ${group}`, ageClass, `${t('printedAt')} ${new Date().toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB', { dateStyle: 'short', timeStyle: 'short' })}`]
+            .filter(Boolean).join(' · ')}
+        </p>
+      )}
+      {printing ? (tab === 'startlist'
+        ? <PrintStartList starters={groups.length ? starters.filter((s) => s.group_label === group) : starters} />
+        : <PrintResults rows={visible} byId={byId} boulders={boulders} lead={lead} results={results} leadResults={leadResults} scoreHeader={scoreHeader}
+            showTime={lead && round.kind === 'final' && round.time_tiebreak !== false} />)
+      : tab === 'startlist' ? <StartList starters={groups.length ? starters.filter((s) => s.group_label === group) : starters} groups={groups} group={group} onGroup={setGroup} climbing={wallByClimber} /> : <>
       {groups.length > 0 && (
         <div className="chips" role="tablist">
           {groups.map((g) => (
@@ -269,5 +281,86 @@ function ResultRowView({ row, starter: s, lang, boulders, lead, results, leadRes
       </td>
       <td className="score">{row.score}</td>
     </tr>
+  );
+}
+
+/** Printed results (PDF): one plain table, a column per boulder / route, so the sheet reads without the tiles. */
+function PrintResults({ rows, byId, boulders, lead, results, leadResults, scoreHeader, showTime }: {
+  rows: Row[]; byId: Map<string, Starter>; boulders: Boulder[]; lead: boolean;
+  results: Map<string, ResultRow>; leadResults: Map<string, LeadRow>; scoreHeader: string;
+  /** Lead finals: the climbing time breaks ties, so it is printed with the height. */
+  showTime: boolean;
+}) {
+  const { t, lang } = useI18n();
+  const word = lead ? t('route') : t('boulder');
+  // Older events have no bibs (or clubs): leave out a column that would be empty.
+  const starters = rows.map((r) => byId.get(r.climber_id)!);
+  const bibs = starters.some((s) => s.bib);
+  const clubs = starters.some((s) => s.profile.club);
+  return (
+    <table className="print-table">
+      <thead>
+        <tr>
+          <th className="num">{t('rank')}</th>
+          <th>{t('athlete')}</th>
+          {bibs && <th className="num">{t('bib')}</th>}
+          {clubs && <th>{t('club')}</th>}
+          {boulders.map((b) => <th key={b.id} className="num">{word} {b.number}</th>)}
+          <th className="num">{scoreHeader}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => {
+          const s = byId.get(row.climber_id)!;
+          return (
+            <tr key={row.climber_id}>
+              <td className="num strong">{row.rank ?? '–'}</td>
+              <td className="strong">{localized(lang, s.profile.full_name, s.profile.full_name_he)}{s.age_class ? <span className="muted"> · {s.age_class}</span> : null}</td>
+              {bibs && <td className="num">{s.bib ?? ''}</td>}
+              {clubs && <td>{s.profile.club ?? ''}</td>}
+              {boulders.map((b) => {
+                const key = resultKey(b.id, row.climber_id);
+                const l = lead ? leadResults.get(key) : undefined;
+                return <td key={b.id} className="num" dir="ltr">
+                  {lead ? (l ? formatHeight(l) + (showTime && l.time_ms ? ` · ${formatClimbTime(l.time_ms)}` : '') : '') : boulderCellText(results.get(key))}
+                </td>;
+              })}
+              <td className="num strong" dir="ltr">{row.score}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+/** Printed start list (PDF): order, bib, name, club, age class, seed. */
+function PrintStartList({ starters }: { starters: Starter[] }) {
+  const { t, lang } = useI18n();
+  const bibs = starters.some((s) => s.bib);
+  const clubs = starters.some((s) => s.profile.club);
+  const ages = starters.some((s) => s.age_class);
+  const seeds = starters.some((s) => s.prev_place != null);
+  return (
+    <table className="print-table">
+      <thead>
+        <tr>
+          <th className="num">#</th>{bibs && <th className="num">{t('bib')}</th>}<th>{t('athlete')}</th>{clubs && <th>{t('club')}</th>}
+          {ages && <th>{t('ageClass')}</th>}{seeds && <th className="num">{t('seed')}</th>}
+        </tr>
+      </thead>
+      <tbody>
+        {starters.map((s, i) => (
+          <tr key={s.climber_id}>
+            <td className="num strong">{s.start_order ?? i + 1}</td>
+            {bibs && <td className="num">{s.bib ?? ''}</td>}
+            <td className="strong">{localized(lang, s.profile.full_name, s.profile.full_name_he)}</td>
+            {clubs && <td>{s.profile.club ?? ''}</td>}
+            {ages && <td>{s.age_class ?? ''}</td>}
+            {seeds && <td className="num">{s.prev_place ?? ''}</td>}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

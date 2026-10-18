@@ -343,7 +343,19 @@ a.ranking-part.dropped { text-decoration: line-through; }
   .score-sheet { break-after: page; border: 0 !important; padding: 0 !important; margin: 0 !important; }
   .score-sheet:last-child { break-after: auto; }
   .score-sheet-table tr { break-inside: avoid; }
+  .print-table tr { break-inside: avoid; }
+  thead { display: table-header-group; }
 }
+/* Printed results / start list (PDF): a plain bordered table, a column per boulder or route. */
+.print-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; color: #000; background: #fff;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.print-table th, .print-table td { border: 1px solid #999; padding: 4px 6px; text-align: start; vertical-align: middle; }
+.print-table th { background: #e6e9ee; font-weight: 700; }
+.print-table tbody tr:nth-child(even) { background: #f4f5f7; }
+.print-table .num { text-align: center; white-space: nowrap; }
+.print-table .strong { font-weight: 700; }
+.print-table .muted { color: #555; font-weight: 400; }
+.print-meta { font-size: 12px; color: #333; margin: 0 0 .5rem; }
 /* Admin: paper score sheets (lead fallback), one route per printed page. */
 .score-sheet { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; margin: 1rem 0; color: #000; }
 .score-sheet-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin-bottom: .5rem; }

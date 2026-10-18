@@ -401,6 +401,12 @@ await p.goto(`${view}/round/${roundId}`);
 await p.locator('tr', { hasText: 'מאיה גל' }).locator('.appeal-badge').waitFor();
 await p.getByText(/^Updated /).waitFor();
 await p.getByRole('button', { name: /PDF/ }).waitFor();
+// Printing (PDF) swaps the tiles for a plain table: a column per boulder, then the points.
+await p.evaluate(() => window.dispatchEvent(new Event('beforeprint')));
+await p.locator('table.print-table tr', { hasText: 'מאיה גל' }).waitFor();
+if (!(await p.locator('table.print-table th', { hasText: 'Boulder 2' }).count())) problems.push('print: no column per boulder');
+await p.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+await p.locator('table.print-table').waitFor({ state: 'detached' });
 await p.screenshot({ path: `${out}/results-appeal-en.png`, fullPage: true });
 
 step('final: quota 1, generated start list has only the leader');
