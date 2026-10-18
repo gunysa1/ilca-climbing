@@ -40,7 +40,7 @@ competitions (season, series)
           ├─ judge_assignments (judge, whole round or one boulder)
           ├─ judge_claims (who is scoring a climber on a boulder right now)
           └─ appeals (open|upheld|rejected) + appeal_details (reason, decision; admins only)
-profiles (climbers and staff; user_id links a login, optional) + profile_private (birth date, contact)
+profiles (climbers and staff; user_id links a login, optional, not readable by clients) + profile_private (birth date, contact)
 user_roles (climber, coach, judge, admin), coach_athletes, coach_notes
 international_results, ranking_adjustments, world_rankings   -- national rankings inputs (admin-entered, IFSC rows and world_rankings also by the ifsc-sync function)
 ifsc_pending, ifsc_dismissed, ifsc_sync_runs                 -- IFSC sync: athletes to confirm, deleted IFSC rows (never re-imported), run log (admins only)
@@ -136,7 +136,10 @@ calling the API directly still gets only what the policies allow.
 Further guarantees:
 
 - Who entered a score is hidden from everyone but admins (column privileges); every change is
-  appended to `score_events` / `lead_events`.
+  appended to `score_events` / `lead_events`. Admin changes to competitions, rounds, judge
+  assignments, roles and appeals are appended to `admin_log` by triggers (admins read it).
+- `profiles.user_id` (the login of a profile) is not readable through the API (column privileges):
+  the caller's own profile comes from `my_profile_id()`, admins see the links in `admin_accounts()`.
 - Results are accepted only for climbers on the round's start list; a top implies a zone on the
   same or an earlier attempt (check constraints).
 - Birth dates stay in `profile_private`. The rankings get youth age classes from
@@ -249,3 +252,7 @@ rows wait, keeps them for that judge's next sign-in, and removes the other copie
 | 20261017000031 | IFSC sync: `international_results.ifsc_event_id`/`ifsc_dcat_id`, `ifsc_pending`, `ifsc_dismissed`, `ifsc_sync_runs` (admins only), `profiles.ifsc_id` set only by admins or the service role, one profile per IFSC athlete |
 | 20261017000033 | rankings cache: `season_rankings_cache` (anon-built payload per season, closed table), `rankings_cache_changes` (pending changes from statement triggers), `season_rankings_build` (former body), `refresh_rankings_cache()` (pg_cron, `supabase/cron/rankings_cache.sql`); `season_rankings` serves the stored payload |
 | 20261017000036 | climber page cache: index `boulder_results (round_id, climber_id)` replaces `(round_id)` (RLS ran on every round's results of each starter); `climber_cache_rounds` / `climber_cache_entries` (anon-built history rows per round, closed tables), `climber_cache_changes` (statement triggers), `refresh_climber_cache(budget)` (pg_cron, `supabase/cron/climber_cache.sql`), schema `private` (`round_history_for(rounds)`, `climber_cache_build`, `climber_history_cached`, `climber_page_entry`); `climber_page` serves the stored rows of closed rounds and builds live rounds live, history with the page's columns only |
+| 20261018000042 | `profiles`: anon / authenticated select only the public columns (not `user_id`, `created_at`); the staff app uses `my_profile_id()`, admins `admin_accounts()` |
+| 20261018000043 | `home_page`: upcoming until a competition's last day (`ends_on >= today`), flagged `today` while it is on |
+| 20261018000044 | `link_account()`: "the account's own profile has data" from `private.profile_refs()` (every table referencing profiles) |
+| 20261018000045 | `system_status()` (admins: pg_cron jobs, caches, ranking tables due, IFSC runs) and `admin_log` (triggers on competitions, rounds, judge_assignments, user_roles, appeals; admins read) |

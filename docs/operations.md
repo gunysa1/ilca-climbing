@@ -88,7 +88,7 @@ one-year cache for `/assets/*`; Cloudflare serves `index.html` for app routes (s
 5. **Publish** the competition and set the round **live**. Judges work in the staff app; the public
    follows in the viewer.
 6. **During the round**: corrections and unlocks on the round page (every change is in the audit
-   log); appeals are opened and resolved there and show as "ערעור" on the public results.
+   log; status, quota, judge and appeal changes are under "Admin changes" on the round and competition pages); appeals are opened and resolved there and show as "ערעור" on the public results.
 7. **Close** the round, generate the next start list, repeat; mark the competition finished.
 
 ### Event days (judge pad offline)
@@ -185,6 +185,16 @@ error), shown on the admin page. One run at a time (a partial unique index allow
 migration 037): a call while another runs gets 409 `busy`; a run still `running` after 15 minutes is marked
 `failed` ("timed out"). The sync's list replaces the season's positions daily until 1 January
 (only climbers with an `ifsc_id`), so positions loaded by `tools/ifsc/world_ranking.py` don't last.
+
+### System status (admin home)
+
+The admin home's "System status" box (`system_status()`, migration 045) shows the four pg_cron jobs
+(`rankings-cache`, `climber-cache`, `ranking-tables`, `ifsc-sync`) with their last success, the changes waiting
+for the rankings and the climber pages, the ranking tables due and the last good IFSC run. It turns red when a
+job's last success is older than 10 minutes (the IFSC sync: 26 hours), a job is not scheduled, work has waited
+longer than 10 minutes, or the last IFSC run failed. `ranking-tables` and `ifsc-sync` only queue an HTTP call:
+their cron success says the call was made; the "tables due" and IFSC lines say whether it worked. The sections
+below say what to check for each job. Nobody is emailed: look at the box during an event.
 
 ### Rankings cache (pg_cron `rankings-cache`)
 
