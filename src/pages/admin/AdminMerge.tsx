@@ -83,8 +83,9 @@ export function AdminMerge() {
   }
   const pick = (set: (p: Picked | null) => void) => async (id: string) => { setMerged(null); set(await profile(id)); };
   async function notSamePerson(s: Suggestion) {
-    const { error } = await supabase.from('profile_not_duplicates').insert({ a: s.a, b: s.b });  // a < b already
-    if (error) return setError(error.message);
+    // a < b already; a second click (or another admin first) is fine
+    const { error } = await supabase.from('profile_not_duplicates').upsert({ a: s.a, b: s.b }, { onConflict: 'a,b', ignoreDuplicates: true });
+    if (error) return setError(`${t('mergeNotSameFailed')} ${error.message}`);
     setSuggestions((list) => list?.filter((x) => x !== s) ?? null);
   }
   async function compare(s: Suggestion) {
@@ -131,6 +132,7 @@ export function AdminMerge() {
       case 'international': return fill(t('mergeConflictInternational'), v);
       case 'world_ranking': return fill(t('mergeConflictWorld'), v);
       case 'live_round': return fill(t('mergeConflictLive'), { ...v, name: c.name ?? '' });
+      case 'live_judge': return fill(t('mergeConflictLiveJudge'), { ...v, name: c.name ?? '' });
       case 'unique': return fill(t('mergeConflictUnique'), { table: c.table ?? '' });
       case 'two_logins': return t('mergeConflictLogins');
       case 'different_ifsc': return fill(t('mergeConflictIfsc'), v);

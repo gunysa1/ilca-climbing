@@ -132,6 +132,8 @@ const dict = {
   mergeRefused: { he: 'האיחוד לא בוצע, שום דבר לא השתנה:', en: 'The merge was refused, nothing changed:' },
   mergeRowsMoving: { he: '{n} רשומות יעברו', en: '{n} records will move' },
   mergeNotSame: { he: 'לא אותו אדם', en: 'Not the same person' },
+  mergeNotSameFailed: { he: 'הסימון "לא אותו אדם" לא נשמר:', en: 'Could not save "not the same person":' },
+  mergeConflictLiveJudge: { he: '{name} משובץ/ת כשופט/ת בסבב שרץ עכשיו: {competition}, {category}, {round}. מאחדים אחרי התחרות.', en: '{name} judges a live round: {competition}, {category}, {round}. Merge after the competition.' },
   mergeTRegistrations: { he: 'הרשמות לתחרויות', en: 'Competition registrations' },
   mergeTStarters: { he: 'מקומות ברשימות זינוק', en: 'Start list places' },
   mergeTResults: { he: 'תוצאות בולדר', en: 'Boulder results' },

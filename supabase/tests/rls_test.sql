@@ -1713,6 +1713,14 @@ select pg_temp.login('00000000-0000-0000-0000-00000000000a');
 select pg_temp.assert((merge_profiles('ee000000-0000-0000-0003-000000000001', 'ee000000-0000-0000-0003-000000000002') -> 'conflicts')
   @> '[{"kind":"live_round","competition":"Merge Cup","round":"qualification"}]', 'merge conflict: a profile is on the start list of a live round');
 reset role;
+update rounds set status = 'live' where id = 'ee000000-0000-0000-0001-000000000001';  -- D judges it (judge_assignments), climbs nothing there
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert((select array_agg(c ->> 'kind') from jsonb_array_elements(merge_profiles('ee000000-0000-0000-0003-000000000001',
+    'ee000000-0000-0000-0003-000000000002') -> 'conflicts') c where c ->> 'kind' like 'live%') @> '{live_judge}',
+  'merge conflict: a profile judges a live round');
+reset role;
+update rounds set status = 'closed' where id = 'ee000000-0000-0000-0001-000000000001';
+reset role;
 update rounds set status = 'closed' where id = 'ee000000-0000-0000-0001-000000000003';
 
 -- "Not the same person" marks follow the merge

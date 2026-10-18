@@ -15,7 +15,7 @@
 --
 -- What refuses (a "conflict"): both profiles climbed the same round, are registered in the same category,
 -- have an international result for the same event or a world-ranking row for the same season and discipline;
--- either is on the start list of a live round (judges' phones may still hold the duplicate's id); both are
+-- either is on the start list of, or judges, a live round (judges' phones may still hold the duplicate's id); both are
 -- linked to a login; they carry different IFSC ids; or any other unique key would collide (checked from the
 -- unique indexes, for tables added later).
 --
@@ -264,6 +264,13 @@ begin
     from round_starters s join profiles p on p.id = s.climber_id
     join rounds ro on ro.id = s.round_id join categories c on c.id = ro.category_id join competitions co on co.id = c.competition_id
     where s.climber_id in (p_keep, p_drop) and ro.status = 'live'), '[]');
+  conflicts := conflicts || coalesce((
+    select jsonb_agg(distinct jsonb_build_object('kind', 'live_judge', 'text', format('%s judges a live round: %s, %s, %s',
+             p.full_name, co.name, c.name, ro.kind), 'name', p.full_name, 'competition', co.name, 'competition_he', co.name_he,
+             'category', c.name, 'category_he', c.name_he, 'round', ro.kind))
+    from judge_assignments j join profiles p on p.id = j.judge_id
+    join rounds ro on ro.id = j.round_id join categories c on c.id = ro.category_id join competitions co on co.id = c.competition_id
+    where j.judge_id in (p_keep, p_drop) and ro.status = 'live'), '[]');
   -- Any other unique key that would collide (tables handled above or below are left out).
   for r in select * from private.profile_refs() where fk and tbl not in (
       'public.registrations'::regclass, 'public.round_starters'::regclass, 'public.boulder_results'::regclass,
