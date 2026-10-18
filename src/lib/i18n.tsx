@@ -484,6 +484,15 @@ const dict = {
   notifyMsgResult: { he: '{name}: מקום {rank} מתוך {of} ({comp})', en: '{name}: place {rank} of {of} ({comp})' },
   notifyMsgAdvance: { he: '{name} עולה ל{round} ({comp})', en: '{name} advances to the {round} ({comp})' },
   notifyMsgPodium: { he: '{name} סיים/ה במקום {rank} ({comp})', en: '{name} finished in place {rank} ({comp})' },
+  // Track 2: mixed categories, system status, admin change log
+  mixedNotRanked: {
+    he: 'בתחרות הזו, שנספרת במדרג, יש קטגוריה מעורבת. קטגוריה מעורבת לא נספרת במדרג (המדרג נפרד לגברים ולנשים). בחרו מגדר:',
+    en: 'This competition counts for the rankings, but a category is mixed. A mixed category does not count (the rankings are for men and women separately). Pick its gender:',
+  },
+  importMixedNotRanked: {
+    he: 'שורות בלי מגדר (או עם שני המגדרים) יוצרות קטגוריה מעורבת, שלא נספרת במדרג. הוסיפו עמודת מגדר לקובץ, או שנו את המגדר אחרי הייבוא.',
+    en: 'Rows without a gender (or with both) make a mixed category, which does not count for the rankings. Add a gender column to the file, or change the gender after the import.',
+  },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type MsgKey = keyof typeof dict;
