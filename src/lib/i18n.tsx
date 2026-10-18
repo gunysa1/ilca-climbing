@@ -495,6 +495,7 @@ const dict = {
   },
   sysTitle: { he: 'מצב המערכת', en: 'System status' },
   sysOk: { he: 'הכול תקין', en: 'All good' },
+  sysPartlyUnknown: { he: 'מצב המשימות לא ידוע', en: 'Jobs unknown' },
   sysProblem: { he: 'יש בעיה', en: 'Something is wrong' },
   sysRefresh: { he: 'רענון', en: 'Refresh' },
   sysJobRankings: { he: 'עדכון נתוני המדרג (כל דקה)', en: 'Rankings cache (every minute)' },
@@ -519,8 +520,9 @@ const dict = {
   sysAgoH: { he: '{n} שע׳', en: '{n} h' },
   sysAgoD: { he: '{n} ימים', en: '{n} days' },
   adminLogTitle: { he: 'שינויים של מנהלים', en: 'Admin changes' },
-  adminLogHint: { he: 'מי שינה תחרויות, סבבים, שיבוצי שופטים וערעורים, ומתי.', en: 'Who changed competitions, rounds, judge assignments and appeals, and when.' },
+  adminLogHint: { he: 'מי שינה תחרויות, קטגוריות, סבבים, שיבוצי שופטים וערעורים, ומתי.', en: 'Who changed competitions, categories, rounds, judge assignments and appeals, and when.' },
   logTableCompetitions: { he: 'תחרות', en: 'Competition' },
+  logTableCategories: { he: 'קטגוריה', en: 'Category' },
   logTableRounds: { he: 'סבב', en: 'Round' },
   logTableJudges: { he: 'שיבוץ שופט', en: 'Judge assignment' },
   logTableRoles: { he: 'תפקיד', en: 'Role' },
@@ -529,6 +531,7 @@ const dict = {
   logUpdate: { he: 'שונה', en: 'changed' },
   logDelete: { he: 'נמחק', en: 'deleted' },
   logSystem: { he: 'המערכת', en: 'system' },
+  logTimeTiebreak: { he: 'שובר שוויון לפי זמן בגמר', en: 'Time tie-break in finals' },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type MsgKey = keyof typeof dict;

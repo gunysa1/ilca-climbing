@@ -48,7 +48,8 @@ describe('system status', () => {
     const lines = statusLines(data({ cron: null, cron_error: 'pg_cron is not installed' }));
     expect(health(lines).slice(0, 4)).toEqual(['rankings-cache:unknown', 'climber-cache:unknown', 'ranking-tables:unknown', 'ifsc-sync:unknown']);
     expect(lines[0]).toMatchObject({ message: 'pg_cron is not installed' });
-    expect(overallHealth(lines)).toBe('ok');
+    expect(health(lines).slice(4).every((h) => h.endsWith(':ok'))).toBe(true);
+    expect(overallHealth(lines)).toBe('unknown');
   });
 
   it('work waiting longer than 10 minutes is red', () => {
@@ -59,6 +60,12 @@ describe('system status', () => {
     }));
     expect(health(lines).slice(4, 7)).toEqual(['rankings_wait:red', 'climber_wait:ok', 'tables_due:red']);
     expect(lines[6]).toMatchObject({ seasons: ['2026-27', '2025-26'], at: minAgo(15) });
+  });
+
+  it('tables due: aged by when the stored tables were last built (the payload is rebuilt every minute during an event)', () => {
+    const live = (tables: number) => statusLines(data({ ranking_tables_due: [{ season: '2026-27', source_built_at: minAgo(0), tables_built_at: minAgo(tables) }] }))[6];
+    expect(live(25)).toMatchObject({ health: 'red', at: minAgo(25) });
+    expect(live(1).health).toBe('ok');
   });
 
   it('IFSC: a failed last run or no good run for 26 hours is red', () => {

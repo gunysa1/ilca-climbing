@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useI18n, type MsgKey } from '../../lib/i18n';
+import { isMissingInDb } from '../../lib/schemaMissing';
 import { supabase } from '../../lib/supabase';
 import { ago, overallHealth, statusLines, type JobName, type StatusLine, type SystemStatusData } from '../../lib/systemStatus';
 import { ErrorLine } from './AdminHome';
@@ -16,9 +17,11 @@ export function SystemStatus() {
   const { t } = useI18n();
   const [data, setData] = useState<SystemStatusData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);  // the database has no system_status() yet (before db push)
 
   const load = useCallback(async () => {
     const { data: d, error: e } = await supabase.rpc('system_status');
+    setMissing(isMissingInDb(e));
     setError(e?.message ?? null);
     if (!e) setData(d as SystemStatusData);
   }, []);
@@ -28,6 +31,7 @@ export function SystemStatus() {
     return () => clearInterval(timer);
   }, [load]);
 
+  if (missing) return null;
   if (!data) return error ? <div className="panel"><ErrorLine error={error} /></div> : null;
   const lines = statusLines(data);
   const overall = overallHealth(lines);
@@ -63,7 +67,7 @@ export function SystemStatus() {
       <div className="panel-head">
         <h2>{t('sysTitle')}
           <span className={`badge ${overall === 'red' ? 'badge-live' : overall === 'ok' ? 'badge-closed' : ''}`}>
-            {t(overall === 'red' ? 'sysProblem' : 'sysOk')}
+            {t(overall === 'red' ? 'sysProblem' : overall === 'unknown' ? 'sysPartlyUnknown' : 'sysOk')}
           </span>
         </h2>
         <button className="link" onClick={() => void load()}>{t('sysRefresh')}</button>

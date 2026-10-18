@@ -1,23 +1,26 @@
 import { useEffect, useState } from 'react';
 import { localized, useI18n, type MsgKey } from '../../lib/i18n';
 import { ADMIN_LOG_COLUMNS, logFields, logProfileIds, type AdminLogEntry, type AdminLogTable, type LogField } from '../../lib/adminLog';
+import { isMissingInDb } from '../../lib/schemaMissing';
 import { supabase } from '../../lib/supabase';
 import { ErrorLine } from './AdminHome';
 
 const TABLE_KEY: Record<AdminLogTable, MsgKey> = {
-  competitions: 'logTableCompetitions', rounds: 'logTableRounds', judge_assignments: 'logTableJudges',
+  competitions: 'logTableCompetitions', categories: 'logTableCategories', rounds: 'logTableRounds', judge_assignments: 'logTableJudges',
   user_roles: 'logTableRoles', appeals: 'logTableAppeals',
 };
 const ACTION_KEY = { insert: 'logInsert', update: 'logUpdate', delete: 'logDelete' } as const;
 const FIELD_KEY: Record<string, MsgKey> = {
   status: 'status', kind: 'round', scoring: 'scoring', advance_quota: 'advanceQuota', judge_id: 'judge', climber_id: 'athlete',
   boulder_id: 'boulder', role: 'roles', name: 'nameEn', name_he: 'nameHe', venue: 'venue', starts_on: 'startsOn',
-  ends_on: 'endsOn', season: 'season', series: 'series',
+  ends_on: 'endsOn', season: 'season', series: 'series', time_tiebreak: 'logTimeTiebreak', gender: 'gender',
 };
 const VALUE_KEY: Record<string, MsgKey> = {
   planned: 'planned', live: 'liveNow', closed: 'closed', draft: 'draft', published: 'published', finished: 'finished',
   qualification: 'qualification', semifinal: 'semifinal', final: 'final', open: 'appealOpen', upheld: 'appealUpheld',
   rejected: 'appealRejected', female: 'female', male: 'male', mixed: 'mixed', judge: 'judge', coach: 'coach', admin: 'admin',
+  ifsc2025: 'ifsc2025', classic: 'classic', lead: 'lead', premier_league: 'seriesPremier', premier_league_u17: 'seriesPremierU17',
+  israeli_championship: 'seriesChamp', youth_championship: 'seriesYouthChamp', other: 'seriesOther',
 };
 const LIMIT = 100;
 
@@ -31,6 +34,7 @@ export function AdminLog({ by, id, stamp, roundLabel, boulderNo }: {
   const [rows, setRows] = useState<AdminLogEntry[]>([]);
   const [names, setNames] = useState<Map<string, string>>(new Map());
   const [error, setError] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);  // the database has no admin_log yet (before db push)
 
   useEffect(() => {
     let live = true;
@@ -44,6 +48,7 @@ export function AdminLog({ by, id, stamp, roundLabel, boulderNo }: {
       setRows(entries);
       setNames(new Map(((who ?? []) as { id: string; full_name: string; full_name_he: string | null }[])
         .map((p) => [p.id, localized(lang, p.full_name, p.full_name_he)])));
+      setMissing(isMissingInDb(e));
       setError(e?.message ?? null);
     })();
     return () => { live = false; };
@@ -60,12 +65,14 @@ export function AdminLog({ by, id, stamp, roundLabel, boulderNo }: {
   const fieldText = (f: LogField) => `${FIELD_KEY[f.field] ? t(FIELD_KEY[f.field]) : f.field}: `
     + (f.before !== undefined ? `${value(f.field, f.before)} → ` : '') + value(f.field, f.after);
 
+  if (missing) return null;
   return (
     <div className="panel">
       <h2>{t('adminLogTitle')}</h2>
       <p className="muted small">{t('adminLogHint')}</p>
       <ErrorLine error={error} />
       {rows.length === 0 && <p className="muted">{t('empty')}</p>}
+      <div className="table-wrap">
       <table className="admin-table admin-log">
         <tbody>
           {rows.map((e) => (
@@ -82,6 +89,7 @@ export function AdminLog({ by, id, stamp, roundLabel, boulderNo }: {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

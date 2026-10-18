@@ -194,7 +194,23 @@ for the rankings and the climber pages, the ranking tables due and the last good
 job's last success is older than 10 minutes (the IFSC sync: 26 hours), a job is not scheduled, work has waited
 longer than 10 minutes, or the last IFSC run failed. `ranking-tables` and `ifsc-sync` only queue an HTTP call:
 their cron success says the call was made; the "tables due" and IFSC lines say whether it worked. The sections
-below say what to check for each job. Nobody is emailed: look at the box during an event.
+below say what to check for each job. Nobody is emailed: look at the box during an event. When pg_cron cannot be
+read, the jobs are grey and the badge says the jobs are unknown (never "all good").
+
+`cron.job_run_details` is never purged by Supabase; `supabase/cron/cron_cleanup.sql` schedules a weekly job
+(`cron-cleanup`, Sundays 02:30 UTC) that deletes runs older than 14 days. Apply it once in the SQL editor.
+
+### Release of migrations 042–045 (October 2026): order
+
+The new staff app works with the database before and after 042–045 (the system box and "Admin changes" stay
+hidden until the migrations are there; nothing else needs them). The old staff app does not work fully after 042:
+it read `profiles.user_id`, which 042 closes (judges who signed in before keep their profile from the phone, a
+first sign-in gets none; the old People page shows an error). So:
+
+1. Push main (Cloudflare deploys both apps) and wait for the deploy.
+2. `db push` (042–045), then `db advisors --linked`.
+3. Apply `supabase/cron/cron_cleanup.sql` in the SQL editor.
+4. Ask judges and admins to reload the staff app once (or sign out and in) before 28.10.
 
 ### Rankings cache (pg_cron `rankings-cache`)
 

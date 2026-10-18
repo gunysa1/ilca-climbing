@@ -1,7 +1,7 @@
-// admin_log (migration 045): who changed competitions, rounds, judge assignments, roles and appeals. The
+// admin_log (migration 045): who changed competitions, categories, rounds, judge assignments, roles and appeals. The
 // admin round and competition pages list the entries; these pure steps pick the fields to show. Pure.
 
-export type AdminLogTable = 'competitions' | 'rounds' | 'judge_assignments' | 'user_roles' | 'appeals';
+export type AdminLogTable = 'competitions' | 'categories' | 'rounds' | 'judge_assignments' | 'user_roles' | 'appeals';
 export interface AdminLogEntry {
   id: number;
   at: string;

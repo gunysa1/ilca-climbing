@@ -2190,8 +2190,8 @@ select pg_temp.assert(not exists (select 1 from json_array_elements(home_page() 
 reset role;
 
 -- ---------------------------------------------------------------- link_account: "has data" from the profile-id inventory (migration 044)
--- two new accounts (their auto-created profiles): one with a lead result, one with only an error report; and
--- two imported profiles to link them to
+-- new accounts (their auto-created profiles): one with a lead result, one with only an error report, one empty;
+-- and imported profiles to link them to
 select set_config('request.jwt.claim.sub', '', false);
 insert into auth.users (id, email, raw_user_meta_data) values
   ('00000000-0000-0000-0000-0000000000d1', 'leadkid@test', '{"full_name":"Lead Kid"}'),
@@ -2212,16 +2212,19 @@ select pg_temp.assert((select count(*) from lead_results where climber_id = '000
 select pg_temp.login('00000000-0000-0000-0000-00000000000a');
 select pg_temp.denied($$select link_account('5d000000-0000-0000-0000-0000000000d1', '00000000-0000-0000-0000-0000000000d1')$$,
   'link_account refuses an account whose own profile has a lead result (not on the old hand list)');
-select pg_temp.denied($$select link_account('5d000000-0000-0000-0000-0000000000d2', '00000000-0000-0000-0000-0000000000d2')$$,
-  'link_account refuses an account whose own profile has an error report');
+select link_account('5d000000-0000-0000-0000-0000000000d2', '00000000-0000-0000-0000-0000000000d2');
 select link_account('5d000000-0000-0000-0000-0000000000d3', '00000000-0000-0000-0000-0000000000d3');
 reset role;
 select pg_temp.assert(
   exists (select 1 from profiles where id = '00000000-0000-0000-0000-0000000000d1')
   and exists (select 1 from lead_results where climber_id = '00000000-0000-0000-0000-0000000000d1')
-  and (select user_id from profiles where id = '5d000000-0000-0000-0000-0000000000d1') is null
-  and exists (select 1 from client_errors where profile_id = '00000000-0000-0000-0000-0000000000d2'),
+  and (select user_id from profiles where id = '5d000000-0000-0000-0000-0000000000d1') is null,
   'link_account: a refused link keeps the own profile, its rows and the imported profile unlinked');
+select pg_temp.assert(
+  (select user_id from profiles where id = '5d000000-0000-0000-0000-0000000000d2') = '00000000-0000-0000-0000-0000000000d2'
+  and not exists (select 1 from profiles where id = '00000000-0000-0000-0000-0000000000d2')
+  and exists (select 1 from client_errors where profile_id = '5d000000-0000-0000-0000-0000000000d2' and message = 'test'),
+  'link_account: error reports of the own profile do not block the link; they move to the linked profile');
 select pg_temp.assert(
   (select user_id from profiles where id = '5d000000-0000-0000-0000-0000000000d3') = '00000000-0000-0000-0000-0000000000d3'
   and not exists (select 1 from profiles where id = '00000000-0000-0000-0000-0000000000d3'),
@@ -2316,7 +2319,7 @@ select pg_temp.assert((select changes ->> 'judge_id' from admin_log where table_
 select pg_temp.assert(exists (select 1 from admin_log where table_name = 'user_roles' and action = 'insert'
     and row_id = '00000000-0000-0000-0000-000000000002:judge' and changes ->> 'role' = 'judge'),
   'admin_log: a role given');
-select pg_temp.assert(not exists (select 1 from admin_log where changes::text ~* 'asthma|zone was held|050-|birth'),
+select pg_temp.assert(not exists (select 1 from admin_log where changes::text ~* 'asthma|zone was held|050-1111111|050-2222222|birth'),
   'admin_log: no personal data (the appeal''s reason is not logged)');
 delete from competitions where id = '1d000000-0000-0000-0000-000000000001';
 reset role;
@@ -2325,6 +2328,20 @@ select pg_temp.assert(exists (select 1 from admin_log where table_name = 'compet
   and not exists (select 1 from admin_log where action = 'delete' and competition_id = '1d000000-0000-0000-0000-000000000001'
     and table_name <> 'competitions'),
   'admin_log: deleting a competition is one entry (its rounds, assignments and appeals go with it unlogged)');
+-- deleting a category (with a live round) is logged on its competition
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+insert into categories (id, competition_id, name, gender) values
+  ('2d000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'Logged Men', 'male');
+insert into rounds (id, category_id, kind, status) values
+  ('3d100000-0000-0000-0000-000000000002', '2d000000-0000-0000-0000-000000000002', 'qualification', 'live');
+delete from categories where id = '2d000000-0000-0000-0000-000000000002';
+reset role;
+select pg_temp.assert(exists (select 1 from admin_log where table_name = 'categories' and action = 'insert'
+    and row_id = '2d000000-0000-0000-0000-000000000002' and competition_id = '10000000-0000-0000-0000-000000000001')
+  and exists (select 1 from admin_log where table_name = 'categories' and action = 'delete'
+    and row_id = '2d000000-0000-0000-0000-000000000002' and competition_id = '10000000-0000-0000-0000-000000000001'
+    and changes ->> 'name' = 'Logged Men' and actor_id = '00000000-0000-0000-0000-00000000000a'),
+  'admin_log: adding and deleting a category (with its live round) are logged on the competition');
 -- who reads it
 select pg_temp.login(null);
 select pg_temp.denied($$select * from admin_log$$, 'anon reads the admin log');

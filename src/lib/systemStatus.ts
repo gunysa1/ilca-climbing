@@ -15,7 +15,8 @@ export interface SystemStatusData {
   rankings: { season: string; built_at: string }[];
   rankings_pending: { count: number; oldest: string | null };
   climber_cache: { pending: number; oldest: string | null; stale_rounds: number };
-  ranking_tables_due: { season: string; source_built_at: string }[];
+  /** tables_built_at: when the season's stored tables were last built (null: never). */
+  ranking_tables_due: { season: string; source_built_at: string; tables_built_at?: string | null }[];
   ifsc: { last_run: IfscRun | null; last_ok: string | null };
 }
 
@@ -53,8 +54,12 @@ export function statusLines(d: SystemStatusData): StatusLine[] {
     ({ kind, health: count > 0 && age(now, oldest) > QUEUE_LIMIT_MS ? 'red' : 'ok', count, at: oldest });
   lines.push(wait('rankings_wait', d.rankings_pending.count, d.rankings_pending.oldest));
   lines.push(wait('climber_wait', d.climber_cache.pending, d.climber_cache.oldest));
+  // How long the build has not kept up: since the stored tables were last built (the cached payload's own age stays
+  // small during an event, it is rebuilt every minute). Right after a quiet spell a new result can show red until the
+  // next build (a minute or two). No stored tables yet: since the payload was built.
   const due = d.ranking_tables_due;
-  const oldestDue = due.reduce<string | null>((m, x) => (m == null || x.source_built_at < m ? x.source_built_at : m), null);
+  const dueSince = (x: SystemStatusData['ranking_tables_due'][number]) => x.tables_built_at ?? x.source_built_at;
+  const oldestDue = due.reduce<string | null>((m, x) => (m == null || dueSince(x) < m ? dueSince(x) : m), null);
   lines.push({ kind: 'tables_due', health: due.length > 0 && age(now, oldestDue) > QUEUE_LIMIT_MS ? 'red' : 'ok', seasons: due.map((x) => x.season), at: oldestDue });
   const run = d.ifsc.last_run;
   const failed = run?.status === 'failed';
@@ -62,9 +67,9 @@ export function statusLines(d: SystemStatusData): StatusLine[] {
   return lines;
 }
 
-/** The box's colour: red if any line is red. */
+/** The box's colour: red if any line is red, unknown if any line is unknown (never "all good" with jobs unseen). */
 export const overallHealth = (lines: StatusLine[]): Health =>
-  lines.some((l) => l.health === 'red') ? 'red' : lines.every((l) => l.health === 'unknown') ? 'unknown' : 'ok';
+  lines.some((l) => l.health === 'red') ? 'red' : lines.some((l) => l.health === 'unknown') ? 'unknown' : 'ok';
 
 /** How long ago, in whole minutes / hours / days (for "5 min ago"). */
 export function ago(now: string, at: string): { n: number; unit: 'min' | 'h' | 'd' } {

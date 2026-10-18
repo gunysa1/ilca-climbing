@@ -1,5 +1,5 @@
 -- Two admin tools: system_status() (the "system" box on the admin home) and admin_log (who changed
--- competitions, rounds, judge assignments, roles and appeals).
+-- competitions, categories, rounds, judge assignments, roles and appeals).
 
 -- ---------------------------------------------------------------------------- system_status()
 -- The background jobs log only to cron.job_run_details / ifsc_sync_runs, so a failing job went unnoticed (a
@@ -13,7 +13,8 @@
 --         made; ranking_tables_due and ifsc say whether it worked.
 --   rankings: each cached season's built_at; rankings_pending: changes waiting for the next rebuild.
 --   climber_cache: changes waiting and stale rounds (rebuilt by the next runs).
---   ranking_tables_due: seasons whose stored tables are older than their cached payload, with that payload's age.
+--   ranking_tables_due: seasons whose stored tables are older than their cached payload, with that payload's age and
+--         when the stored tables were last built.
 --   ifsc: the last sync run and the last one that went well.
 -- Security definer (cron.* and the caches are closed to clients), admins only.
 create function public.system_status() returns jsonb
@@ -59,7 +60,11 @@ begin
       'pending', (select count(*) from climber_cache_changes),
       'oldest', (select min(at) from climber_cache_changes),
       'stale_rounds', (select count(*) from climber_cache_rounds where stale)),
-    'ranking_tables_due', coalesce((select jsonb_agg(jsonb_build_object('season', d.season, 'source_built_at', c.built_at) order by d.season desc)
+    -- tables_built_at: when the season's stored tables were last built (null: none yet). Their age says how long the
+    -- build has not kept up (during an event the cache is rebuilt every minute, so its own age stays small).
+    'ranking_tables_due', coalesce((select jsonb_agg(jsonb_build_object('season', d.season, 'source_built_at', c.built_at,
+                                      'tables_built_at', (select max(t.built_at) from ranking_tables t where t.season = d.season))
+                                    order by d.season desc)
                                     from ranking_tables_due() d join season_rankings_cache c on c.season = d.season), '[]'::jsonb),
     'ifsc', jsonb_build_object(
       'last_run', (select to_jsonb(r) - 'error' || jsonb_build_object('error', left(r.error, 300))
@@ -71,20 +76,22 @@ grant execute on function public.system_status() to authenticated;
 
 -- ---------------------------------------------------------------------------- admin_log
 -- Score changes are logged (score_events, lead_events); now also the admin side: publishing a competition,
--- changing a round's status, scoring or quota, assigning judges, changing roles, opening and deciding appeals.
+-- adding or deleting a category, changing a round's status, scoring or quota, assigning judges, changing roles,
+-- opening and deciding appeals.
 -- One row per changed row, written by triggers (whoever writes: admins, the sign-up trigger, edge functions).
--- changes: update {column: [old, new]} (changed columns only), insert / delete {column: value}. The five tables
--- hold no personal data: ids, statuses, dates and competition names (an appeal's reason and decision are in
+-- changes: update {column: [old, new]} (changed columns only), insert / delete {column: value}. The six tables
+-- hold no personal data: ids, statuses, dates, competition and category names (an appeal's reason and decision are in
 -- appeal_details, not logged). actor_id: the writer's profile (my_profile_id()), null for the system (service
 -- role, pg_cron, sign-up); like profile_merges.merged_by it is a log column, not in private.profile_refs(): merging
--- or deleting that profile leaves the id as it was (the page then shows no name). competition_id / round_id: where it belongs, for the competition and round pages (no
--- foreign keys: the log outlives deletions). Rows deleted by a cascade (a competition or round deleted) are not
+-- or deleting that profile leaves the id as it was (the page then shows no name). competition_id / round_id: where
+-- it belongs, for the competition and round pages (no
+-- foreign keys: the log outlives deletions). Rows deleted by a cascade (a competition, category or round deleted) are not
 -- logged one by one: the deleted parent's entry says it (except roles, whose cascade is an account deletion).
 create table public.admin_log (
   id             bigint generated always as identity primary key,
   at             timestamptz not null default now(),
   actor_id       uuid,
-  table_name     text not null check (table_name in ('competitions', 'rounds', 'judge_assignments', 'user_roles', 'appeals')),
+  table_name     text not null check (table_name in ('competitions', 'categories', 'rounds', 'judge_assignments', 'user_roles', 'appeals')),
   row_id         text not null,
   action         text not null check (action in ('insert', 'update', 'delete')),
   changes        jsonb not null,
@@ -109,9 +116,18 @@ declare
   ch jsonb;
   rid uuid;
   cid uuid;
+  cascaded boolean;
 begin
-  if tg_op = 'DELETE' and pg_trigger_depth() > 1 and tg_table_name <> 'user_roles' then
-    return null;  -- deleted with its competition / round
+  -- Deleted with its parent (the cascade): the parent is gone by now. pg_trigger_depth() cannot tell, since the
+  -- foreign keys' cascades queue their rows' triggers on the outer statement.
+  if tg_op = 'DELETE' then
+    cascaded := case tg_table_name
+      when 'categories' then not exists (select 1 from competitions where id = (r ->> 'competition_id')::uuid)
+      when 'rounds' then not exists (select 1 from categories where id = (r ->> 'category_id')::uuid)
+      when 'judge_assignments' then not exists (select 1 from rounds where id = (r ->> 'round_id')::uuid)
+      when 'appeals' then not exists (select 1 from rounds where id = (r ->> 'round_id')::uuid)
+      else false end;
+    if cascaded then return null; end if;
   end if;
   if tg_op = 'UPDATE' then
     select coalesce(jsonb_object_agg(e.key, jsonb_build_array(o -> e.key, e.value)), '{}'::jsonb) into ch
@@ -121,10 +137,11 @@ begin
     ch := r;
   end if;
   rid := case tg_table_name when 'rounds' then (r ->> 'id')::uuid
-                            when 'competitions' then null when 'user_roles' then null
+                            when 'competitions' then null when 'categories' then null when 'user_roles' then null
                             else (r ->> 'round_id')::uuid end;
   cid := case tg_table_name
            when 'competitions' then (r ->> 'id')::uuid
+           when 'categories' then (r ->> 'competition_id')::uuid
            when 'rounds' then (select c.competition_id from categories c where c.id = (r ->> 'category_id')::uuid)
            when 'user_roles' then null
            else (select c.competition_id from rounds x join categories c on c.id = x.category_id where x.id = rid) end;
@@ -142,6 +159,8 @@ create trigger admin_log after insert or update or delete on public.rounds
 create trigger admin_log after insert or update or delete on public.judge_assignments
   for each row execute function private.admin_log_write();
 create trigger admin_log after insert or update or delete on public.user_roles
+  for each row execute function private.admin_log_write();
+create trigger admin_log after insert or update or delete on public.categories
   for each row execute function private.admin_log_write();
 create trigger admin_log after insert or update or delete on public.appeals
   for each row execute function private.admin_log_write();
