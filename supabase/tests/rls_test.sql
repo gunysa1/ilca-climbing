@@ -1554,6 +1554,249 @@ reset role;
 select pg_temp.assert(not exists (select 1 from judge_claims where boulder_id = 'ee000000-0000-0000-0002-000000000003'),
   'release_claim: the judge holding the claim frees it');
 
+-- ---------------------------------------------------------------- merging duplicate profiles
+-- K (keep) and D (the duplicate, with a login, an IFSC id and rows in every table that references profiles).
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('ee000000-0000-0000-0004-000000000001', 'dup@test', '{"full_name":"Dup Login"}');
+delete from profiles where id = 'ee000000-0000-0000-0004-000000000001';  -- the login's own empty profile
+insert into user_roles values ('ee000000-0000-0000-0004-000000000001', 'judge');
+insert into profiles (id, full_name, full_name_he, club, ifsc_id, user_id) values
+  ('ee000000-0000-0000-0003-000000000001', 'Noa Ben-David', 'נועה בן דוד', null, null, null),
+  ('ee000000-0000-0000-0003-000000000002', '  noa  ben david ', null, 'Haifa', '9001', 'ee000000-0000-0000-0004-000000000001'),
+  ('ee000000-0000-0000-0003-000000000003', 'Conflict Climber', null, null, null, null);
+insert into profile_private (id, birth_date, phone) values
+  ('ee000000-0000-0000-0003-000000000001', null, '050-1'),
+  ('ee000000-0000-0000-0003-000000000002', '2009-05-05', '050-2');
+insert into registrations (category_id, climber_id, bib) values
+  ('ee000000-0000-0000-0000-0000000000a1', 'ee000000-0000-0000-0003-000000000001', 5),
+  ('ee000000-0000-0000-0000-0000000000a2', 'ee000000-0000-0000-0003-000000000002', 6);
+insert into round_starters (round_id, climber_id, start_order, prev_place) values
+  ('ee000000-0000-0000-0001-000000000002', 'ee000000-0000-0000-0003-000000000002', 1, 3);
+insert into round_totals (round_id, climber_id, tops, zones, top_attempts, zone_attempts) values
+  ('ee000000-0000-0000-0001-000000000002', 'ee000000-0000-0000-0003-000000000002', 1, 1, 2, 1);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000b2', false);  -- entered by Judge Two
+insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt) values
+  ('ee000000-0000-0000-0002-000000000003', 'ee000000-0000-0000-0003-000000000002', 'ee000000-0000-0000-0001-000000000003', 2, 1, 2),
+  ('ee000000-0000-0000-0002-000000000001', 'ee000000-0000-0000-0003-000000000001', 'ee000000-0000-0000-0001-000000000001', 1, 1, 1);
+select set_config('request.jwt.claim.sub', '', false);
+set session_replication_role = replica; -- skip the stamp trigger: D (as a judge) entered K's score
+update boulder_results set updated_by = 'ee000000-0000-0000-0003-000000000002', updated_at = '2025-11-01 10:00+02'
+  where boulder_id = 'ee000000-0000-0000-0002-000000000001';
+update boulder_results set updated_at = '2025-11-01 11:00+02' where boulder_id = 'ee000000-0000-0000-0002-000000000003';
+set session_replication_role = default;
+insert into score_events (boulder_id, climber_id, round_id, attempts, judge_id) values
+  ('ee000000-0000-0000-0002-000000000001', 'ee000000-0000-0000-0003-000000000001', 'ee000000-0000-0000-0001-000000000001', 1,
+   'ee000000-0000-0000-0003-000000000002');
+insert into lead_events (boulder_id, climber_id, round_id, hold, plus, top, judge_id) values
+  ('ee000000-0000-0000-0002-000000000003', 'ee000000-0000-0000-0003-000000000002', 'ee000000-0000-0000-0001-000000000003', 10, false, false,
+   'ee000000-0000-0000-0003-000000000002');
+insert into judge_assignments (round_id, boulder_id, judge_id) values
+  ('ee000000-0000-0000-0001-000000000003', 'ee000000-0000-0000-0002-000000000003', 'ee000000-0000-0000-0003-000000000001'),
+  ('ee000000-0000-0000-0001-000000000003', 'ee000000-0000-0000-0002-000000000003', 'ee000000-0000-0000-0003-000000000002'),
+  ('ee000000-0000-0000-0001-000000000001', null, 'ee000000-0000-0000-0003-000000000002');
+insert into judge_claims (boulder_id, climber_id, round_id, judge_id) values
+  ('ee000000-0000-0000-0002-000000000003', 'ee000000-0000-0000-0003-000000000002', 'ee000000-0000-0000-0001-000000000003',
+   '00000000-0000-0000-0000-00000000000e');
+insert into appeals (id, round_id, climber_id) values
+  ('ee000000-0000-0000-0005-000000000001', 'ee000000-0000-0000-0001-000000000003', 'ee000000-0000-0000-0003-000000000002');
+insert into appeal_details (appeal_id, reason, created_by, resolved_by) values
+  ('ee000000-0000-0000-0005-000000000001', 'zone', '00000000-0000-0000-0000-00000000000a', 'ee000000-0000-0000-0003-000000000002');
+insert into coach_athletes values
+  ('00000000-0000-0000-0000-00000000000c', 'ee000000-0000-0000-0003-000000000001'),
+  ('00000000-0000-0000-0000-00000000000c', 'ee000000-0000-0000-0003-000000000002'),
+  ('ee000000-0000-0000-0003-000000000002', 'ee000000-0000-0000-0003-000000000001');  -- D "coached" K: dropped
+insert into coach_notes (coach_id, climber_id, body) values
+  ('00000000-0000-0000-0000-00000000000c', 'ee000000-0000-0000-0003-000000000002', 'strong crimps');
+insert into international_results (climber_id, season, discipline, event_type, event_name, starts_on, place, field_size, ifsc_event_id, ifsc_dcat_id) values
+  ('ee000000-0000-0000-0003-000000000001', '2025-26', 'boulder', 'european_cup', 'EYC Graz', '2025-09-10', 12, 40, 501, 7),
+  ('ee000000-0000-0000-0003-000000000002', '2025-26', 'boulder', 'european_cup', 'EYC Soure', '2025-10-10', 8, 40, 502, 7);
+insert into ranking_adjustments (climber_id, season, discipline, points, note) values
+  ('ee000000-0000-0000-0003-000000000002', '2025-26', 'boulder', 10, 'test');
+insert into world_rankings (climber_id, season, discipline, position, as_of) values
+  ('ee000000-0000-0000-0003-000000000001', pg_temp.cur_season(), 'lead', 80, current_date),
+  ('ee000000-0000-0000-0003-000000000002', pg_temp.cur_season(), 'boulder', 50, current_date);
+insert into ifsc_pending (ifsc_athlete_id, firstname, lastname, suggested_profile) values
+  (777101, 'Noa', 'Ben David', 'ee000000-0000-0000-0003-000000000002');
+insert into ifsc_dismissed (climber_id, ifsc_event_id, ifsc_dcat_id) values
+  ('ee000000-0000-0000-0003-000000000001', 1, 1), ('ee000000-0000-0000-0003-000000000002', 1, 1),
+  ('ee000000-0000-0000-0003-000000000002', 2, 2);
+insert into climber_cache_rounds (round_id) values ('ee000000-0000-0000-0001-000000000003');
+insert into climber_cache_entries (climber_id, round_id, entry) values
+  ('ee000000-0000-0000-0003-000000000002', 'ee000000-0000-0000-0001-000000000003', '{}');
+
+create function pg_temp.refs_to(p uuid) returns bigint language plpgsql as $$
+declare r record; n bigint; total bigint := 0;
+begin
+  for r in select * from private.profile_refs() loop
+    execute format('select count(*) from %s where %I = $1', r.tbl, r.col) into n using p;
+    total := total + n;
+  end loop;
+  return total;
+end $$;
+create temp table merge_before as select pg_temp.refs_to('ee000000-0000-0000-0003-000000000002') as n,
+  (select count(*) from score_events) as events, (select count(*) from lead_events) as lead_events;
+
+-- Who may merge
+select pg_temp.login(null);
+select pg_temp.denied($$select merge_profiles('ee000000-0000-0000-0003-000000000001', 'ee000000-0000-0000-0003-000000000002')$$, 'anon previews a merge');
+select pg_temp.denied($$select * from possible_duplicate_profiles()$$, 'anon lists possible duplicates');
+select pg_temp.denied($$select * from profile_merges$$, 'anon reads the merge log');
+select pg_temp.login('00000000-0000-0000-0000-00000000000c');
+select pg_temp.denied($$select merge_profiles('ee000000-0000-0000-0003-000000000001', 'ee000000-0000-0000-0003-000000000002', true)$$, 'coach merges profiles');
+select pg_temp.denied($$select * from possible_duplicate_profiles()$$, 'coach lists possible duplicates');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select pg_temp.denied($$select merge_profiles('ee000000-0000-0000-0003-000000000001', 'ee000000-0000-0000-0003-000000000002', true)$$, 'judge merges profiles');
+
+-- Preview
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.denied($$select merge_profiles('ee000000-0000-0000-0003-000000000001', 'ee000000-0000-0000-0003-000000000001')$$, 'merge a profile into itself');
+select pg_temp.denied($$select merge_profiles('ee000000-0000-0000-0003-000000000001', 'ee000000-0000-0000-0003-0000000000ff')$$, 'merge an unknown profile');
+create temp table merge_preview as
+  select merge_profiles('ee000000-0000-0000-0003-000000000001', 'ee000000-0000-0000-0003-000000000002') as r;
+select pg_temp.assert((select not (r ->> 'applied')::boolean and jsonb_array_length(r -> 'conflicts') = 0
+    and (r -> 'moves' ->> 'registrations.climber_id')::int = 1 and (r -> 'moves' ->> 'boulder_results.updated_by')::int = 1
+    and (r -> 'moves' ->> 'round_totals.climber_id')::int = 1 and (r -> 'moves' ->> 'world_rankings.climber_id')::int = 1
+    from merge_preview), 'merge preview: counts rows per table, no conflicts, not applied');
+select pg_temp.assert((select r -> 'differences' @> '[{"field":"club","keep":null,"drop":"Haifa","result":"Haifa"},
+    {"field":"login","keep":null,"drop":"dup@test"},{"field":"birth_date","result":"2009-05-05"},{"field":"phone","result":"050-1"}]'
+    from merge_preview), 'merge preview: lists the differing fields and the merged value (keep''s wins, gaps filled)');
+reset role;
+select pg_temp.assert(exists (select 1 from profiles where id = 'ee000000-0000-0000-0003-000000000002' and ifsc_id = '9001')
+  and pg_temp.refs_to('ee000000-0000-0000-0003-000000000002') = (select n from merge_before)
+  and (select count(*) from score_events) = (select events from merge_before), 'merge preview changes nothing');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert(exists (select 1 from possible_duplicate_profiles() where a = 'ee000000-0000-0000-0003-000000000001'
+  and b = 'ee000000-0000-0000-0003-000000000002' and reason = 'same_name'), 'possible duplicates: equal names after normalising');
+
+-- Conflicts refuse, with no change
+reset role;
+insert into registrations (category_id, climber_id) values
+  ('ee000000-0000-0000-0000-0000000000a1', 'ee000000-0000-0000-0003-000000000003');
+insert into world_rankings (climber_id, season, discipline, position, as_of) values
+  ('ee000000-0000-0000-0003-000000000003', pg_temp.cur_season(), 'lead', 90, current_date);
+insert into international_results (climber_id, season, discipline, event_type, event_name, starts_on, place, field_size, ifsc_event_id, ifsc_dcat_id) values
+  ('ee000000-0000-0000-0003-000000000003', '2025-26', 'boulder', 'european_cup', 'EYC Graz ', '2025-09-10', 20, 40, null, null);
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert((select array_agg(c ->> 'kind' order by c ->> 'kind')
+    from jsonb_array_elements(merge_profiles('ee000000-0000-0000-0003-000000000001', 'ee000000-0000-0000-0003-000000000003') -> 'conflicts') c)
+  = '{international,registration,round,world_ranking}', 'merge conflicts: same round, category, international event, world ranking');
+select pg_temp.assert((select bool_and(c ? 'competition' and c ->> 'text' like '%Merge Cup%')
+    from jsonb_array_elements(merge_profiles('ee000000-0000-0000-0003-000000000001', 'ee000000-0000-0000-0003-000000000003') -> 'conflicts') c
+    where c ->> 'kind' in ('round', 'registration')), 'merge conflicts name the competition');
+select pg_temp.denied($$select merge_profiles('ee000000-0000-0000-0003-000000000001', 'ee000000-0000-0000-0003-000000000003', true)$$, 'merge with conflicts');
+reset role;
+select pg_temp.assert(exists (select 1 from profiles where id = 'ee000000-0000-0000-0003-000000000003')
+  and (select count(*) from registrations where climber_id = 'ee000000-0000-0000-0003-000000000003') = 1
+  and (select count(*) from world_rankings where climber_id = 'ee000000-0000-0000-0003-000000000003') = 1, 'a refused merge changes nothing');
+insert into auth.users (id, email) values ('ee000000-0000-0000-0004-000000000004', 'one@test'), ('ee000000-0000-0000-0004-000000000005', 'two@test');
+insert into profiles (id, full_name, ifsc_id) values ('ee000000-0000-0000-0003-00000000000a', 'Ifsc One', '9101'),
+  ('ee000000-0000-0000-0003-00000000000b', 'Ifsc One', '9102');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert((merge_profiles('ee000000-0000-0000-0004-000000000004', 'ee000000-0000-0000-0004-000000000005') -> 'conflicts') @> '[{"kind":"two_logins"}]',
+  'merge conflict: both profiles have a login');
+select pg_temp.denied($$select merge_profiles('ee000000-0000-0000-0004-000000000004', 'ee000000-0000-0000-0004-000000000005', true)$$, 'merge two logins');
+select pg_temp.assert((merge_profiles('ee000000-0000-0000-0003-00000000000a', 'ee000000-0000-0000-0003-00000000000b') -> 'conflicts') @> '[{"kind":"different_ifsc"}]',
+  'merge conflict: different IFSC ids');
+select pg_temp.denied($$select merge_profiles('ee000000-0000-0000-0003-00000000000a', 'ee000000-0000-0000-0003-00000000000b', true)$$, 'merge different IFSC ids');
+select pg_temp.assert(not exists (select 1 from possible_duplicate_profiles() where a = 'ee000000-0000-0000-0003-00000000000a'),
+  'possible duplicates: same name but different IFSC ids are left out');
+reset role;
+delete from registrations where climber_id = 'ee000000-0000-0000-0003-000000000003';
+delete from world_rankings where climber_id = 'ee000000-0000-0000-0003-000000000003';
+delete from international_results where climber_id = 'ee000000-0000-0000-0003-000000000003';
+delete from profiles where id in ('ee000000-0000-0000-0003-000000000003', 'ee000000-0000-0000-0003-00000000000a', 'ee000000-0000-0000-0003-00000000000b');
+
+-- Apply
+delete from climber_cache_changes;
+delete from rankings_cache_changes;
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert((merge_profiles('ee000000-0000-0000-0003-000000000001', 'ee000000-0000-0000-0003-000000000002', true) ->> 'applied')::boolean,
+  'admin merges the duplicate');
+reset role;
+select pg_temp.assert(not exists (select 1 from profiles where id = 'ee000000-0000-0000-0003-000000000002')
+  and pg_temp.refs_to('ee000000-0000-0000-0003-000000000002') = 0, 'merge: the duplicate is gone and nothing references it');
+select pg_temp.assert((select full_name = 'Noa Ben-David' and club = 'Haifa' and ifsc_id = '9001' and user_id = 'ee000000-0000-0000-0004-000000000001'
+    from profiles where id = 'ee000000-0000-0000-0003-000000000001')
+  and (select birth_date = '2009-05-05' and phone = '050-1' from profile_private where id = 'ee000000-0000-0000-0003-000000000001'),
+  'merge: keep''s fields win, its gaps are filled (club, IFSC id, login, birth date)');
+select set_config('request.jwt.claim.sub', 'ee000000-0000-0000-0004-000000000001', false);
+select pg_temp.assert(my_profile_id() = 'ee000000-0000-0000-0003-000000000001' and has_role('judge'), 'merge: the login now opens the kept profile, with its roles');
+select set_config('request.jwt.claim.sub', '', false);
+select pg_temp.assert((select array_agg(round_id order by round_id) from round_starters where climber_id = 'ee000000-0000-0000-0003-000000000001')
+    = array['ee000000-0000-0000-0001-000000000001', 'ee000000-0000-0000-0001-000000000002', 'ee000000-0000-0000-0001-000000000003']::uuid[]
+  and (select prev_place from round_starters where climber_id = 'ee000000-0000-0000-0003-000000000001'
+       and round_id = 'ee000000-0000-0000-0001-000000000002') = 3
+  and exists (select 1 from round_totals where climber_id = 'ee000000-0000-0000-0003-000000000001')
+  and (select count(*) from registrations where climber_id = 'ee000000-0000-0000-0003-000000000001') = 2,
+  'merge: registrations, start lists (with the seed) and totals move');
+select pg_temp.assert((select updated_by = '00000000-0000-0000-0000-0000000000b2' and updated_at = '2025-11-01 11:00+02'
+    from boulder_results where boulder_id = 'ee000000-0000-0000-0002-000000000003' and climber_id = 'ee000000-0000-0000-0003-000000000001')
+  and (select updated_by = 'ee000000-0000-0000-0003-000000000001' and updated_at = '2025-11-01 10:00+02'
+    from boulder_results where boulder_id = 'ee000000-0000-0000-0002-000000000001')
+  and (select count(*) from score_events) = (select events from merge_before)
+  and (select count(*) from lead_events) = (select lead_events from merge_before)
+  and exists (select 1 from score_events where judge_id = 'ee000000-0000-0000-0003-000000000001')
+  and exists (select 1 from lead_events where climber_id = 'ee000000-0000-0000-0003-000000000001' and judge_id = 'ee000000-0000-0000-0003-000000000001'),
+  'merge: results move as they were (who entered them, when; no new score events), the event logs follow');
+select pg_temp.assert((select count(*) from international_results where climber_id = 'ee000000-0000-0000-0003-000000000001') = 2
+  and exists (select 1 from ranking_adjustments where climber_id = 'ee000000-0000-0000-0003-000000000001')
+  and (select array_agg(discipline order by discipline) from world_rankings
+       where climber_id = 'ee000000-0000-0000-0003-000000000001' and season = pg_temp.cur_season()) = '{boulder,lead}',
+  'merge: international results, adjustments and this season''s world rankings move (not cleared by the IFSC id change)');
+select pg_temp.assert((select suggested_profile from ifsc_pending where ifsc_athlete_id = 777101) = 'ee000000-0000-0000-0003-000000000001'
+  and not exists (select 1 from ifsc_pending where ifsc_athlete_id = 9001)
+  and (select count(*) from ifsc_dismissed where climber_id = 'ee000000-0000-0000-0003-000000000001') = 2,
+  'merge: IFSC suggestion and dismissed results move; the moving IFSC id is not marked ignored');
+select pg_temp.assert((select count(*) from coach_athletes where climber_id = 'ee000000-0000-0000-0003-000000000001') = 1
+  and not exists (select 1 from coach_athletes where coach_id = 'ee000000-0000-0000-0003-000000000001')
+  and exists (select 1 from coach_notes where climber_id = 'ee000000-0000-0000-0003-000000000001')
+  and (select count(*) from judge_assignments where judge_id = 'ee000000-0000-0000-0003-000000000001') = 2
+  and exists (select 1 from judge_claims where climber_id = 'ee000000-0000-0000-0003-000000000001')
+  and exists (select 1 from appeals where climber_id = 'ee000000-0000-0000-0003-000000000001')
+  and (select resolved_by from appeal_details where appeal_id = 'ee000000-0000-0000-0005-000000000001') = 'ee000000-0000-0000-0003-000000000001',
+  'merge: coach links (no duplicates), notes, judge assignments, claims and appeals move');
+select pg_temp.assert(not exists (select 1 from climber_cache_entries where climber_id = 'ee000000-0000-0000-0003-000000000002')
+  and exists (select 1 from climber_cache_changes where round_id = 'ee000000-0000-0000-0001-000000000003')
+  and exists (select 1 from rankings_cache_changes where season is null),
+  'merge: the duplicate''s climber page rows go; climber page and rankings rebuilds are queued');
+select pg_temp.assert(current_setting('ilca.merging', true) is distinct from 'on', 'merge: the stamp triggers are back after merging');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert((select drop_name from profile_merges where drop_id = 'ee000000-0000-0000-0003-000000000002') = '  noa  ben david '
+  and (select (report ->> 'applied')::boolean and merged_by = '00000000-0000-0000-0000-00000000000a' from profile_merges
+       where drop_id = 'ee000000-0000-0000-0003-000000000002'), 'admin reads the merge log (who, both profiles, the report)');
+select pg_temp.denied($$insert into profile_merges (keep_id, keep_name, drop_id, drop_name, report) values (gen_random_uuid(), 'x', gen_random_uuid(), 'y', '{}')$$,
+  'admin writes the merge log directly');
+select pg_temp.login('00000000-0000-0000-0000-00000000000c');
+select pg_temp.assert(not exists (select 1 from profile_merges), 'a coach does not see the merge log');
+
+-- Swapped names with the same birth date
+reset role;
+insert into profiles (id, full_name) values ('ee000000-0000-0000-0003-000000000006', 'Tamar Levi'),
+  ('ee000000-0000-0000-0003-000000000007', 'Levi Tamar');
+insert into profile_private (id, birth_date) values ('ee000000-0000-0000-0003-000000000006', '2010-02-02'),
+  ('ee000000-0000-0000-0003-000000000007', '2010-02-02');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert(exists (select 1 from possible_duplicate_profiles() where a = 'ee000000-0000-0000-0003-000000000006'
+  and b = 'ee000000-0000-0000-0003-000000000007' and reason = 'swapped_name'), 'possible duplicates: swapped names, same birth date');
+
+-- Safety net: a table merging does not handle makes the merge fail instead of cascading
+reset role;
+create table public.zz_merge_probe (p uuid references public.profiles (id) on delete cascade);
+insert into zz_merge_probe values ('ee000000-0000-0000-0003-000000000007');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.denied($$select merge_profiles('ee000000-0000-0000-0003-000000000006', 'ee000000-0000-0000-0003-000000000007', true)$$,
+  'merge with an unhandled table referencing the duplicate');
+reset role;
+select pg_temp.assert(exists (select 1 from zz_merge_probe) and exists (select 1 from profiles where id = 'ee000000-0000-0000-0003-000000000007'),
+  'the safety net leaves everything as it was');
+drop table public.zz_merge_probe;
+select pg_temp.assert(not has_function_privilege('anon', f, 'execute') and not has_function_privilege('authenticated', g, 'execute'),
+  'anon cannot execute ' || f)
+from unnest(array['public.merge_profiles(uuid,uuid,boolean)', 'public.possible_duplicate_profiles()']) f,
+     unnest(array['private.profile_refs()']) g;
+reset role;
+
 -- ---------------------------------------------------------------- function privileges (Supabase advisors)
 -- Supabase grants EXECUTE on new functions to anon directly; admin-only and trigger functions must not keep it.
 select pg_temp.assert(not has_function_privilege('anon', f, 'execute'), 'anon cannot execute ' || f)

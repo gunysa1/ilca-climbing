@@ -22,12 +22,13 @@ export async function createClimber(c: {
   return { id, error: e2?.message ?? null };
 }
 
-/** Search existing profiles or create a new one, then call onPick with the profile id. */
-export function ClimberPicker({ exclude, actionLabel, defaultGender, onPick }: {
+/** Search existing profiles or create a new one (unless allowCreate is false), then call onPick with the profile id. */
+export function ClimberPicker({ exclude, actionLabel, defaultGender, onPick, allowCreate = true }: {
   exclude: Set<string>;
   actionLabel: string;
   defaultGender: Profile['gender'];
   onPick: (climberId: string) => Promise<void> | void;
+  allowCreate?: boolean;
 }) {
   const { t, lang } = useI18n();
   const [q, setQ] = useState('');
@@ -48,7 +49,7 @@ export function ClimberPicker({ exclude, actionLabel, defaultGender, onPick }: {
 
   async function createAndPick(e: FormEvent) {
     e.preventDefault();
-    if (q.trim().length < 2) return;
+    if (!allowCreate || q.trim().length < 2) return;
     const { id, error } = await createClimber({ name: q, club, gender: defaultGender });
     setError(error);
     if (id) { await onPick(id); setQ(''); setClub(''); }
@@ -57,9 +58,11 @@ export function ClimberPicker({ exclude, actionLabel, defaultGender, onPick }: {
   return (
     <div className="picker">
       <form className="inline-form" onSubmit={createAndPick}>
-        <input placeholder={`${t('search')} / ${t('newClimber')}`} value={q} onChange={(e) => setQ(e.target.value)} />
-        <input placeholder={t('club')} value={club} onChange={(e) => setClub(e.target.value)} />
-        <button className="secondary" disabled={q.trim().length < 2}>+ {t('newClimber')}</button>
+        <input placeholder={allowCreate ? `${t('search')} / ${t('newClimber')}` : t('search')} value={q} onChange={(e) => setQ(e.target.value)} />
+        {allowCreate && <>
+          <input placeholder={t('club')} value={club} onChange={(e) => setClub(e.target.value)} />
+          <button className="secondary" disabled={q.trim().length < 2}>+ {t('newClimber')}</button>
+        </>}
       </form>
       <ErrorLine error={error} />
       {hits.length > 0 && (

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../lib/auth';
 import { localized, useI18n } from '../../lib/i18n';
 import { allRows } from '../../lib/allRows';
@@ -203,6 +204,7 @@ export function AdminPeople() {
 
       <div className="panel">
         <h2>{t('climbers')} ({profiles.length})</h2>
+        <p><Link to="/admin/people/merge">{t('mergeTitle')}</Link></p>
         <input placeholder={t('search')} value={filter} onChange={(e) => setFilter(e.target.value)} />
         <div className="table-wrap">
           <table className="admin-table">
