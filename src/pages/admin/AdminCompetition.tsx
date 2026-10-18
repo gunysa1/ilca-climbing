@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { RoundStatus } from '../../components/RoundStatus';
+import { errorText } from '../../lib/errors';
 import { localized, useI18n } from '../../lib/i18n';
 import { isRankedCompetition, uncountedCategories } from '../../lib/mixedCategories';
 import { supabase } from '../../lib/supabase';
@@ -37,14 +38,14 @@ export function AdminCompetition() {
     ]);
     setComp(c as Competition);
     setCats((cs as CategoryRow[]) ?? []);
-    setError(e1?.message ?? e2?.message ?? null);
-  }, [id]);
+    setError(errorText(e1 ?? e2, t));
+  }, [id, t]);
   useEffect(() => { void reload(); }, [reload]);
 
   /** Run a mutation, show its error, reload on success. */
   const run = async (p: PromiseLike<{ error: { message: string } | null }>) => {
     const { error } = await p;
-    setError(error?.message ?? null);
+    setError(errorText(error, t));
     if (!error) await reload();
   };
 
@@ -64,7 +65,7 @@ export function AdminCompetition() {
   async function deleteComp() {
     if (!window.confirm(t('confirmDelete'))) return;
     const { error } = await supabase.from('competitions').delete().eq('id', comp!.id);
-    if (error) setError(error.message); else navigate('/admin');
+    if (error) setError(errorText(error, t)); else navigate('/admin');
   }
 
   async function addCategory(e: FormEvent) {

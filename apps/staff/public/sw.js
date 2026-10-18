@@ -67,7 +67,7 @@ self.addEventListener('fetch', (e) => {
   }
   if (url.pathname.startsWith('/assets/')) {
     e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => {
-      if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
+      if (res.ok && !(res.headers.get('content-type') || '').includes('text/html')) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
       return res;
     })));
     return;

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
+import { errorText } from '../lib/errors';
 import { useI18n } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
 
@@ -21,7 +22,7 @@ export function Login() {
     setBusy(true);
     setError(null);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setError(error.message);
+    if (error) setError(errorText(error, t));
     setBusy(false);
   }
 
@@ -31,7 +32,7 @@ export function Login() {
     setBusy(true); setError(null);
     const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/set-password` });
     setBusy(false);
-    if (error) setError(error.message); else setResetSent(true);
+    if (error) setError(errorText(error, t)); else setResetSent(true);
   }
 
   return (

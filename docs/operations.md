@@ -23,8 +23,17 @@ and publishes both (free plan: 500 builds a month, no cost per deploy).
 
 Root directory: the repository root; Node from `.node-version`. The production settings are in the
 committed `.env` (Supabase URL, publishable key, the two site addresses; nothing secret);
-`.env.local` overrides them for local development. `apps/*/public/_headers` set `noindex` and the
-one-year cache for `/assets/*`; Cloudflare serves `index.html` for app routes (single-page app).
+`.env.local` overrides them for local development. `apps/*/public/_headers` set `noindex`, the
+security headers (`nosniff`, referrer policy, permissions policy and a Content-Security-Policy with
+`frame-ancestors 'none'`) and the one-year cache for `/assets/*`; Cloudflare serves `index.html` for
+app routes (single-page app). The CSP allows only the site itself, the Supabase project
+(`https` + `wss`), Google Fonts and `data:` / `blob:` images; a page that needs another origin (a new
+font, an embedded map) is silently blocked until it is added there, and the Supabase address in it
+must change with the project. The apps have no inline scripts, so `script-src` is `'self'`.
+
+CI: `.github/workflows/ci.yml` runs typecheck, unit tests, build, `test:db` and the e2e on every push
+and pull request (the e2e screenshots are kept 7 days). A red run on `main` means Cloudflare may
+already have published it: fix or revert at once, and not on an event day.
 
 - To publish a change: push to `main`. Cloudflare builds both projects (about a minute); the
   build log is in the Cloudflare dashboard → Workers & Pages → the project → Deployments.
@@ -381,9 +390,40 @@ another round (it keeps one round at a time and clears results between rounds).
 
 ## Backups
 
-Check what the project's Supabase plan backs up (project settings → Database → Backups). Before
-large imports, export the affected tables (`supabase db dump --linked --data-only -t …`). Dumps
-contain personal data (minors' birth dates): keep them out of git and delete them after use.
+Check what the project's Supabase plan backs up (project settings → Database → Backups). On the
+Free plan there are **none**: the migrations hold the schema and the LogLig archive holds history up
+to 2025-26, but results scored on the apps exist only in the database. Then run
+`tools/backup/dump.sh` yourself:
+
+```bash
+tools/backup/dump.sh                  # → ~/ilca-backups/ilca-<UTC time>.sql.gz
+tools/backup/dump.sh /path/outside/the/repo
+```
+
+It is a data-only dump of the linked project (Docker must be running, the Supabase CLI logged in and the repo
+linked), gzipped, readable by its owner only, and it prints just the file name and size. It refuses
+a folder inside the repository. When to run it: weekly, the evening before each event day, the
+morning after every event, and before large imports or data fixes.
+
+The dump contains personal data (minors' birth dates, e-mail addresses, password hashes of
+`auth.users`): keep it on an encrypted disk or storage, never in the repository or a shared folder,
+and delete it after the retention period agreed with ILCA (suggested: the last event's dump and the
+last four weekly ones).
+
+Restore drill (do it once before the first event, on a scratch project or a local Postgres, never on
+the live one): create a project, `db push --linked` all migrations, then load the dump the way the
+move below does (drop the `auth.sessions`, `refresh_tokens`, `one_time_tokens` and `mfa_amr_claims`
+inserts and the psql-only `\restrict` lines, wrap the inserts in one transaction; the dump already
+sets `session_replication_role = replica`) and compare the row counts of `profiles`, `competitions`,
+`boulder_results` and `lead_results` with the source. After a restore, queue a full rebuild of the
+caches (the rankings sections above).
+
+Rate limits: the app does not limit the public RPCs (`season_rankings`, `climber_page`,
+`favorites_live`, `home_page`, `round_page`); the caches keep the usual paths cheap and
+`favorites_live` is capped at 200 climbers. The browser calls Supabase directly (not through the
+Cloudflare sites), so a Cloudflare rule would never see that traffic. If abuse ever shows, the options
+are on the Supabase side: guards inside the SQL functions, a proxy in front of Supabase, or asking
+Supabase support for limits.
 
 The previous project in Seoul (`rkuuzforzfjbdnybddwb`) was deleted on 2026-10-17.
 

@@ -1,0 +1,59 @@
+# The five checks from CLAUDE.md on every push and pull request, so a red build is seen before
+# Cloudflare Pages publishes main. Same commands as on the developer's machine.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      # .npmrc sets legacy-peer-deps (vitest 5 peers).
+      - run: npm ci
+
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      # Postgres 16 for test:db and the e2e (their scripts look in /usr/lib/postgresql/*/bin).
+      - name: Install Postgres 16
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-16
+          sudo systemctl stop postgresql
+
+      - run: npm run test:db
+
+      # Docker (the PostgREST container) is on the runner; Chromium is the Playwright version pinned in package.json.
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end
+        run: npm run test:e2e
+        env:
+          E2E_OUT: ${{ runner.temp }}/e2e-out
+
+      - uses: actions/upload-artifact@v4.6.2
+        if: always()
+        with:
+          name: e2e-screenshots
+          path: ${{ runner.temp }}/e2e-out
+          if-no-files-found: ignore
+          retention-days: 7

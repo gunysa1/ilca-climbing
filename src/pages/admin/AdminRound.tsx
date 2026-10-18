@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link, useParams } from 'react-router-dom';
 import { RoundStatus } from '../../components/RoundStatus';
 import { useAuth } from '../../lib/auth';
+import { errorText } from '../../lib/errors';
 import { localized, useI18n } from '../../lib/i18n';
 import { formatHeight } from '../../lib/lead';
 import { loadStarters, resultKey, type LeadRow, type ResultRow, type Starter } from '../../lib/roundData';
@@ -48,7 +49,7 @@ export function AdminRound() {
     if (!id) return;
     const { data: r, error } = await supabase.from('rounds')
       .select('*, category:categories(name, name_he, competition_id)').eq('id', id).single();
-    if (error || !r) return setError(error?.message ?? null);
+    if (error || !r) return setError(errorText(error, t));
     const lead = r.scoring === 'lead';
     const [b, regs, res, asg, acc, ev, ap] = await Promise.all([
       supabase.from('boulders').select('*').eq('round_id', id).order('number'),
@@ -77,13 +78,13 @@ export function AdminRound() {
     const { data: who } = ids.length ? await supabase.from('profiles').select('id, full_name, full_name_he').in('id', ids) : { data: [] };
     setNames(new Map([...st.map((s) => s.profile), ...((who ?? []) as { id: string; full_name: string; full_name_he: string | null }[])]
       .map((p) => [p.id, localized(lang, p.full_name, p.full_name_he)])));
-    setError(b.error?.message ?? regs.error ?? res.error?.message ?? asg.error?.message ?? acc.error?.message ?? ev.error?.message ?? null);
-  }, [id, lang]);
+    setError(errorText(b.error ?? regs.error ?? res.error ?? asg.error ?? acc.error ?? ev.error, t));
+  }, [id, lang, t]);
   useEffect(() => { void reload(); }, [reload]);
 
   const run = async (p: PromiseLike<{ error: { message: string } | null }>) => {
     const { error } = await p;
-    setError(error?.message ?? null);
+    setError(errorText(error, t));
     if (!error) await reload();
   };
 
