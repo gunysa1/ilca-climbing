@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { RoundStatus } from '../../components/RoundStatus';
-import { climbsRoutes, DISC_LABEL, DISCIPLINES, problemsWord, roundFormatsFor, type Discipline } from '../../lib/discipline';
+import { climbsRoutes, DISC_LABEL, DISCIPLINES, problemsWord, problemWord, roundFormatsFor, type Discipline } from '../../lib/discipline';
 import { errorText } from '../../lib/errors';
 import { localized, useI18n } from '../../lib/i18n';
 import { isRankedCompetition, uncountedCategories } from '../../lib/mixedCategories';
@@ -90,7 +90,8 @@ export function AdminCompetition() {
         <label>{t('venue')}<input name="venue" defaultValue={comp.venue ?? ''} /></label>
         <label>{t('discipline')}
           <select name="discipline" defaultValue={comp.discipline ?? ''}>
-            {!comp.discipline && <option value="">{t('disciplineNotSet')}</option>}
+            {/* Not set: the competition goes by its rounds (old rows, an event with both boulder and lead). */}
+            <option value="">{t('disciplineNotSet')}</option>
             {DISCIPLINES.map((d) => <option key={d} value={d}>{t(DISC_LABEL[d])}</option>)}
           </select>
         </label>
@@ -116,7 +117,7 @@ export function AdminCompetition() {
       <h2>{t('categories')}</h2>
       {comp.discipline === 'speed' && <p className="notice">{t('speedScoringSoon')}</p>}
       <MixedWarning comp={comp} cats={cats} run={run} />
-      {cats.map((c) => <CategoryPanel key={c.id} cat={c} discipline={comp.discipline} run={run} />)}
+      {cats.map((c) => <CategoryPanel key={c.id} cat={c} discipline={comp.discipline} run={run} reload={reload} />)}
 
       <form className="panel form grid-form" onSubmit={addCategory}>
         <h2 className="span-all">{t('newCategory')}</h2>
@@ -133,7 +134,9 @@ export function AdminCompetition() {
       <RosterImport competitionId={comp.id} categories={cats} ranked={isRankedCompetition(comp)} onDone={reload} />
 
       <AdminLog by="competition_id" id={comp.id} stamp={cats} roundLabel={new Map(cats.flatMap((c) =>
-        c.rounds.map((r) => [r.id, `${localized(lang, c.name, c.name_he)} · ${t(r.kind)}`] as const)))} />
+        c.rounds.map((r) => [r.id, `${localized(lang, c.name, c.name_he)} · ${t(r.kind)}`] as const)))}
+        boulderNo={new Map(cats.flatMap((c) => c.rounds.flatMap((r) => r.boulders.map((b) => [b.id, b.number] as const))))}
+        problem={problemWord(climbsRoutes(comp.discipline))} />
     </section>
   );
 }
@@ -164,7 +167,7 @@ function MixedWarning({ comp, cats, run }: { comp: Competition; cats: CategoryRo
   );
 }
 
-function CategoryPanel({ cat, discipline, run }: { cat: CategoryRow; discipline: Discipline | null; run: Run }) {
+function CategoryPanel({ cat, discipline, run, reload }: { cat: CategoryRow; discipline: Discipline | null; run: Run; reload: () => Promise<void> }) {
   const { t, lang } = useI18n();
   const rounds = [...cat.rounds].sort((a, b) => KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind));
   const missing = KINDS.filter((k) => !rounds.some((r) => r.kind === k));
@@ -182,7 +185,7 @@ function CategoryPanel({ cat, discipline, run }: { cat: CategoryRow; discipline:
       <ul className="admin-rows">
         {rounds.map((r, i) => <RoundRowEditor key={r.id} round={r} first={i === 0} discipline={discipline} run={run} />)}
       </ul>
-      {missing.length > 0 && <NewRoundForm key={discipline ?? ''} categoryId={cat.id} missing={missing} discipline={discipline} run={run} />}
+      {missing.length > 0 && <NewRoundForm key={discipline ?? ''} categoryId={cat.id} missing={missing} discipline={discipline} run={run} reload={reload} />}
 
       <h3>{t('registrations')} ({regs.length})</h3>
       <table className="admin-table">
@@ -228,8 +231,8 @@ function CategoryPanel({ cat, discipline, run }: { cat: CategoryRow; discipline:
 
 /** Adds a round with its boulders / routes. The scoring defaults from the competition's discipline: lead only
  *  for lead, IFSC 2025 (or classic) for boulder; speed has no scoring yet (the round takes the table default). */
-function NewRoundForm({ categoryId, missing, discipline, run }: {
-  categoryId: string; missing: Round['kind'][]; discipline: Discipline | null; run: Run;
+function NewRoundForm({ categoryId, missing, discipline, run, reload }: {
+  categoryId: string; missing: Round['kind'][]; discipline: Discipline | null; run: Run; reload: () => Promise<void>;
 }) {
   const { t } = useI18n();
   const formats = roundFormatsFor(discipline);
@@ -247,7 +250,10 @@ function NewRoundForm({ categoryId, missing, discipline, run }: {
       if (error) return { error };
       form.reset();
       if (n === 0) return { error: null };
-      return supabase.from('boulders').insert(Array.from({ length: n }, (_, i) => ({ round_id: data.id, number: i + 1 })));
+      const { error: e2 } = await supabase.from('boulders').insert(Array.from({ length: n }, (_, i) => ({ round_id: data.id, number: i + 1 })));
+      // The round exists even if its boulders / routes failed: show it (run reloads only without an error).
+      if (e2) await reload();
+      return { error: e2 };
     })());
   }
 
@@ -317,10 +323,11 @@ function RoundRowEditor({ round, first, discipline, run }: { round: RoundRow; fi
           {shownFormats.map((s) => <option key={s} value={s}>{t(s)}</option>)}
         </select>
       )}
-      {round.status === 'planned' && <button className="secondary" onClick={() => void status('live')}>{t('goLive')}</button>}
+      {/* Speed has no scoring yet: its rounds can't go live (judges score only live rounds). */}
+      {round.status === 'planned' && discipline !== 'speed' && <button className="secondary" onClick={() => void status('live')}>{t('goLive')}</button>}
       {round.status === 'live' && <button className="secondary" onClick={() => void status('closed')}>{t('closeRound')}</button>}
       {/* Reopen a closed round: live again (planned would hide it from the public and the rankings). */}
-      {round.status === 'closed' && <button className="link" onClick={() => window.confirm(t('confirmReopen')) && void status('live')}>{t('reopen')}</button>}
+      {round.status === 'closed' && discipline !== 'speed' && <button className="link" onClick={() => window.confirm(t('confirmReopen')) && void status('live')}>{t('reopen')}</button>}
       {round.status === 'live' && <button className="link" onClick={() => window.confirm(t('confirmBackToPlanned')) && void status('planned')}>{t('backToPlanned')}</button>}
       <span className="muted">{t('starters')}: {round.round_starters[0]?.count ?? 0}</span>
       {!first && (

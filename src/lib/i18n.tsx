@@ -249,7 +249,7 @@ const dict = {
   speedSoon: { he: 'תחרויות מהירות יתווספו בקרוב', en: 'Speed competitions are coming soon' },
   chooseDiscipline: { he: 'בחרו מקצה', en: 'Choose a discipline' },
   disciplineNotSet: { he: 'לא נבחר (לפי הסבבים)', en: 'Not set (from the rounds)' },
-  speedScoringSoon: { he: 'ניקוד מהירות עוד לא קיים באפליקציה: אפשר ליצור קטגוריות, סבבים ורשימות זינוק, אבל אי אפשר להזין או להציג תוצאות מהירות.', en: "Speed scoring isn't available in the app yet: you can create categories, rounds and start lists, but speed results can't be entered or shown." },
+  speedScoringSoon: { he: 'ניקוד מהירות עוד לא קיים באפליקציה: אפשר ליצור קטגוריות, סבבים ורשימות זינוק, אבל אי אפשר לפתוח סבב לשידור, ולכן אי אפשר להזין תוצאות עדיין.', en: "Speed scoring isn't available in the app yet: you can create categories, rounds and start lists, but rounds can't go live, so results can't be entered yet." },
   route: { he: 'מסלול', en: 'Route' },
   routes: { he: 'מסלולים', en: 'Routes' },
   lead: { he: 'הובלה (IFSC)', en: 'Lead (IFSC)' },

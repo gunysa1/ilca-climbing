@@ -89,7 +89,8 @@ already have published it: fix or revert at once, and not on an event day.
    problems in the admin and judge screens (boulders or routes), sets the scoring new rounds get
    (lead: lead only; boulder: IFSC 2025, or classic) and lists the competition under that discipline
    in the viewer even before it has rounds. Speed has no scoring yet: rounds and start lists can be
-   made, results can't. Set its season and series if it counts for the national rankings.
+   made, but its rounds can't go live, so no results. "Not set" (kept in the edit form) makes the
+   competition go by its rounds, e.g. an event with both boulder and lead categories. Set its season and series if it counts for the national rankings.
    (`competitions.discipline`, migration 047; older rows were backfilled from their rounds, then the
    name, and stay null when mixed: the viewer then goes by the rounds.)
 2. **Categories** (one per group; age classes inside a group are fine) and **registrations**:
