@@ -48,7 +48,9 @@ export function AdminPeople() {
     setAccounts(accs);
     setProfiles(prof.map((p) => ({ ...p, user_id: login.get(p.id) ?? null })));
     setLinks((cl.data as CoachLink[]) ?? []);
-    setError(acc.error?.message ?? profError ?? cl.error?.message ?? null);
+    // Only a failed reload sets the error: a reload after a refused change must not wipe the message saying why.
+    const loadError = acc.error?.message ?? profError ?? cl.error?.message ?? null;
+    if (loadError) setError(loadError);
   }, []);
   useEffect(() => { void reload(); }, [reload]);
 
