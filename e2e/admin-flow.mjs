@@ -414,6 +414,7 @@ await quota.press('Tab');
 await p.waitForTimeout(500);
 await finalRow.getByRole('button', { name: 'Generate start list' }).click();
 await finalRow.getByText('Starters: 1').waitFor();
+await finalRow.getByText('Start list made · climbers in the round: 1').waitFor(); // the button says what it did
 
 step('invite a judge: share link (WhatsApp-safe landing page), email failure explained');
 // The edge function isn't in the e2e stack: stub it and check what the app sends.
@@ -671,8 +672,10 @@ await p.getByRole('button', { name: 'Close round' }).waitFor({ state: 'detached'
 await p.getByLabel('Status').selectOption('finished');
 await p.getByRole('button', { name: 'Save' }).first().click();
 await p.waitForTimeout(500);
-// the cron jobs' next run: the changed season's cache and tables
-if (!(await buildRankingTables()).built.includes('2026-27')) problems.push('rankings build after the round closed: 2026-27 not rebuilt');
+// the cron jobs' next run. Closing the round and finishing the competition change no ranking (live and closed
+// rounds count alike), so the season's cached content is unchanged and nothing is rebuilt (migration 046);
+// checkStoredTables below proves the stored tables still equal the computed ones.
+await buildRankingTables();
 await checkStoredTables();
 {
   const home = await page('en', { width: 1280, height: 900 }, null);
