@@ -9,7 +9,8 @@ create table auth.users (
   id uuid primary key default gen_random_uuid(),
   email varchar(255),  -- as in Supabase
   email_confirmed_at timestamptz,
-  raw_user_meta_data jsonb default '{}'::jsonb
+  raw_user_meta_data jsonb default '{}'::jsonb,
+  last_sign_in_at timestamptz
 );
 
 create function auth.uid() returns uuid language sql stable as $$

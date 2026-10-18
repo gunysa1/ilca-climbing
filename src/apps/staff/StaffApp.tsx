@@ -1,6 +1,8 @@
-import { lazy, Suspense } from 'react';
-import { BrowserRouter, Link, NavLink, Outlet, Route, Routes } from 'react-router-dom';
+import { lazy, Suspense, useEffect } from 'react';
+import { BrowserRouter, Link, NavLink, Outlet, Route, Routes, useLocation } from 'react-router-dom';
+import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { RequireRole } from '../../components/RequireRole';
+import { reporter, reportClientError } from '../../lib/errorReport';
 import { AuthProvider, useAuth } from '../../lib/auth';
 import { I18nProvider, useI18n } from '../../lib/i18n';
 import { forgetJudgeDevice, outboxFor, useOutboxOwner } from '../../lib/judgeOutbox';
@@ -22,6 +24,8 @@ const AdminHome = lazy(() => import('../../pages/admin/AdminHome').then((m) => (
 const AdminPeople = lazy(() => import('../../pages/admin/AdminPeople').then((m) => ({ default: m.AdminPeople })));
 const AdminRankings = lazy(() => import('../../pages/admin/AdminRankings').then((m) => ({ default: m.AdminRankings })));
 const AdminRound = lazy(() => import('../../pages/admin/AdminRound').then((m) => ({ default: m.AdminRound })));
+const AdminChecklist = lazy(() => import('../../pages/admin/AdminChecklist').then((m) => ({ default: m.AdminChecklist })));
+const AdminErrors = lazy(() => import('../../pages/admin/AdminErrors').then((m) => ({ default: m.AdminErrors })));
 /** The staff app: judges, coaches and admins. Sign-in first. */
 export function StaffApp() {
   return (
@@ -40,6 +44,8 @@ export function StaffApp() {
                 <Route path="judge/:roundId/:boulderId" element={<RequireRole role="judge"><JudgeBoulder /></RequireRole>} />
                 <Route path="admin" element={<RequireRole role="admin"><AdminHome /></RequireRole>} />
                 <Route path="admin/competition/:id" element={<RequireRole role="admin"><AdminCompetition /></RequireRole>} />
+                <Route path="admin/competition/:id/checklist" element={<RequireRole role="admin"><AdminChecklist /></RequireRole>} />
+                <Route path="admin/errors" element={<RequireRole role="admin"><AdminErrors /></RequireRole>} />
                 <Route path="admin/round/:id" element={<RequireRole role="admin"><AdminRound /></RequireRole>} />
                 <Route path="admin/people" element={<RequireRole role="admin"><AdminPeople /></RequireRole>} />
                 <Route path="admin/rankings" element={<RequireRole role="admin"><AdminRankings /></RequireRole>} />
@@ -65,6 +71,9 @@ function StaffLayout() {
   const { t, lang, setLang } = useI18n();
   const { session, hasRole, profileId } = useAuth();
   useOutboxOwner();
+  const location = useLocation();
+  const signedIn = !!session;
+  useEffect(() => { reporter.setSignedIn(signedIn); }, [signedIn]); // errors are reported only while signed in
   // Unsent results stay on the phone (for this judge's next sign-in); the pad's other copies go.
   const signOut = () => {
     const unsent = profileId ? outboxFor(profileId).snapshot().pending.length : 0;
@@ -95,7 +104,9 @@ function StaffLayout() {
       </header>
       <main className="page">
         {!supabaseConfigured && <p className="notice">{t('notConfigured')}</p>}
-        <Suspense fallback={<p className="muted">…</p>}><Outlet /></Suspense>
+        <ErrorBoundary key={location.pathname} onError={(e, info) => reportClientError(`${e.name}: ${e.message}`, { stack: e.stack, context: { componentStack: info.componentStack?.slice(0, 1000) } })}>
+          <Suspense fallback={<p className="muted">…</p>}><Outlet /></Suspense>
+        </ErrorBoundary>
       </main>
     </>
   );

@@ -349,6 +349,47 @@ const dict = {
   ifscAlreadyLinked: { he: 'למטפס/ת הזה/זו כבר יש קישור ל-IFSC', en: 'This climber is already linked to an IFSC athlete' },
   ifscAutoNote: { he: 'תחרויות IFSC (גביעי עולם ואירופה, אליפויות) נוספות אוטומטית — אין צורך להזין אותן ידנית.',
     en: 'IFSC events (World and European cups, championships) are added automatically — no need to enter them by hand.' },
+  // Event day: checklist and error reports
+  eventChecklist: { he: 'רשימת בדיקה ליום התחרות', en: 'Event-day checklist' },
+  checklistIntro: { he: 'בדיקות אוטומטיות מהמערכת, ובדיקות ידניות שמסמנים במכשיר הזה.', en: 'Automatic checks from the system, and manual checks you tick on this device.' },
+  checklistAuto: { he: 'בדיקות אוטומטיות', en: 'Automatic checks' },
+  checklistManual: { he: 'בדיקות ידניות (נשמר במכשיר הזה)', en: 'Manual checks (kept on this device)' },
+  checklistRecheck: { he: 'בדיקה מחדש', en: 'Check again' },
+  checklistAllGood: { he: 'הכול תקין', en: 'All good' },
+  checklistFix: { he: 'לתיקון', en: 'Fix' },
+  checkPublished: { he: 'התחרות מפורסמת ויש לה תאריך', en: 'The competition is published and dated' },
+  checkCategoryRounds: { he: 'לכל קטגוריה יש סבבים', en: 'Every category has rounds' },
+  checkRoundBoulders: { he: 'לכל סבב יש בולדרים / מסלולים', en: 'Every round has boulders / routes' },
+  checkFirstStarters: { he: 'בסבבים הראשונים יש מתחרים ברשימת הזינוק', en: 'First rounds have climbers on the start list' },
+  checkStarterBibs: { he: 'לכל מתחרה בסבב ראשון יש מספר גב', en: 'Every climber in a first round has a bib' },
+  checkAdvanceQuota: { he: 'לסבבים שמהם עולים הלאה הוגדרה מכסת עולים', en: 'Rounds people advance from have a quota' },
+  checkBoulderJudges: { he: 'לכל בולדר / מסלול יש שופט', en: 'Every boulder / route has a judge' },
+  checkJudgesSignedIn: { he: 'לכל שופט משובץ יש משתמש והוא נכנס לפחות פעם אחת', en: 'Every assigned judge has an account and has signed in at least once' },
+  checkOldAppeals: { he: 'אין ערעורים פתוחים מימים קודמים', en: 'No appeals left open from earlier days' },
+  judgeNoLogin: { he: 'אין משתמש', en: 'no account' },
+  judgeNeverSignedIn: { he: 'עוד לא נכנס/ה', en: 'never signed in' },
+  judgeSignedInAt: { he: 'נכנס/ה לאחרונה: {when}', en: 'last signed in: {when}' },
+  manualNoDeploys: { he: 'אין עדכוני גרסה ושינויים במסד הנתונים היום', en: 'No deploys or database changes today' },
+  manualJudgesOpened: { he: 'כל שופט פתח את האפליקציה פעם אחת באינטרנט טוב אחרי העדכון האחרון', en: 'Every judge opened the app once on good signal after the last deploy' },
+  manualVenueSignal: { he: 'נבדק Wi-Fi וקליטה סלולרית באולם', en: 'Venue Wi-Fi and cellular signal checked' },
+  manualFallbackApp: { he: 'האפליקציה הזמנית מוכנה כגיבוי', en: 'The temporary app is ready as a fallback' },
+  manualPower: { he: 'הטלפונים טעונים ויש מטענים ניידים', en: 'Phones charged, power banks at hand' },
+  manualPdf: { he: 'הדפסת PDF עובדת', en: 'PDF printing works' },
+  clientErrors: { he: 'שגיאות מהאפליקציה', en: 'App errors' },
+  clientErrorsToday: { he: 'שגיאות אחרונות בימי התחרות', en: 'Latest errors on the competition days' },
+  clientErrorsHint: { he: 'שגיאות בלתי צפויות באפליקציית הצוות, 7 ימים אחרונים. קבוצה = אותה הודעה.', en: 'Unexpected errors in the staff app, last 7 days. A group = the same message.' },
+  clientErrorsNone: { he: 'אין שגיאות', en: 'No errors' },
+  errorTimes: { he: '{n} פעמים', en: '{n} times' },
+  errorLastSeen: { he: 'לאחרונה', en: 'Last seen' },
+  errorWho: { he: 'מי', en: 'Who' },
+  errorPage: { he: 'עמוד', en: 'Page' },
+  errorBuild: { he: 'גרסה', en: 'Build' },
+  errorStack: { he: 'מעקב', en: 'Stack' },
+  errorContext: { he: 'הקשר', en: 'Context' },
+  errorClear: { he: 'ניקוי הקבוצה', en: 'Clear group' },
+  errorBoundaryTitle: { he: 'משהו השתבש', en: 'Something went wrong' },
+  errorBoundaryText: { he: 'נסו לטעון את הדף מחדש. תוצאות שלא נשלחו נשארות בטלפון.', en: 'Try reloading the page. Results that were not sent stay on the phone.' },
+  reloadPage: { he: 'טעינה מחדש', en: 'Reload' },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type MsgKey = keyof typeof dict;
@@ -376,6 +417,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     try { localStorage.setItem('lang', l); } catch { /* ignore */ }
   };
   return <Ctx.Provider value={{ lang, setLang, t: (k) => dict[k][lang] }}>{children}</Ctx.Provider>;
+}
+
+/** A string outside the provider (the error boundary around the whole app), in the saved language. */
+export function tStatic(k: MsgKey): string {
+  return dict[k][initialLang()];
 }
 
 export function useI18n(): I18n {

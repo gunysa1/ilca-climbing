@@ -78,6 +78,7 @@ export function AdminCompetition() {
       <h1>{comp.name_he || comp.name}</h1>
       <AdminNav />
       <ErrorLine error={error} />
+      <p><Link to={`/admin/competition/${comp.id}/checklist`}>{t('eventChecklist')}</Link></p>
 
       <form className="panel form grid-form" onSubmit={saveComp} key={comp.id + comp.status}>
         <label>{t('nameEn')}<input name="name" required defaultValue={comp.name} /></label>
