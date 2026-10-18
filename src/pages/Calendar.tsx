@@ -1,3 +1,4 @@
+import { formatDate } from '../lib/dates';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -38,8 +39,8 @@ export function Calendar() {
   const marker = useMemo(() => todayMarkerBefore(inSeason, today), [inSeason, today]);
   const showMarker = season === seasonOf(today);
 
-  const day = (d: string) => new Date(`${d.slice(0, 10)}T12:00:00`).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-GB', { day: 'numeric', month: 'numeric' });
-  const monthName = (m: string) => new Date(`${m}-15T12:00:00`).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-GB', { month: 'long', year: 'numeric' });
+  const day = (d: string) => formatDate(d, lang, { day: 'numeric', month: 'numeric' });
+  const monthName = (m: string) => formatDate(`${m}-15`, lang, { month: 'long', year: 'numeric' });
   const toEvent = (c: CalendarCompetition): IcsEvent => ({
     id: c.id, title: localized(lang, c.name, c.name_he), starts_on: c.starts_on, ends_on: c.ends_on, venue: c.venue,
     url: `${APP_URL}/competition/${c.id}`,

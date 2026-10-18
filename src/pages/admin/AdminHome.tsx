@@ -1,3 +1,4 @@
+import { formatDate } from '../../lib/dates';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { localized, useI18n } from '../../lib/i18n';
@@ -67,7 +68,7 @@ export function AdminHome() {
         {comps?.map((c) => (
           <li key={c.id}>
             <Link to={`/admin/competition/${c.id}`} className="card">
-              <span className="card-date">{new Date(c.starts_on).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-GB')}</span>
+              <span className="card-date">{formatDate(c.starts_on, lang)}</span>
               <span className="card-title">{localized(lang, c.name, c.name_he)}</span>
               <span className={`badge ${c.status === 'draft' ? '' : 'badge-closed'}`}>{t(c.status)}</span>
             </Link>

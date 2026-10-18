@@ -1,3 +1,4 @@
+import { formatDate } from '../lib/dates';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ContinueBar } from '../components/ContinueBar';
@@ -47,7 +48,7 @@ export function Live() {
             {list.map((c) => (
               <li key={c.id}>
                 <Link to={`/competition/${c.id}`} className="card">
-                  <span className="card-date">{new Date(c.starts_on).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-GB')}</span>
+                  <span className="card-date">{formatDate(c.starts_on, lang)}</span>
                   <span className="card-title">{localized(lang, c.name, c.name_he)}</span>
                   {c.venue && <span className="muted">{c.venue}</span>}
                 </Link>

@@ -1,3 +1,4 @@
+import { formatDate } from '../lib/dates';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ContinueBar } from '../components/ContinueBar';
@@ -24,7 +25,7 @@ export function Home() {
   const [home, setHome] = useState<HomeData | null>(homeCache);
   const [failed, setFailed] = useState(false);
   const anyLive = (home?.live.length ?? 0) > 0;
-  const date = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-GB');
+  const date = (d: string) => formatDate(d, lang);
 
   // Everything but the ranking and favorites: one request. Then only the live part (home_page(true)):
   // every 5 s while a round is live (who is on the wall, like the round page), every 60 s otherwise;

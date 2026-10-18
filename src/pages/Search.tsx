@@ -1,3 +1,4 @@
+import { formatDate } from '../lib/dates';
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { FavoriteStar } from '../components/FavoriteStar';
@@ -62,7 +63,7 @@ export function Search() {
               <li key={c.id} className="event">
                 <span className="event-main">
                   <Link className="event-title" to={`/competition/${c.id}`}>{localized(lang, c.name, c.name_he)}</Link>
-                  <span className="muted small">{new Date(c.starts_on).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-GB')}</span>
+                  <span className="muted small">{formatDate(c.starts_on, lang)}</span>
                 </span>
               </li>
             ))}

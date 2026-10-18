@@ -1,3 +1,4 @@
+import { formatDate } from '../lib/dates';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { climberEvents, climberStats, type ClimberEvent } from '../lib/climberStats';
@@ -78,7 +79,7 @@ function DisciplineResults({ events, ranked }: { events: ClimberEvent[]; ranked?
                 {counts != null && <span className={`badge rank-tag${counts ? ' counts' : ''}`}>{t(counts ? 'rankedEvent' : 'unrankedEvent')}</span>}
               </span>
               <span className="muted small">
-                {new Date(e.starts_on).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-GB')} · {localized(lang, e.category, e.category_he)}
+                {formatDate(e.starts_on, lang)} · {localized(lang, e.category, e.category_he)}
                 {e.placing != null && e.field ? ` · ${e.placing}/${e.field}` : ''}
               </span>
               <span className="event-rounds">
