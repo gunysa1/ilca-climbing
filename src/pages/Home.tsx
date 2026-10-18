@@ -99,7 +99,7 @@ export function Home() {
           )}
 
           <section className="home-section">
-            <h2>{t('homeUpcoming')}</h2>
+            <h2>{t('homeUpcoming')} <Link className="small cal-link" to="/calendar">📅 {t('calLink')} ›</Link></h2>
             {home.upcoming.length === 0 ? <p className="muted">{t('homeNoUpcoming')}</p> : (
               <ul className="cards">
                 {home.upcoming.map((c) => (

@@ -1743,5 +1743,42 @@ update auth.users set last_sign_in_at = null;
 delete from client_errors;
 select pg_temp.assert(not has_function_privilege('anon', 'public.report_client_error(text,text,text,text,text,text,jsonb)', 'execute')
   and not has_function_privilege('anon', 'public.event_checklist(uuid)', 'execute'), 'anon cannot execute the event-day functions');
+-- ---------------------------------------------------------------- favorites_live(): alerts for starred climbers
+-- fixtures: a round of a competition that ended yesterday (counts), one that ended 10 days ago (does not),
+-- both with the same registered climber
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into competitions (id, name, starts_on, ends_on, status) values
+  ('1b000000-0000-0000-0000-000000000001', 'Yesterday cup', (now() at time zone 'Asia/Jerusalem')::date - 1, (now() at time zone 'Asia/Jerusalem')::date - 1, 'published'),
+  ('1b000000-0000-0000-0000-000000000002', 'Old cup', (now() at time zone 'Asia/Jerusalem')::date - 10, (now() at time zone 'Asia/Jerusalem')::date - 10, 'published');
+insert into categories (id, competition_id, name, gender) values
+  ('2b000000-0000-0000-0000-000000000001', '1b000000-0000-0000-0000-000000000001', 'Y Men', 'male'),
+  ('2b000000-0000-0000-0000-000000000002', '1b000000-0000-0000-0000-000000000002', 'O Men', 'male');
+insert into rounds (id, category_id, kind, status) values
+  ('3b000000-0000-0000-0000-000000000001', '2b000000-0000-0000-0000-000000000001', 'qualification', 'closed'),
+  ('3b000000-0000-0000-0000-000000000002', '2b000000-0000-0000-0000-000000000002', 'qualification', 'closed');
+insert into registrations values
+  ('2b000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 1),
+  ('2b000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 1);
+select set_config('request.jwt.claim.sub', '', false);
+select pg_temp.login(null);
+select pg_temp.assert(has_function_privilege('anon', 'public.favorites_live(uuid[])', 'execute'), 'anon can call favorites_live');
+select pg_temp.assert(exists (select 1 from json_array_elements(favorites_live(array['00000000-0000-0000-0000-000000000001'::uuid])) e
+    where e ->> 'round_id' = '30000000-0000-0000-0000-000000000001' and e ->> 'own' is not null and (e ->> 'first_round')::boolean),
+  'favorites_live: a starred climber''s round in a live competition, with their own result and first_round');
+select pg_temp.assert(exists (select 1 from json_array_elements(favorites_live(array['00000000-0000-0000-0000-000000000001'::uuid])) e
+    where e ->> 'round_id' = '3b000000-0000-0000-0000-000000000001'),
+  'favorites_live: a competition that ended yesterday still counts');
+select pg_temp.assert(not exists (select 1 from json_array_elements(favorites_live(array['00000000-0000-0000-0000-000000000001'::uuid])) e
+    where e ->> 'round_id' = '3b000000-0000-0000-0000-000000000002'),
+  'favorites_live: nothing of a competition that ended days ago');
+select pg_temp.assert(not exists (select 1 from json_array_elements(favorites_live(array['00000000-0000-0000-0000-000000000001'::uuid])) e
+    where e ->> 'round_id' in ('3a000000-0000-0000-0000-000000000001', '3d000000-0000-0000-0000-000000000001', '3f000000-0000-0000-0000-000000000001')),
+  'favorites_live: no past season rounds, no draft competition');
+select pg_temp.assert(favorites_live(array[]::uuid[])::text = '[]' and favorites_live(null)::text = '[]', 'favorites_live: nobody starred, nothing returned');
+select pg_temp.assert(favorites_live(array['00000000-0000-0000-0000-000000000001'::uuid])::text !~* 'birth|updated_by|email|asthma',
+  'favorites_live carries no private columns');
+reset role;
+select pg_temp.assert(not prosecdef, 'favorites_live runs with the caller''s rights (RLS as the caller)')
+from pg_proc where oid = 'public.favorites_live(uuid[])'::regprocedure;
 
 \echo ALL RLS TESTS PASSED

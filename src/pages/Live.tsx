@@ -32,6 +32,7 @@ export function Live() {
     <section className="with-bottom-bar">
       <ContinueBar />
       <h1>{t('competitions')} · {t(discipline === 'boulder' ? 'discBoulder' : discipline === 'lead' ? 'discLead' : 'discSpeed')}</h1>
+      <p className="home-more"><Link to="/calendar">📅 {t('calLink')} ›</Link></p>
       {comps === null && <p className="muted">{t('loading')}</p>}
       {comps !== null && shown.length === 0 && (
         <p className="muted">{discipline === 'speed' ? t('speedSoon') : t('empty')}</p>

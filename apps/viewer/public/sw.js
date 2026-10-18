@@ -23,3 +23,15 @@ self.addEventListener('fetch', (e) => {
     return res;
   })));
 });
+// A tapped notification (shown by useFavoriteAlerts) opens the app on the round.
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const path = (e.notification.data && e.notification.data.url) || '/';
+  // only controlled windows can be navigated; when that fails, open a new one
+  e.waitUntil(self.clients.matchAll({ type: 'window' }).then(async (list) => {
+    for (const c of list) {
+      try { await c.focus(); await c.navigate(path); return; } catch { /* try the next, then a new window */ }
+    }
+    return self.clients.openWindow(path);
+  }));
+});

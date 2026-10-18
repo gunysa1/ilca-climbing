@@ -9,7 +9,8 @@ import type { Category, Competition, Round } from '../lib/types';
 type CategoryWithRounds = Category & { rounds: Round[] };
 const ORDER: Round['kind'][] = ['qualification', 'semifinal', 'final'];
 
-export function CompetitionPage() {
+/** `bigScreen`: offer the venue screen (/screen/:id), which only the viewer app has. */
+export function CompetitionPage({ bigScreen = false }: { bigScreen?: boolean }) {
   const { id } = useParams();
   const { t, lang } = useI18n();
   const [comp, setComp] = useState<Competition | null>(null);
@@ -30,6 +31,7 @@ export function CompetitionPage() {
   return (
     <section>
       <h1>{comp ? localized(lang, comp.name, comp.name_he) : t('loading')}</h1>
+      {bigScreen && comp && <p className="home-more"><Link to={`/screen/${comp.id}`}>📺 {t('bigScreen')} ›</Link></p>}
       {cats?.length === 0 && <p className="muted">{t('empty')}</p>}
       {cats?.map((c) => (
         <div key={c.id} className="panel">
