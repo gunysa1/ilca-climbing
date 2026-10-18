@@ -354,6 +354,7 @@ a.ranking-part.dropped { text-decoration: line-through; }
 .score-sheet-table td { height: 2.1rem; }
 .score-sheet-table .box { width: 6.5rem; }
 .score-sheet-table .small-box { width: 3.5rem; }
+.score-sheet .muted { color: #555; }
 .score-sheet-legend { margin: .5rem 0; }
 .score-sheet-sign { display: flex; flex-wrap: wrap; gap: 1rem 2rem; margin-top: 1.25rem; }
 
@@ -405,7 +406,7 @@ details.season[open] > summary::before { transform: rotate(90deg); }
 /* Lead finals: the climbing time under the height. */
 .pad-time { display: grid; gap: .3rem; margin-top: .25rem; }
 .pad-time .pad-section { margin-bottom: 0; }
-.pad-time input { font-size: 1.6rem; font-family: 'IBM Plex Mono', ui-monospace, monospace; padding: .5rem .75rem; text-align: center; }
+.pad-time input { width: 100%; box-sizing: border-box; min-width: 0; font-size: 1.6rem; font-family: 'IBM Plex Mono', ui-monospace, monospace; padding: .5rem .75rem; text-align: center; }
 .pad-time input[aria-invalid="true"] { border-color: var(--live); }
 /* Judge home: a round that is not live yet (kept on the phone for offline use). */
 .judge-planned { opacity: .65; }

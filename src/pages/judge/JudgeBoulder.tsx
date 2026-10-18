@@ -8,7 +8,6 @@ import { formatHeight } from '../../lib/lead';
 import { resultKey, useRoundData, type LeadRow, type Starter } from '../../lib/roundData';
 import { latestRow, outboxKey, type ResultTable } from '../../lib/saveQueue';
 import { EMPTY_RESULT, type BoulderResult } from '../../lib/scoring';
-import { supabase } from '../../lib/supabase';
 import { LeadPad } from './LeadPad';
 import { OutboxNotices, pendingEntry } from './OutboxNotices';
 import { type Row } from './padParts';
@@ -24,7 +23,7 @@ export function JudgeBoulder() {
   const { roundId, boulderId } = useParams();
   const { t, lang } = useI18n();
   const { profileId } = useAuth();
-  const { round, boulders, starters, results, leadResults, loading, offline } = useRoundData(roundId, { offlineKey: profileId ? judgeRoundsKey(profileId) : undefined });
+  const { round, boulders, starters, results, leadResults, loading, offline, reload } = useRoundData(roundId, { offlineKey: profileId ? judgeRoundsKey(profileId) : undefined });
   const boulder = boulders.find((b) => b.id === boulderId);
   const claims = useBoulderClaims(boulder?.id);
   const { snap } = useOutbox();
@@ -33,18 +32,24 @@ export function JudgeBoulder() {
   const [index, setIndex] = useState<number | null>(null);
   const [showList, setShowList] = useState(false);
   const [toast, setToast] = useState('');
-  const timed = isTimedRound(round);
+  const timed = isTimedRound(round, boulders.length);
   // Not live yet (opened the evening before, JudgeHome) or closed: read-only, as the server would refuse
-  // the rows. Shown from the device copy (no signal): scoring goes on, the rows wait in the outbox.
-  const [liveNow, setLiveNow] = useState(false);
-  const notLive = !!round && round.status !== 'live' && !offline && !liveNow;
+  // the rows. Planned and the server can't be reached (the page came from the device copy, or the check
+  // below failed: no signal at the venue): scoring goes on, the rows wait in the outbox (if the round is
+  // still planned when they arrive, they are refused and listed as not saved).
+  const [unreachable, setUnreachable] = useState(false);
+  const status = round?.status;
+  const fromDevice = !!offline || unreachable;
+  const notLive = !!round && status !== 'live' && !(fromDevice && status === 'planned');
   useEffect(() => {
-    if (!round || round.status !== 'planned' || offline || liveNow) return;
-    // Planned: ask every 20 s, so the pad opens by itself when the admin sets the round live.
-    const poll = setInterval(() => void supabase.from('rounds').select('status').eq('id', round.id).maybeSingle()
-      .then(({ data }) => { if (data?.status === 'live') setLiveNow(true); }), 20_000);
-    return () => clearInterval(poll);
-  }, [round, offline, liveNow]);
+    if (!status || status === 'live' || !reload) return;
+    // Not live: load the page again every 20 s (status, start list made meanwhile), so the pad opens by
+    // itself when the admin sets the round live (or reopens it).
+    const check = () => void reload().then((reachable) => setUnreachable(!reachable));
+    const poll = setInterval(check, 20_000);
+    window.addEventListener('online', check);
+    return () => { clearInterval(poll); window.removeEventListener('online', check); };
+  }, [status, reload]);
   // What the pad shows for a climber: the judge's unsent row, else the newest of the server's row, the
   // last one the server returned to this judge (acked: newer than a page kept for offline use) and the
   // one a refused row found on the server ("changed": the admin's values).
@@ -94,7 +99,7 @@ export function JudgeBoulder() {
         <button className="secondary" onClick={() => setShowList((v) => !v)} aria-expanded={showList}>☰ {t('climberList')}</button>
       </div>
       {notLive && <p className="notice" role="status">{t(round.status === 'planned' ? 'roundNotLiveYet' : 'roundClosedJudge')}</p>}
-      {offline && round.status !== 'live' && <p className="muted small">{t('roundNotLiveOffline')}</p>}
+      {fromDevice && round.status === 'planned' && <p className="notice" role="status">{t('roundNotLiveOffline')}</p>}
       <div className="judge-steps">
         <button className="secondary" onClick={() => go(i - 1)} disabled={i === 0}>{t('prevClimber')}</button>
         <button className="secondary" onClick={() => go(i + 1)} disabled={i >= starters.length - 1}>{t('followingClimber')}</button>

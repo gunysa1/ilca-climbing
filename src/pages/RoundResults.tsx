@@ -105,7 +105,7 @@ export function RoundResults() {
   if (loading) return <p className="muted">{t('loading')}</p>;
   if (!round) return <p className="muted">{t('empty')}</p>;
   const lead = round.scoring === 'lead';
-  const scoreHeader = lead ? (boulders.length > 1 ? t('rankPoints') : isTimedRound(round) ? t('climbTime') : '')
+  const scoreHeader = lead ? (boulders.length > 1 ? t('rankPoints') : isTimedRound(round, boulders.length) ? t('climbTime') : '')
     : round.scoring === 'ifsc2025' ? t('points') : `${t('tops')}/${t('zones')}`;
 
   return (

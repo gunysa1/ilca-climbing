@@ -817,6 +817,22 @@ await leadPanel.getByRole('link', { name: 'Route 1' }).click();
 await jp.getByText('This round is not live yet').waitFor();
 await jp.locator('.pad-head').getByText('נועה לוי').waitFor();
 if (!(await jp.getByRole('button', { name: '+1 Hold' }).isDisabled())) problems.push('the pad of a planned round is editable');
+{
+  const hj = await page('he', { width: 390, height: 844 }, judgeSession);   // planned: no claims, so a second phone is fine
+  await hj.goto(jp.url());
+  await hj.getByText('הסבב עוד לא פתוח').waitFor();
+  if (await hj.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) problems.push('planned lead pad (he, 390px) scrolls sideways');
+  await hj.screenshot({ path: `${out}/judge-lead-planned-he-390.png`, fullPage: true });
+  await hj.close();
+}
+step('lead: the signal goes while waiting for "live": the pad scores from the copy, with a note; back online it waits again');
+await jp.context().setOffline(true);                                // the 20 s check fails: like the copy on the phone
+await jp.waitForFunction(() => !document.querySelector('button[aria-label="+1 Hold"]')?.disabled, null, { timeout: 30000 });
+await jp.getByText("The copy on this phone says the round isn't live yet").waitFor();
+await jp.screenshot({ path: `${out}/judge-lead-planned-offline-en.png` });
+await jp.context().setOffline(false);                               // "online": checked at once, still planned
+await jp.getByText('This round is not live yet').waitFor({ timeout: 15000 });
+if (!(await jp.getByRole('button', { name: '+1 Hold' }).isDisabled())) problems.push('back online, the planned pad stayed editable');
 await p.goto(leadCompUrl);
 await p.getByLabel('Status').selectOption('published');
 await p.getByRole('button', { name: 'Save' }).click();
@@ -899,25 +915,43 @@ await leadFinalRow.getByLabel('Routes').press('Tab');
 await leadFinalRow.getByLabel('Advance from previous round').fill('2');
 await leadFinalRow.getByLabel('Advance from previous round').press('Tab');
 await p.waitForTimeout(500);
-await leadFinalRow.getByRole('button', { name: 'Generate start list' }).click();
-await leadFinalRow.getByText('Starters: 2').waitFor();
-await leadFinalRow.getByRole('button', { name: 'Go live' }).click();
-await leadFinalRow.getByRole('button', { name: 'Close round' }).waitFor();
 await leadFinalRow.getByRole('link', { name: 'Judges & corrections' }).click();
 await p.waitForURL(/\/admin\/round\//);
 const leadFinalId = p.url().split('/').pop();
 await p.locator('select[name=judge]').selectOption({ label: 'Judge Yossi' });
 await p.getByRole('button', { name: 'Assign' }).click();
 await p.locator('.admin-row', { hasText: 'Judge Yossi' }).getByText('Whole round').waitFor();
+// the judge opens the final's pad while it is planned and has no start list yet
 await jp.goto(`${base}/judge`);
 await jp.locator('.panel', { hasText: 'Final' }).filter({ hasText: 'Lead League' }).getByRole('link', { name: 'Route 1' }).click();
-await jp.locator('.pad-time input').waitFor();
-const times = { 'נועה לוי': '2:10.5', 'תמר כהן': '118' };
+await jp.getByText('This round is not live yet').waitFor();
+await jp.getByText(/1 \/ 0/).waitFor();
+await p.goto(leadCompUrl);
+await leadFinalRow.getByRole('button', { name: 'Generate start list' }).click();
+await leadFinalRow.getByText('Starters: 2').waitFor();
+await leadFinalRow.getByRole('button', { name: 'Go live' }).click();
+await leadFinalRow.getByRole('button', { name: 'Close round' }).waitFor();
+// the open pad reloads the round page: start list and live, without leaving the pad
+await jp.locator('.pad-time input:not([disabled])').waitFor({ timeout: 30000 });
+await jp.getByText(/1 \/ 2/).waitFor();
+await jp.getByRole('button', { name: /On the wall/ }).waitFor();
+{
+  // the same phone in Hebrew at 390px (a second phone would hold the claim)
+  await jp.setViewportSize({ width: 390, height: 844 });
+  await jp.getByRole('button', { name: 'עב', exact: true }).click();
+  await jp.getByText('בשניות, עם נקודה עשרונית').waitFor();
+  if (await jp.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) problems.push('lead final pad (he, 390px) scrolls sideways');
+  await jp.screenshot({ path: `${out}/judge-lead-final-he-390.png`, fullPage: true });
+  await jp.getByRole('button', { name: 'EN', exact: true }).click();
+  await jp.setViewportSize({ width: 1280, height: 900 });
+  await jp.getByText('In seconds, with decimals').waitFor();
+}
+const times = { 'נועה לוי': '130.5', 'תמר כהן': '118' };
 for (let i = 0; i < 2; i++) {
   await jp.getByRole('button', { name: /On the wall/ }).waitFor();
   const who = (await jp.locator('.pad-head h2').innerText()).trim();
   if (!(who in times)) { problems.push(`unexpected finalist ${who}`); break; }
-  await jp.locator('.pad-time input').fill('2:75');
+  await jp.locator('.pad-time input').fill('2:7');
   await jp.getByText('Not a valid time').waitFor();
   if (!(await jp.getByRole('button', { name: /Next · lock/ }).isDisabled())) problems.push('a bad time can be locked');
   for (let k = 0; k < 30; k++) await jp.getByRole('button', { name: '+1 Hold' }).click();

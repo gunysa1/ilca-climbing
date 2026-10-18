@@ -92,7 +92,7 @@ export function AdminRound() {
 
   if (!round) return <section><AdminNav /><ErrorLine error={error} /><p className="muted">{t('loading')}</p></section>;
   const lead = round.scoring === 'lead';
-  const timed = isTimedRound(round);
+  const timed = isTimedRound(round, boulders.length);
 
   function assign(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();

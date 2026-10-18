@@ -67,7 +67,7 @@ export function LeadPad({ roundId, routeId, starter, label, baseRow, initial, lo
       {timed && (
         <label className="pad-time">
           <span className="pad-section">{t('climbTime')}</span>
-          <input type="text" inputMode="decimal" dir="ltr" autoComplete="off" placeholder="2:35.4" value={timeText} disabled={blocked}
+          <input type="text" inputMode="decimal" dir="ltr" autoComplete="off" placeholder="83.4" value={timeText} disabled={blocked}
             aria-invalid={badTime} onChange={(e) => { setTimeText(e.target.value); changed(); }} />
           <span className={`small ${badTime ? 'error' : 'muted'}`}>{badTime ? t('climbTimeInvalid') : t('climbTimeHint')}</span>
         </label>

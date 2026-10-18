@@ -5,15 +5,16 @@
 const MAX_MS = 60 * 60_000;
 
 /**
- * The typed time in ms: seconds with optional decimals ("95", "95.4") or minutes:seconds ("1:35",
- * "1:35.4"); a comma works as the decimal point. Empty: null (no time). Anything else, zero or over an
+ * The typed time in ms: seconds with optional decimals ("95", "95.4"; what the judge pad asks for, its
+ * phone keypad has no ":") or minutes:seconds with two-digit seconds ("1:35", "1:35.4"; the admin form);
+ * a comma works as the decimal point. Empty: null (no time). Anything else, zero or over an
  * hour: undefined (invalid).
  */
 export function parseClimbTime(text: string): number | null | undefined {
   const s = text.trim().replace(',', '.');
   if (s === '') return null;
   let seconds: number;
-  const ms = /^(\d{1,2}):([0-5]?\d(?:\.\d{1,3})?)$/.exec(s);
+  const ms = /^(\d{1,2}):([0-5]\d(?:\.\d{1,3})?)$/.exec(s);
   if (ms) seconds = Number(ms[1]) * 60 + Number(ms[2]);
   else if (/^\d{1,4}(?:\.\d{1,3})?$/.test(s)) seconds = Number(s);
   else return undefined;
@@ -31,9 +32,10 @@ export function formatClimbTime(ms: number | null | undefined): string {
   return `${minutes}:${String(whole).padStart(2, '0')}${frac}`;
 }
 
-/** The round records climbing times: a lead final whose ties break on time (not switched off). */
-export const isTimedRound = (round: { scoring: string; kind: string; time_tiebreak?: boolean } | null | undefined) =>
-  !!round && round.scoring === 'lead' && round.kind === 'final' && round.time_tiebreak !== false;
+/** The round records climbing times where they rank (lead.ts, SQL lead_scores): a lead final on one route
+ *  whose ties break on time (not switched off). */
+export const isTimedRound = (round: { scoring: string; kind: string; time_tiebreak?: boolean } | null | undefined, routes: number) =>
+  !!round && round.scoring === 'lead' && round.kind === 'final' && round.time_tiebreak !== false && routes === 1;
 
 /** The lead row the judge pad queues (src/lib/saveQueue.ts): the whole result. `time_ms` only in timed
  *  rounds, so a pad elsewhere never clears a time an admin entered. TOP has no "+". */

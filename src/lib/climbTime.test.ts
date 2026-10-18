@@ -13,13 +13,13 @@ describe('climbing time', () => {
     expect(parseClimbTime('3:08')).toBe(188_000);
     expect(parseClimbTime('2:10.5')).toBe(130_500);
     expect(parseClimbTime('0:52.25')).toBe(52_250);
-    expect(parseClimbTime('1:5')).toBe(65_000);
+    expect(parseClimbTime('1:05')).toBe(65_000);
   });
 
   it('empty is no time; anything else is invalid', () => {
     expect(parseClimbTime('')).toBeNull();
     expect(parseClimbTime('   ')).toBeNull();
-    for (const bad of ['0', '0:00', 'abc', '1:60', '1:2:3', '-5', '2.5.1', '61:00', '99999']) expect(parseClimbTime(bad), bad).toBeUndefined();
+    for (const bad of ['0', '0:00', 'abc', '1:60', '1:5', '1:5.5', '1:2:3', '-5', '2.5.1', '61:00', '99999']) expect(parseClimbTime(bad), bad).toBeUndefined();
   });
 
   it('shows m:ss with the decimals that matter', () => {
@@ -34,13 +34,14 @@ describe('climbing time', () => {
     for (const ms of [1_000, 52_250, 95_400, 130_500, 188_000, 359_999]) expect(parseClimbTime(formatClimbTime(ms))).toBe(ms);
   });
 
-  it('only lead finals with the time tie-break record times', () => {
-    expect(isTimedRound({ scoring: 'lead', kind: 'final' })).toBe(true);
-    expect(isTimedRound({ scoring: 'lead', kind: 'final', time_tiebreak: true })).toBe(true);
-    expect(isTimedRound({ scoring: 'lead', kind: 'final', time_tiebreak: false })).toBe(false);
-    expect(isTimedRound({ scoring: 'lead', kind: 'semifinal' })).toBe(false);
-    expect(isTimedRound({ scoring: 'ifsc2025', kind: 'final' })).toBe(false);
-    expect(isTimedRound(null)).toBe(false);
+  it('only one-route lead finals with the time tie-break record times', () => {
+    expect(isTimedRound({ scoring: 'lead', kind: 'final' }, 1)).toBe(true);
+    expect(isTimedRound({ scoring: 'lead', kind: 'final', time_tiebreak: true }, 1)).toBe(true);
+    expect(isTimedRound({ scoring: 'lead', kind: 'final', time_tiebreak: false }, 1)).toBe(false);
+    expect(isTimedRound({ scoring: 'lead', kind: 'final' }, 2)).toBe(false); // time ranks on one route only
+    expect(isTimedRound({ scoring: 'lead', kind: 'semifinal' }, 1)).toBe(false);
+    expect(isTimedRound({ scoring: 'ifsc2025', kind: 'final' }, 1)).toBe(false);
+    expect(isTimedRound(null, 1)).toBe(false);
   });
 
   it('the pad row carries time_ms in timed rounds only; TOP drops the +', () => {

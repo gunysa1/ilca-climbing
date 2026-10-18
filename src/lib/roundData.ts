@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { isTransient } from './saveQueue';
 import { supabase } from './supabase';
 import { type Boulder, type Profile, type Round } from './types';
 import type { LeadResult } from './lead';
@@ -49,6 +50,9 @@ export interface RoundData {
   loading: boolean;
   /** Shown from the copy kept on the device: the server couldn't be reached (judge pad). */
   offline?: boolean;
+  /** Judge pad: load the page again now (start list, status). Resolves false when the server couldn't
+   *  be reached (no signal, timeout); the page shown stays as it is then. */
+  reload?: () => Promise<boolean>;
 }
 
 /** Start list of a round, joined with bib and age class from the category's registrations. */
@@ -116,10 +120,31 @@ function keepOffline(key: string, roundId: string, page: RoundPage) {
   try { localStorage.setItem(key, JSON.stringify(Object.fromEntries([...kept, [roundId, page]]))); } catch { /* full or blocked */ }
 }
 
+/** A request that hangs (weak signal) is given up after this (judge pad, like the outbox). */
+const PAGE_TIMEOUT_MS = 15_000;
+/** The judge pad's own load: with a timeout; `reachable` false for no signal / timeout / server error. */
+async function fetchPageTimed(roundId: string): Promise<{ page: RoundPage | null; reachable: boolean }> {
+  try {
+    const { data, error, status } = await supabase.rpc('round_page', { p_round: roundId }).abortSignal(AbortSignal.timeout(PAGE_TIMEOUT_MS));
+    if (error) return { page: null, reachable: !(isTransient(status) || status === 401) };
+    const page = data as RoundPage | null;
+    if (page) { pageCache.set(roundId, page); pageAt.set(roundId, Date.now()); }
+    return { page, reachable: true };
+  } catch {
+    return { page: null, reachable: false };
+  }
+}
+
+/** Judge home: kept on the device recently enough not to load it again on every visit. */
+const KEPT_FRESH_MS = 5 * 60_000;
 /** Judge home: load a round page now and keep it on the device (`key`), so its pad opens without
- *  signal later (e.g. the evening before). False when it couldn't be loaded. */
+ *  signal later (e.g. the evening before); a page this visit loaded in the last 5 minutes is kept as it
+ *  is. False when it couldn't be loaded. */
 export async function keepRoundOffline(key: string, roundId: string): Promise<boolean> {
-  const page = await fetchRoundPage(roundId);
+  const at = pageAt.get(roundId);
+  const cached = pageCache.get(roundId);
+  if (cached && at !== undefined && Date.now() - at < KEPT_FRESH_MS) { keepOffline(key, roundId, cached); return true; }
+  const { page } = await fetchPageTimed(roundId);
   if (page) keepOffline(key, roundId, page);
   return !!page;
 }
@@ -150,6 +175,8 @@ export function useRoundData(roundId: string | undefined, { offlineKey, reuseMs 
     const cached = roundId ? pageCache.get(roundId) : undefined;
     return cached ? toState(cached) : EMPTY;
   });
+  const reloadRef = useRef<() => Promise<boolean>>(async () => false);
+  const reload = useCallback(() => reloadRef.current(), []);
 
   useEffect(() => {
     if (!roundId) return;
@@ -174,6 +201,12 @@ export function useRoundData(roundId: string | undefined, { offlineKey, reuseMs 
       void fetchRoundPage(roundId).then((page) => { if (!cancelled && page) { if (offlineKey) keepOffline(offlineKey, roundId, page); setState(toState(page)); } });
     };
     if (offlineKey) window.addEventListener('online', reload);
+    // On demand (judge pad waiting for "live"): fresh page incl. start list and status, kept on the device.
+    reloadRef.current = async () => {
+      const { page, reachable } = await fetchPageTimed(roundId);
+      if (!cancelled && page) { if (offlineKey) keepOffline(offlineKey, roundId, page); setState(toState(page)); }
+      return reachable;
+    };
 
     const channel = supabase.channel(`round:${roundId}`)
       .on('postgres_changes',
@@ -209,8 +242,8 @@ export function useRoundData(roundId: string | undefined, { offlineKey, reuseMs 
         })
       .subscribe();
 
-    return () => { cancelled = true; window.removeEventListener('online', reload); supabase.removeChannel(channel); };
+    return () => { cancelled = true; window.removeEventListener('online', reload); supabase.removeChannel(channel); reloadRef.current = async () => false; };
   }, [roundId, offlineKey]);
 
-  return state;
+  return { ...state, reload };
 }

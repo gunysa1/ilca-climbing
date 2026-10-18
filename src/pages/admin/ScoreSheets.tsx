@@ -12,8 +12,11 @@ export function ScoreSheets() {
 
   if (loading) return <p className="muted">{t('loading')}</p>;
   if (!round || !category) return <p className="notice">{t('noAccess')}</p>;
-  const timed = isTimedRound(round);
+  const timed = isTimedRound(round, boulders.length);
   const lead = round.scoring === 'lead';
+  // Qualification groups climb separately: one sheet per route and group.
+  const groups = [...new Set(starters.map((s) => s.group_label))].sort((a, b) => (a ?? '').localeCompare(b ?? ''));
+  const sheets = boulders.flatMap((b) => (groups.length ? groups : [null]).map((g) => ({ b, g, list: starters.filter((s) => s.group_label === g) })));
   const title = [localized(lang, category.competition.name, category.competition.name_he), localized(lang, category.name, category.name_he), t(round.kind)].join(' · ');
 
   return (
@@ -25,11 +28,11 @@ export function ScoreSheets() {
         {starters.length === 0 && <p className="notice">{t('scoreSheetsNoStarters')}</p>}
         <button className="primary" onClick={() => window.print()} disabled={boulders.length === 0}>{t('printPdf')}</button>
       </div>
-      {boulders.map((b) => (
-        <article key={b.id} className="score-sheet">
+      {sheets.map(({ b, g, list }) => (
+        <article key={`${b.id}:${g ?? ''}`} className="score-sheet">
           <div className="score-sheet-head">
             <h2>{title}</h2>
-            <strong className="score-sheet-route">{t(lead ? 'route' : 'boulder')} {b.number}</strong>
+            <strong className="score-sheet-route">{t(lead ? 'route' : 'boulder')} {b.number}{g ? ` · ${t('group')} ${g}` : ''}</strong>
           </div>
           <table className="score-sheet-table">
             <thead>
@@ -41,13 +44,13 @@ export function ScoreSheets() {
               </tr>
             </thead>
             <tbody>
-              {starters.map((s, i) => (
+              {list.map((s, i) => (
                 <tr key={s.climber_id}>
                   <td>{i + 1}</td>
                   <td>{s.bib ?? ''}</td>
                   <td>
                     {localized(lang, s.profile.full_name, s.profile.full_name_he)}
-                    <span className="muted small">{[s.group_label && `${t('group')} ${s.group_label}`, s.age_class, s.profile.club].filter(Boolean).map((x) => ` · ${x}`).join('')}</span>
+                    <span className="muted small">{[s.age_class, s.profile.club].filter(Boolean).map((x) => ` · ${x}`).join('')}</span>
                   </td>
                   <td className="box" />
                   {timed && <td className="box" />}

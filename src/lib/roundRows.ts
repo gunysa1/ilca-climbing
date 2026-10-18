@@ -15,7 +15,7 @@ export function roundRows(
   if (round.scoring === 'lead') {
     const multi = boulders.length > 1;
     const seeds = new Map(shown.filter((s) => s.prev_place != null).map((s) => [s.climber_id, s.prev_place!]));
-    const timed = isTimedRound(round) && !multi;
+    const timed = isTimedRound(round, boulders.length);
     return leadStandings(shown.map((s) => s.climber_id), boulders.map((b) => b.id), [...leadResults.values()].map(toLeadResult), seeds,
       round.kind === 'final' && round.time_tiebreak !== false)
       // single route: the height is on the route chip (a final: the climbing time here); several routes:

@@ -101,8 +101,11 @@ one-year cache for `/assets/*`; Cloudflare serves `index.html` for app routes (s
   round on the phone, so the pad reopens even without signal at the venue. This works the evening
   before too: the judge screen lists planned rounds of competitions starting within two days (Israel
   date, greyed "not live yet") and keeps their round pages on the phone ("kept on this phone"); the
-  pad shows the start list read-only until the round is live (it checks every 20 s), and, opened
-  without signal, lets the judge score from the kept copy (rows wait in the outbox).
+  pad shows the start list read-only until the round is live (it reloads the round page every 20 s,
+  so a start list generated meanwhile shows too). Without signal (the page came from the kept copy,
+  or the 20 s check fails) a planned round's pad lets the judge score from the copy, with a note; rows
+  that reach the server while the round is still planned are refused and listed as not saved. A closed
+  round's pad is read-only either way.
 - **Lead fallback: paper.** The temporary app is a boulder app. For a lead event print the score sheets
   (admin round page → "Paper score sheets": one page per route in start order, height / time boxes,
   judge signature) and tick it on the checklist.
