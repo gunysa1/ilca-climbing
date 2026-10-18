@@ -25,7 +25,7 @@ revoke all on public.client_errors from anon, authenticated;
 grant select, delete on public.client_errors to authenticated;
 
 -- Staff app only (signed in). Caps the field sizes, drops calls beyond 30 per profile per 10 minutes
--- (quietly: reporting must never be a reason for another error) and removes rows older than 30 days.
+-- (quietly: reporting must never be a reason for another error), ignores accounts without a profile and removes rows older than 30 days.
 create function public.report_client_error(
   p_app text, p_path text, p_message text, p_stack text default null,
   p_user_agent text default null, p_build text default null, p_context jsonb default null)
@@ -35,9 +35,10 @@ begin
   if auth.uid() is null then
     raise exception 'sign in to report errors' using errcode = 'insufficient_privilege';
   end if;
-  if coalesce(p_message, '') = '' then return; end if;
+  if coalesce(p_message, '') = '' or me is null then return; end if; -- no profile: nobody to attribute it to
+  perform pg_advisory_xact_lock(hashtext('client_errors:' || me::text)); -- parallel calls of one profile count one after another
   if (select count(*) from client_errors
-      where profile_id is not distinct from me and created_at > now() - interval '10 minutes') >= 30 then
+      where profile_id = me and created_at > now() - interval '10 minutes') >= 30 then
     return;
   end if;
   delete from client_errors where created_at < now() - interval '30 days';

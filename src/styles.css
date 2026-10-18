@@ -403,3 +403,6 @@ details.season[open] > summary::before { transform: rotate(90deg); }
 a.button.primary { display: inline-block; text-align: center; color: #fff; padding: .6rem 1rem; border-radius: 8px; }
 .ilca-banner { background: #0b1f3a; border-radius: 10px; padding: 14px; display: flex; justify-content: center; }
 .ilca-banner img { width: 208px; height: auto; display: block; }
+
+/* Stacks and JSON in the admin error list wrap instead of widening the page */
+pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }

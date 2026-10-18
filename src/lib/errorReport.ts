@@ -18,6 +18,8 @@ export type SendReport = (report: ErrorReport & { app: string; build: string; us
 
 export const DEDUPE_MS = 60_000;
 export const OFFLINE_KEEP = 20;
+export const RETRY_BASE_MS = 30_000;
+export const RETRY_MAX_MS = 300_000;
 /** Browser noise that is not a bug of ours. */
 const IGNORED = [/ResizeObserver loop/i, /^Script error\.?$/i];
 
@@ -35,12 +37,14 @@ export class ErrorReporter {
   private seen = new Map<string, number>();
   private waiting: ErrorReport[] = [];
   private flushing = false;
+  private failures = 0;
+  private timer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private opts: ReporterOptions) {}
 
   /** Follows the session: reports only while signed in; what waited for another session is dropped. */
   setSignedIn(signedIn: boolean) {
-    if (!signedIn) this.waiting = [];
+    if (!signedIn) { this.waiting = []; this.stopRetry(); }
     this.signedIn = signedIn;
     if (signedIn) void this.flush();
   }
@@ -53,14 +57,32 @@ export class ErrorReporter {
       const message = r.message.trim();
       if (!this.signedIn || !message || IGNORED.some((re) => re.test(message))) return;
       const now = (this.opts.now ?? Date.now)();
-      const last = this.seen.get(message);
+      // Same message and same context (which boulder, which code): one report a minute.
+      const key = `${message}\u0000${JSON.stringify(r.context ?? null)}`;
+      const last = this.seen.get(key);
       if (last !== undefined && now - last < DEDUPE_MS) return;
-      this.seen.set(message, now);
+      this.seen.set(key, now);
       if (this.seen.size > 200) for (const [k, at] of this.seen) if (now - at >= DEDUPE_MS) this.seen.delete(k);
       this.waiting.push({ ...r, message });
       if (this.waiting.length > OFFLINE_KEEP) this.waiting.shift();
       void this.flush();
     } catch { /* never throw from reporting */ }
+  }
+
+  /** Back to the app: try what waits now. */
+  kick() { void this.flush(); }
+
+  private stopRetry() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.failures = 0;
+  }
+
+  /** After a failed send: 30 s, 60 s, 120 s ... up to 5 minutes. */
+  private scheduleRetry() {
+    if (this.timer) return;
+    const delay = Math.min(RETRY_BASE_MS * 2 ** Math.max(this.failures - 1, 0), RETRY_MAX_MS);
+    this.timer = setTimeout(() => { this.timer = null; void this.flush(); }, delay);
   }
 
   /** Send what waits (one at a time); stops at the first failure and keeps the rest for 'online'. */
@@ -76,8 +98,14 @@ export class ErrorReporter {
             ...next, app: this.opts.app ?? 'staff', build: this.opts.build?.() ?? '', userAgent: this.opts.userAgent?.() ?? '',
           });
         } catch { ok = false; }
-        if (!ok) break;
-        this.waiting.shift();
+        if (!ok) {
+          this.failures++;
+          this.scheduleRetry();
+          break;
+        }
+        this.failures = 0;
+        const at = this.waiting.indexOf(next); // by identity: a full buffer may have dropped it meanwhile
+        if (at >= 0) this.waiting.splice(at, 1);
       }
     } finally {
       this.flushing = false;
@@ -125,5 +153,6 @@ export function installErrorReporting() {
     const reason: unknown = e.reason;
     reportClientError(`Unhandled rejection: ${messageOf(reason)}`, { stack: reason instanceof Error ? reason.stack : undefined });
   });
-  window.addEventListener('online', () => { void reporter.flush(); });
+  window.addEventListener('online', () => reporter.kick());
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reporter.kick(); });
 }

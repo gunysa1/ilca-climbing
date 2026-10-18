@@ -389,6 +389,7 @@ const dict = {
   errorClear: { he: 'ניקוי הקבוצה', en: 'Clear group' },
   errorBoundaryTitle: { he: 'משהו השתבש', en: 'Something went wrong' },
   errorBoundaryText: { he: 'נסו לטעון את הדף מחדש. תוצאות שלא נשלחו נשארות בטלפון.', en: 'Try reloading the page. Results that were not sent stay on the phone.' },
+  errorBoundaryTextViewer: { he: 'נסו לטעון את הדף מחדש.', en: 'Try reloading the page.' },
   reloadPage: { he: 'טעינה מחדש', en: 'Reload' },
 } satisfies Record<string, Record<Lang, string>>;
 

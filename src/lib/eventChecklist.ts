@@ -35,10 +35,11 @@ export const CHECK_TEXT: Record<CheckId, MsgKey> = {
   old_appeals: 'checkOldAppeals',
 };
 
-/** Where an admin fixes a failing check (the item's round page, else the competition page, judges: people). */
+/** Where an admin fixes a failing check: judges and appeals on the round page, accounts under people,
+ *  everything else (boulders, bibs, quota, start lists, status) on the competition page. */
 export function fixPath(competitionId: string, id: CheckId, item?: CheckItem): string {
   if (id === 'judges_signed_in') return '/admin/people';
-  if (item?.round_id) return `/admin/round/${item.round_id}`;
+  if ((id === 'boulder_judges' || id === 'old_appeals') && item?.round_id) return `/admin/round/${item.round_id}`;
   return `/admin/competition/${competitionId}`;
 }
 

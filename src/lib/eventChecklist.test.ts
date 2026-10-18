@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fixPath, readTicks, writeTicks } from './eventChecklist';
+import { fixPath, type CheckId, readTicks, writeTicks } from './eventChecklist';
 
 describe('eventChecklist', () => {
   it('keeps ticks per competition and survives broken storage', () => {
@@ -16,8 +16,13 @@ describe('eventChecklist', () => {
     expect(readTicks('c1', null)).toEqual([]);
   });
   it('links a failing check to the place that fixes it', () => {
-    expect(fixPath('c1', 'round_boulders', { round_id: 'r1' })).toBe('/admin/round/r1');
-    expect(fixPath('c1', 'published')).toBe('/admin/competition/c1');
-    expect(fixPath('c1', 'judges_signed_in', { profile_id: 'p' })).toBe('/admin/people');
+    const item = { round_id: 'r1', category_id: 'k1', profile_id: 'p' };
+    const expected: Record<CheckId, string> = {
+      published: '/admin/competition/c1', category_rounds: '/admin/competition/c1', round_boulders: '/admin/competition/c1',
+      first_starters: '/admin/competition/c1', starter_bibs: '/admin/competition/c1', advance_quota: '/admin/competition/c1',
+      boulder_judges: '/admin/round/r1', judges_signed_in: '/admin/people', old_appeals: '/admin/round/r1',
+    };
+    for (const id of Object.keys(expected) as CheckId[]) expect(fixPath('c1', id, item), id).toBe(expected[id]);
+    expect(fixPath('c1', 'boulder_judges')).toBe('/admin/competition/c1');
   });
 });
