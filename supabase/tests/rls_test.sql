@@ -1535,7 +1535,7 @@ insert into categories (id, competition_id, name, gender) values
 insert into rounds (id, category_id, kind, status) values
   ('ee000000-0000-0000-0001-000000000001', 'ee000000-0000-0000-0000-0000000000a1', 'qualification', 'closed'),
   ('ee000000-0000-0000-0001-000000000002', 'ee000000-0000-0000-0000-0000000000a1', 'final', 'closed'),
-  ('ee000000-0000-0000-0001-000000000003', 'ee000000-0000-0000-0000-0000000000a2', 'qualification', 'live');
+  ('ee000000-0000-0000-0001-000000000003', 'ee000000-0000-0000-0000-0000000000a2', 'qualification', 'closed');
 insert into boulders (id, round_id, number) values
   ('ee000000-0000-0000-0002-000000000001', 'ee000000-0000-0000-0001-000000000001', 1),
   ('ee000000-0000-0000-0002-000000000002', 'ee000000-0000-0000-0001-000000000002', 1),
@@ -1707,6 +1707,20 @@ delete from world_rankings where climber_id = 'ee000000-0000-0000-0003-000000000
 delete from international_results where climber_id = 'ee000000-0000-0000-0003-000000000003';
 delete from profiles where id in ('ee000000-0000-0000-0003-000000000003', 'ee000000-0000-0000-0003-00000000000a', 'ee000000-0000-0000-0003-00000000000b');
 
+-- A live round refuses (judges' phones may still hold the duplicate's id)
+update rounds set status = 'live' where id = 'ee000000-0000-0000-0001-000000000003';
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert((merge_profiles('ee000000-0000-0000-0003-000000000001', 'ee000000-0000-0000-0003-000000000002') -> 'conflicts')
+  @> '[{"kind":"live_round","competition":"Merge Cup","round":"qualification"}]', 'merge conflict: a profile is on the start list of a live round');
+reset role;
+update rounds set status = 'closed' where id = 'ee000000-0000-0000-0001-000000000003';
+
+-- "Not the same person" marks follow the merge
+insert into profiles (id, full_name) values ('ee000000-0000-0000-0003-00000000000c', 'Other Noa');
+insert into profile_not_duplicates (a, b) values
+  ('ee000000-0000-0000-0003-000000000002', 'ee000000-0000-0000-0003-00000000000c'),
+  ('ee000000-0000-0000-0003-000000000001', 'ee000000-0000-0000-0003-000000000002');
+
 -- Apply
 delete from climber_cache_changes;
 delete from rankings_cache_changes;
@@ -1760,11 +1774,45 @@ select pg_temp.assert(not exists (select 1 from climber_cache_entries where clim
   and exists (select 1 from climber_cache_changes where round_id = 'ee000000-0000-0000-0001-000000000003')
   and exists (select 1 from rankings_cache_changes where season is null),
   'merge: the duplicate''s climber page rows go; climber page and rankings rebuilds are queued');
-select pg_temp.assert(current_setting('ilca.merging', true) is distinct from 'on', 'merge: the stamp triggers are back after merging');
+select pg_temp.assert((select array_agg(a::text || b::text) from profile_not_duplicates
+    where 'ee000000-0000-0000-0003-000000000001' in (a, b) or 'ee000000-0000-0000-0003-000000000002' in (a, b))
+  = array['ee000000-0000-0000-0003-000000000001ee000000-0000-0000-0003-00000000000c'],
+  'merge: the duplicate''s "not the same person" marks move to keep; the mark between the two goes');
+-- In one transaction: a merge, then a judge's write is stamped again (the setting and the mark are gone).
+begin;
+insert into profiles (id, full_name) values ('ee000000-0000-0000-0003-000000000010', 'Tx Keep'), ('ee000000-0000-0000-0003-000000000011', 'Tx Drop');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+create temp table merge_tx as select merge_profiles('ee000000-0000-0000-0003-000000000010', 'ee000000-0000-0000-0003-000000000011', true) as r;
+reset role;
+create temp table events_tx as select count(*) as n from score_events;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000b2', true);
+update boulder_results set attempts = attempts + 1 where boulder_id = 'ee000000-0000-0000-0002-000000000001';
+select pg_temp.assert((select (r ->> 'applied')::boolean from merge_tx)
+  and (select updated_by = '00000000-0000-0000-0000-0000000000b2' from boulder_results where boulder_id = 'ee000000-0000-0000-0002-000000000001')
+  and (select count(*) from score_events) = (select n + 1 from events_tx)
+  and not exists (select 1 from private.merge_marks) and current_setting('ilca.merging', true) is distinct from 'on',
+  'merge: a later write in the same transaction is stamped and logged again');
+rollback;
+-- The setting alone (any SQL session can set it) does not skip the stamp: only merge_profiles writes the mark.
+begin;
+set local ilca.merging = 'on';
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000b2', true);
+create temp table events_tx as select count(*) as n from score_events;
+update boulder_results set attempts = attempts + 1 where boulder_id = 'ee000000-0000-0000-0002-000000000001';
+select pg_temp.assert((select updated_by = '00000000-0000-0000-0000-0000000000b2' from boulder_results where boulder_id = 'ee000000-0000-0000-0002-000000000001')
+  and (select count(*) from score_events) = (select n + 1 from events_tx), 'setting ilca.merging alone does not bypass the stamp');
+rollback;
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.denied($$insert into private.merge_marks values (txid_current())$$, 'admin writes a merge mark');
 select pg_temp.login('00000000-0000-0000-0000-00000000000a');
 select pg_temp.assert((select drop_name from profile_merges where drop_id = 'ee000000-0000-0000-0003-000000000002') = '  noa  ben david '
   and (select (report ->> 'applied')::boolean and merged_by = '00000000-0000-0000-0000-00000000000a' from profile_merges
        where drop_id = 'ee000000-0000-0000-0003-000000000002'), 'admin reads the merge log (who, both profiles, the report)');
+select pg_temp.assert((select report -> 'differences' @> '[{"field":"birth_date","differed":true},{"field":"login","differed":true},{"field":"club","drop":"Haifa"}]'
+    and report::text not like '%050-%' and report::text not like '%dup@test%' and report::text not like '%2009%'
+    and not (report -> 'keep') ? 'birth_year'
+    from profile_merges where drop_id = 'ee000000-0000-0000-0003-000000000002'),
+  'the merge log names the private fields that differed, never their values');
 select pg_temp.denied($$insert into profile_merges (keep_id, keep_name, drop_id, drop_name, report) values (gen_random_uuid(), 'x', gen_random_uuid(), 'y', '{}')$$,
   'admin writes the merge log directly');
 select pg_temp.login('00000000-0000-0000-0000-00000000000c');
@@ -1779,6 +1827,24 @@ insert into profile_private (id, birth_date) values ('ee000000-0000-0000-0003-00
 select pg_temp.login('00000000-0000-0000-0000-00000000000a');
 select pg_temp.assert(exists (select 1 from possible_duplicate_profiles() where a = 'ee000000-0000-0000-0003-000000000006'
   and b = 'ee000000-0000-0000-0003-000000000007' and reason = 'swapped_name'), 'possible duplicates: swapped names, same birth date');
+insert into profile_not_duplicates (a, b) values ('ee000000-0000-0000-0003-000000000006', 'ee000000-0000-0000-0003-000000000007');
+select pg_temp.assert(not exists (select 1 from possible_duplicate_profiles() where a = 'ee000000-0000-0000-0003-000000000006'),
+  'possible duplicates: a pair marked "not the same person" is hidden');
+select pg_temp.assert(exists (select 1 from profile_not_duplicates), 'admin reads the "not the same person" marks');
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('ee000000-0000-0000-0004-000000000006', 'same1@test', '{"full_name":"Same Login"}'),
+  ('ee000000-0000-0000-0004-000000000007', 'same2@test', '{"full_name":"Same Login"}');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert(not exists (select 1 from possible_duplicate_profiles() where a = 'ee000000-0000-0000-0004-000000000006'),
+  'possible duplicates: pairs that both have a login are left out');
+select pg_temp.login('00000000-0000-0000-0000-00000000000c');
+select pg_temp.assert(not exists (select 1 from profile_not_duplicates), 'a coach does not see the "not the same person" marks');
+select pg_temp.denied($$insert into profile_not_duplicates (a, b) values ('ee000000-0000-0000-0003-000000000001', 'ee000000-0000-0000-0003-00000000000c')$$,
+  'coach marks two profiles as different people');
+select pg_temp.denied($$delete from profile_not_duplicates$$, 'coach deletes "not the same person" marks');
+select pg_temp.login(null);
+select pg_temp.denied($$select * from profile_not_duplicates$$, 'anon reads the "not the same person" marks');
 
 -- Safety net: a table merging does not handle makes the merge fail instead of cascading
 reset role;
@@ -1791,10 +1857,22 @@ reset role;
 select pg_temp.assert(exists (select 1 from zz_merge_probe) and exists (select 1 from profiles where id = 'ee000000-0000-0000-0003-000000000007'),
   'the safety net leaves everything as it was');
 drop table public.zz_merge_probe;
+-- Deleting an account deletes the merge records of that person (also of profiles merged into the merged ones)
+insert into profiles (id, full_name) values ('ee000000-0000-0000-0003-00000000000d', 'Gone Climber');
+insert into profile_not_duplicates (a, b) values ('ee000000-0000-0000-0003-00000000000c', 'ee000000-0000-0000-0003-00000000000d');
+insert into profile_merges (keep_id, keep_name, drop_id, drop_name, report) values
+  ('ee000000-0000-0000-0003-00000000000d', 'Gone Climber', 'ee000000-0000-0000-0003-0000000000e1', 'Gone Climbr', '{}'),
+  ('ee000000-0000-0000-0003-0000000000e1', 'Gone Climbr', 'ee000000-0000-0000-0003-0000000000e2', 'Gone C.', '{}');
+set role service_role;
+select pg_temp.assert(delete_account_profile('ee000000-0000-0000-0003-00000000000d'), 'a "not the same person" mark does not keep a deleted account''s profile');
+reset role;
+select pg_temp.assert(not exists (select 1 from profile_merges where keep_id in ('ee000000-0000-0000-0003-00000000000d', 'ee000000-0000-0000-0003-0000000000e1'))
+  and exists (select 1 from profile_merges where drop_id = 'ee000000-0000-0000-0003-000000000002'),
+  'deleting an account deletes that person''s merge records (and only those)');
 select pg_temp.assert(not has_function_privilege('anon', f, 'execute') and not has_function_privilege('authenticated', g, 'execute'),
   'anon cannot execute ' || f)
 from unnest(array['public.merge_profiles(uuid,uuid,boolean)', 'public.possible_duplicate_profiles()']) f,
-     unnest(array['private.profile_refs()']) g;
+     unnest(array['private.profile_refs()', 'private.merging()']) g;
 reset role;
 
 -- ---------------------------------------------------------------- function privileges (Supabase advisors)

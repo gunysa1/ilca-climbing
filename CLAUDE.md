@@ -26,8 +26,11 @@ view only, no sign-in; `src/apps/viewer`) and the **staff** app (sign-in; judge,
   changing rankings.ts / criteria.ts / rankingTables.ts means bumping `RANKING_CODE_VERSION` (a test pins the
   hash), redeploying the function and POSTing `{"all": true}` (docs/operations.md). A new table the build reads needs the `rankings_cache_*` triggers
   (migration 033); a migration changing scoring or the build must queue a full rebuild (docs/operations.md).
-- Identity: profiles exist without accounts. `profiles.user_id` links a login (only via `link_account()`);
+- Identity: profiles exist without accounts. `profiles.user_id` links a login (only via `link_account()`, or
+  moved by the admin-only `merge_profiles()` when a duplicate profile is merged, migration 039);
   policies use `my_profile_id()`, never `auth.uid()` = profile id. Client code uses `useAuth().profileId`.
+- Merging profiles moves every column that references `profiles(id)` (found from the FKs). A profile-id column
+  without an FK must be added to `private.profile_refs()` and moved in `merge_profiles()` (migration 039).
 - Who climbs a round = `round_starters` (first rounds follow registrations by trigger; later rounds via
   `generate_start_list()`, top `rounds.advance_quota`). Results are only accepted for starters.
 - Clients must select `RESULT_COLUMNS` from `boulder_results` (never `*`): `updated_by` is not granted.
@@ -61,7 +64,7 @@ Hosting: Cloudflare Pages builds both apps on every push to main (settings in th
 https://ilca-climbing.pages.dev (viewer), https://ilca-climbing-staff.pages.dev (staff); both noindex
 until the public launch. Pushing to main publishes. The old Seoul project was deleted 2026-10-17; sign-up is off in Frankfurt.
 Open work: first event fully on these apps (dry run: docs/dry-run-2026-10.md); admin
-screen for qualification groups; merging duplicate climber profiles; speed discipline; calendar;
+screen for qualification groups; speed discipline; calendar;
 notifications.
 
 Decisions: results are public like IFSC; climbers have no sign-in page (view-only app); international

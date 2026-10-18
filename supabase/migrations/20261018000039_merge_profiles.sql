@@ -5,33 +5,57 @@
 -- the duplicate to the kept profile and deletes the duplicate, in one transaction.
 --
 -- What moves: every column referencing profiles(id) (found from the foreign keys, so the safety net below
--- covers new tables) plus the columns holding profile ids without a foreign key (the score and lead event
--- logs, round_totals through round_starters, the climber page cache). Profile fields and private data: the
+-- covers new tables) plus the columns holding profile ids without a foreign key, listed in
+-- private.profile_refs() (the score and lead event logs, round_totals through round_starters, the climber
+-- page cache). A NEW PROFILE-ID COLUMN WITHOUT A FOREIGN KEY MUST BE ADDED TO private.profile_refs() (and
+-- moved below), or merging leaves it pointing at a deleted profile. Profile fields and private data: the
 -- kept profile's value wins; its empty fields are filled from the duplicate (birth date, gender, club,
 -- ifsc_id, the login, ...). Pure link rows that already exist for the kept profile (a coach link, a judge
--- assignment, a dismissed IFSC result, a claim) are dropped instead of moved.
+-- assignment, a dismissed IFSC result, a claim, a "not the same person" mark) are dropped instead of moved.
 --
 -- What refuses (a "conflict"): both profiles climbed the same round, are registered in the same category,
 -- have an international result for the same event or a world-ranking row for the same season and discipline;
--- both are linked to a login; they carry different IFSC ids; or any other unique key would collide (checked
--- from the unique indexes, for tables added later).
+-- either is on the start list of a live round (judges' phones may still hold the duplicate's id); both are
+-- linked to a login; they carry different IFSC ids; or any other unique key would collide (checked from the
+-- unique indexes, for tables added later).
 --
 -- Safety net: after moving, no row anywhere may still reference the duplicate (checked from pg_constraint);
 -- otherwise the merge raises, so a table added later makes merging fail instead of losing rows to the
--- cascading delete of the profile. Each merge is recorded in profile_merges (admins read it).
+-- cascading delete of the profile. Each merge is recorded in profile_merges (admins read it); the stored
+-- report names the private fields that differed (birth date, phone, ..., login) but never their values, and
+-- deleting an account (delete_account_profile) deletes the merge records of that person.
 --
--- While merging, the results' stamp triggers and the ifsc_id-change trigger stand aside (setting
--- ilca.merging, local to the transaction; clients cannot set settings through the API): moving a result is
+-- While merging, the results' stamp triggers and the ifsc_id-change trigger stand aside: moving a result is
 -- not a new score (it keeps who entered it and when, and logs no score event), and the ifsc_id moving with
--- the climber is not a new IFSC athlete (keep the world-ranking rows; no "ignored" IFSC entry).
+-- the climber is not a new IFSC athlete (keep the world-ranking rows; no "ignored" IFSC entry). They stand
+-- aside only when both the transaction-local setting ilca.merging is 'on' AND private.merge_marks holds a
+-- row for the current transaction. Any SQL session can set a custom setting, but only merge_profiles (as the
+-- owner) can write merge_marks, so a session that sets ilca.merging by itself still gets stamped. Never add a
+-- function that writes merge_marks or passes a caller-chosen setting name to set_config.
+--
+-- "Not the same person": profile_not_duplicates (admins) hides a pair from possible_duplicate_profiles(),
+-- which also leaves out pairs that both have a login (they cannot be merged).
 --
 -- Caches: the statement triggers of migrations 033/036 on the moved tables queue the rankings and climber
 -- page rebuilds (profiles' own triggers queue every season); the duplicate's climber page rows go at once.
 
+-- One row per merging transaction, written and deleted only by merge_profiles (the owner).
+create table private.merge_marks (xact bigint primary key);
+alter table private.merge_marks enable row level security;
+revoke all on private.merge_marks from public, anon, authenticated, service_role;
+
+-- True only inside merge_profiles: the setting and this transaction's mark. Called by the definer triggers.
+create function private.merging() returns boolean
+  language sql stable set search_path = '' as $$
+  select coalesce(current_setting('ilca.merging', true) = 'on', false)
+     and exists (select 1 from private.merge_marks where xact = txid_current())
+$$;
+revoke all on function private.merging() from public, anon, authenticated, service_role;
+
 create or replace function public.boulder_results_stamp() returns trigger
   language plpgsql security definer set search_path = public as $$
 begin
-  if tg_op = 'UPDATE' and current_setting('ilca.merging', true) = 'on' then return new; end if;
+  if tg_op = 'UPDATE' and private.merging() then return new; end if;
   select round_id into new.round_id from boulders where id = new.boulder_id;
   new.updated_by := public.my_profile_id();
   new.updated_at := now();
@@ -44,7 +68,7 @@ end $$;
 create or replace function public.lead_results_stamp() returns trigger
   language plpgsql security definer set search_path = public as $$
 begin
-  if tg_op = 'UPDATE' and current_setting('ilca.merging', true) = 'on' then return new; end if;
+  if tg_op = 'UPDATE' and private.merging() then return new; end if;
   select round_id into new.round_id from boulders where id = new.boulder_id;
   new.updated_by := public.my_profile_id();
   new.updated_at := now();
@@ -59,7 +83,7 @@ declare
   today date := (now() at time zone 'Asia/Jerusalem')::date;
   y int := extract(year from today)::int - case when extract(month from today) < 9 then 1 else 0 end;
 begin
-  if current_setting('ilca.merging', true) = 'on' then return null; end if;
+  if private.merging() then return null; end if;
   delete from public.world_rankings
     where climber_id = new.id and season = y || '-' || lpad(((y + 1) % 100)::text, 2, '0');
   if old.ifsc_id is not null then
@@ -73,20 +97,36 @@ end $$;
 create table public.profile_merges (
   id         uuid primary key default gen_random_uuid(),
   merged_at  timestamptz not null default now(),
-  -- no foreign keys: the record outlives later merges and deleted accounts
+  -- no foreign keys: the record outlives later merges (delete_account_profile deletes it with the person)
   merged_by  uuid,
   keep_id    uuid not null,
   keep_name  text not null,
   drop_id    uuid not null,
   drop_name  text not null,
-  report     jsonb not null
+  report     jsonb not null  -- private fields: names only, no values
 );
 alter table public.profile_merges enable row level security;
 create policy profile_merges_admin_read on public.profile_merges for select using (public.has_role('admin'));
 revoke all on public.profile_merges from anon, authenticated;
 grant select on public.profile_merges to authenticated;
 
--- Every column holding a profile id: the foreign keys to profiles, and the columns without one.
+-- Pairs an admin marked as two different people (a < b): hidden from possible_duplicate_profiles().
+create table public.profile_not_duplicates (
+  a          uuid not null references public.profiles (id) on delete cascade,
+  b          uuid not null references public.profiles (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (a, b),
+  check (a < b)
+);
+create index on public.profile_not_duplicates (b);
+alter table public.profile_not_duplicates enable row level security;
+create policy profile_not_duplicates_admin on public.profile_not_duplicates
+  using (public.has_role('admin')) with check (public.has_role('admin'));
+revoke all on public.profile_not_duplicates from anon, authenticated;
+grant select, insert, delete on public.profile_not_duplicates to authenticated;
+
+-- Every column holding a profile id: the foreign keys to profiles, and the columns without one (a new
+-- profile-id column without a foreign key must be added here).
 create function private.profile_refs() returns table (tbl regclass, col name, fk boolean)
   language sql stable set search_path = public as $$
   select c.conrelid::regclass, a.attname, true
@@ -134,6 +174,7 @@ declare
   diffs jsonb := '[]';
   conflicts jsonb := '[]';
   report jsonb;
+  total bigint := 0;
   me uuid := public.my_profile_id();
 begin
   if not public.has_role('admin') then
@@ -155,7 +196,7 @@ begin
   -- What moves
   for r in select * from private.profile_refs() loop
     execute format('select count(*) from %s where %I = $1', r.tbl, r.col) into n using p_drop;
-    if n > 0 then moves := moves || jsonb_build_object(r.tbl::text || '.' || r.col, n); end if;
+    if n > 0 then moves := moves || jsonb_build_object(r.tbl::text || '.' || r.col, n); total := total + n; end if;
   end loop;
 
   -- How the profiles differ: [{field, keep, drop, result}]
@@ -216,12 +257,19 @@ begin
              'season', b.season, 'discipline', b.discipline) order by b.season, b.discipline)
     from world_rankings a join world_rankings b using (season, discipline)
     where a.climber_id = p_keep and b.climber_id = p_drop), '[]');
+  conflicts := conflicts || coalesce((
+    select jsonb_agg(jsonb_build_object('kind', 'live_round', 'text', format('%s is on the start list of a live round: %s, %s, %s',
+             p.full_name, co.name, c.name, ro.kind), 'name', p.full_name, 'competition', co.name, 'competition_he', co.name_he,
+             'category', c.name, 'category_he', c.name_he, 'round', ro.kind) order by co.starts_on, c.name, ro.kind)
+    from round_starters s join profiles p on p.id = s.climber_id
+    join rounds ro on ro.id = s.round_id join categories c on c.id = ro.category_id join competitions co on co.id = c.competition_id
+    where s.climber_id in (p_keep, p_drop) and ro.status = 'live'), '[]');
   -- Any other unique key that would collide (tables handled above or below are left out).
   for r in select * from private.profile_refs() where fk and tbl not in (
       'public.registrations'::regclass, 'public.round_starters'::regclass, 'public.boulder_results'::regclass,
       'public.lead_results'::regclass, 'public.world_rankings'::regclass, 'public.coach_athletes'::regclass,
       'public.judge_assignments'::regclass, 'public.judge_claims'::regclass, 'public.ifsc_dismissed'::regclass,
-      'public.profile_private'::regclass) loop
+      'public.profile_private'::regclass, 'public.profile_not_duplicates'::regclass) loop
     for ix in
       select i.indexrelid, i.indkey::int2[] as keys, i.indnullsnotdistinct as nnd
       from pg_index i join pg_attribute a on a.attrelid = r.tbl and a.attname = r.col
@@ -242,16 +290,19 @@ begin
     end loop;
   end loop;
 
-  report := jsonb_build_object('keep', jsonb_build_object('id', k.id, 'full_name', k.full_name),
-    'drop', jsonb_build_object('id', d.id, 'full_name', d.full_name),
-    'moves', moves, 'differences', diffs, 'conflicts', conflicts, 'applied', false);
+  report := jsonb_build_object(
+    'keep', jsonb_build_object('id', k.id, 'full_name', k.full_name, 'club', k.club, 'birth_year', extract(year from kp.birth_date)),
+    'drop', jsonb_build_object('id', d.id, 'full_name', d.full_name, 'club', d.club, 'birth_year', extract(year from dp.birth_date)),
+    'moves', moves, 'rows', total, 'differences', diffs, 'conflicts', conflicts, 'applied', false);
   if not p_apply then return report; end if;
   if jsonb_array_length(conflicts) > 0 then
     raise exception 'cannot merge: %', (select string_agg(x ->> 'text', '; ') from jsonb_array_elements(conflicts) x)
       using detail = conflicts::text;
   end if;
 
+  -- The stamp and ifsc_id triggers stand aside only with both the setting and this transaction's mark.
   perform set_config('ilca.merging', 'on', true);
+  insert into private.merge_marks values (txid_current());
 
   -- The profile: the login and IFSC id leave the duplicate first (both are unique), then keep's empty fields fill.
   update profiles set user_id = null, ifsc_id = null where id = p_drop;
@@ -279,8 +330,13 @@ begin
   update boulder_results set climber_id = p_keep where climber_id = p_drop;
   update lead_results set climber_id = p_keep where climber_id = p_drop;
   delete from round_starters where climber_id = p_drop;
-  update boulder_results set updated_by = p_keep where updated_by = p_drop;
-  update lead_results set updated_by = p_keep where updated_by = p_drop;
+  begin
+    update boulder_results set updated_by = p_keep where updated_by = p_drop;
+    update lead_results set updated_by = p_keep where updated_by = p_drop;
+  exception when raise_exception then
+    -- the start-list check of a result the duplicate entered (as a judge) for a climber no longer on that list
+    raise exception 'cannot merge: the duplicate entered a result for a climber who is no longer on that round''s start list; fix or delete that result first (%)', sqlerrm;
+  end;
   update score_events set climber_id = p_keep where climber_id = p_drop;
   update score_events set judge_id = p_keep where judge_id = p_drop;
   update lead_events set climber_id = p_keep where climber_id = p_drop;
@@ -315,32 +371,46 @@ begin
   delete from ifsc_dismissed x where x.climber_id = p_drop and exists (select 1 from ifsc_dismissed y
     where y.climber_id = p_keep and y.ifsc_event_id = x.ifsc_event_id and y.ifsc_dcat_id = x.ifsc_dcat_id);
   update ifsc_dismissed set climber_id = p_keep where climber_id = p_drop;
+  -- "Not the same person" marks: the duplicate's carry over to keep (a mark between the two goes).
+  delete from profile_not_duplicates where (a, b) in ((least(p_keep, p_drop), greatest(p_keep, p_drop)));
+  insert into profile_not_duplicates (a, b, created_at)
+  select least(o, p_keep), greatest(o, p_keep), created_at
+  from (select case when a = p_drop then b else a end as o, created_at from profile_not_duplicates
+        where p_drop in (a, b)) x
+  on conflict do nothing;
+  delete from profile_not_duplicates where p_drop in (a, b);
 
   -- The duplicate's climber page rows (the moved rounds are queued for rebuilding by the triggers).
   delete from climber_cache_entries where climber_id = p_drop;
 
+  delete from private.merge_marks where xact = txid_current();
   perform set_config('ilca.merging', '', true);
 
   -- Safety net: nothing may still reference the duplicate.
   for r in select * from private.profile_refs() loop
     execute format('select exists (select 1 from %s where %I = $1)', r.tbl, r.col) into hit using p_drop;
     if hit then
-      raise exception 'merge_profiles: %.% still references the duplicate; merging does not handle that table yet', r.tbl, r.col;
+      raise exception 'cannot merge: %.% still points at the duplicate and merging does not handle that table yet (nothing was changed)', r.tbl, r.col;
     end if;
   end loop;
   delete from profiles where id = p_drop;
 
   report := jsonb_set(report, '{applied}', 'true');
+  -- Stored without private values: those fields only say that they differed; no birth years.
   insert into profile_merges (merged_by, keep_id, keep_name, drop_id, drop_name, report)
-  values (me, p_keep, k.full_name, p_drop, d.full_name, report);
+  values (me, p_keep, k.full_name, p_drop, d.full_name,
+    report #- '{keep,birth_year}' #- '{drop,birth_year}' || jsonb_build_object('differences', (
+      select coalesce(jsonb_agg(case when x ->> 'field' in ('login', 'birth_date', 'phone', 'email', 'emergency_contact', 'medical_notes')
+                                     then jsonb_build_object('field', x ->> 'field', 'differed', true) else x end order by o), '[]')
+      from jsonb_array_elements(report -> 'differences') with ordinality e (x, o))));
   return report;
 end $$;
 revoke all on function public.merge_profiles(uuid, uuid, boolean) from public, anon;
 grant execute on function public.merge_profiles(uuid, uuid, boolean) to authenticated;
 
 /** Pairs of profiles that may be one climber (admins): the same name after normalising (either name,
-    English or Hebrew; case, spaces, hyphens and quote marks ignored), or the same birth date with the first and last word swapped. Pairs that cannot be
-    merged because of different IFSC ids are left out. */
+    English or Hebrew; case, spaces, hyphens and quote marks ignored), or the same birth date with the first and last word swapped. Left out:
+    pairs that cannot be merged (different IFSC ids, both with a login) and pairs marked "not the same person". */
 create function public.possible_duplicate_profiles()
 returns table (a uuid, a_name text, b uuid, b_name text, reason text)
   language plpgsql stable security definer set search_path = public as $$
@@ -370,7 +440,50 @@ begin
   )
   select distinct on (pa.a, pa.b) pa.a, pa_a.full_name, pa.b, pa_b.full_name, pa.reason
   from pairs pa join profiles pa_a on pa_a.id = pa.a join profiles pa_b on pa_b.id = pa.b
+  where (pa_a.user_id is null or pa_b.user_id is null)
+    and not exists (select 1 from profile_not_duplicates nd where nd.a = pa.a and nd.b = pa.b)
   order by pa.a, pa.b, pa.reason;  -- 'same_name' before 'swapped_name'
 end $$;
 revoke all on function public.possible_duplicate_profiles() from public, anon;
 grant execute on function public.possible_duplicate_profiles() to authenticated;
+
+-- Deleting an account (migration 032): the same, plus a "not the same person" mark does not keep a profile
+-- (it goes with it), and the merge records of that person go too, following merges into merges (the log
+-- names the person and how their profiles differed).
+create or replace function public.delete_account_profile(p_profile uuid) returns boolean
+  language plpgsql security definer set search_path = public as $$
+declare
+  fk record;
+  used boolean;
+begin
+  if not exists (select 1 from profiles where id = p_profile and user_id is null) then
+    return false; -- missing, or still linked to a login
+  end if;
+  if exists (select 1 from profile_private where id = p_profile
+             and coalesce(birth_date::text, phone, emergency_contact, medical_notes, email) is not null) then
+    return false;
+  end if;
+  for fk in
+    select c.conrelid::regclass as tbl, a.attname as col
+    from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+    where c.contype = 'f' and c.confrelid = 'public.profiles'::regclass and cardinality(c.conkey) = 1
+      and c.conrelid not in ('public.profile_private'::regclass, 'public.judge_assignments'::regclass,
+                             'public.judge_claims'::regclass, 'public.ifsc_pending'::regclass,
+                             'public.profile_not_duplicates'::regclass)
+  loop
+    execute format('select exists (select 1 from %s where %I = $1)', fk.tbl, fk.col) into used using p_profile;
+    if used then return false; end if;
+  end loop;
+  delete from profiles where id = p_profile;
+  if not found then return false; end if;
+  with recursive ids (id) as (
+    select p_profile
+    union
+    select m.drop_id from profile_merges m join ids on m.keep_id = ids.id
+  )
+  delete from profile_merges where keep_id in (select id from ids) or drop_id in (select id from ids);
+  return true;
+exception when foreign_key_violation then
+  return false;
+end $$;

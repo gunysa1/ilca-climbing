@@ -9,16 +9,22 @@ import { ClimberPicker } from './ClimberPicker';
 import { fill } from './ifscSync';
 
 /** Report of merge_profiles() (migration 039). */
+interface ReportPerson { id: string; full_name: string; club: string | null; birth_year: number | null }
 interface MergeReport {
-  keep: { id: string; full_name: string };
-  drop: { id: string; full_name: string };
+  keep: ReportPerson;
+  drop: ReportPerson;
   moves: Record<string, number>;  // "table.column" -> rows
+  rows: number;  // all rows moving
   differences: { field: string; keep: string | null; drop: string | null; result: string | null }[];
   conflicts: ({ kind: string; text: string } & Record<string, string | undefined>)[];
   applied: boolean;
 }
 interface Suggestion { a: string; a_name: string; b: string; b_name: string; reason: 'same_name' | 'swapped_name' }
-type Picked = Pick<Profile, 'id' | 'full_name' | 'full_name_he' | 'club'>;
+type Picked = Pick<Profile, 'id' | 'full_name' | 'full_name_he' | 'club'> & { birth_year: number | null };
+
+/** What tells two same-named profiles apart: club, birth year and the start of the id. */
+const details = (p: { id: string; club: string | null; birth_year: number | null }) =>
+  [p.club, p.birth_year, `#${p.id.slice(0, 8)}`].filter(Boolean).join(' · ');
 
 // The moves an admin recognises; the rest (score logs, who entered results, caches) are summed as "other records".
 const MOVE_LABELS: Record<string, MsgKey> = {
@@ -66,11 +72,21 @@ export function AdminMerge() {
   useEffect(() => { void loadSuggestions(); }, [loadSuggestions]);
 
   async function profile(id: string): Promise<Picked | null> {
-    const { data, error } = await supabase.from('profiles').select('id, full_name, full_name_he, club').eq('id', id).maybeSingle();
+    const [{ data, error }, priv] = await Promise.all([
+      supabase.from('profiles').select('id, full_name, full_name_he, club').eq('id', id).maybeSingle(),
+      supabase.from('profile_private').select('birth_date').eq('id', id).maybeSingle(),
+    ]);
     if (error) setError(error.message);
-    return (data as Picked | null) ?? null;
+    if (!data) return null;
+    const birth = (priv.data as { birth_date: string | null } | null)?.birth_date;
+    return { ...(data as Omit<Picked, 'birth_year'>), birth_year: birth ? Number(birth.slice(0, 4)) : null };
   }
   const pick = (set: (p: Picked | null) => void) => async (id: string) => { setMerged(null); set(await profile(id)); };
+  async function notSamePerson(s: Suggestion) {
+    const { error } = await supabase.from('profile_not_duplicates').insert({ a: s.a, b: s.b });  // a < b already
+    if (error) return setError(error.message);
+    setSuggestions((list) => list?.filter((x) => x !== s) ?? null);
+  }
   async function compare(s: Suggestion) {
     setMerged(null);
     const [a, b] = await Promise.all([profile(s.a), profile(s.b)]);
@@ -96,7 +112,7 @@ export function AdminMerge() {
     setConfirming(false); setBusy(true); setError(null);
     const { error } = await supabase.rpc('merge_profiles', { p_keep: keep.id, p_drop: drop.id, p_apply: true });
     setBusy(false);
-    if (error) return setError(error.message);
+    if (error) return setError(`${t('mergeRefused')} ${error.message}`);
     setMerged(keep); setKeep(null); setDrop(null);
     void loadSuggestions();
   }
@@ -114,6 +130,8 @@ export function AdminMerge() {
       case 'registration': return fill(t('mergeConflictRegistration'), v);
       case 'international': return fill(t('mergeConflictInternational'), v);
       case 'world_ranking': return fill(t('mergeConflictWorld'), v);
+      case 'live_round': return fill(t('mergeConflictLive'), { ...v, name: c.name ?? '' });
+      case 'unique': return fill(t('mergeConflictUnique'), { table: c.table ?? '' });
       case 'two_logins': return t('mergeConflictLogins');
       case 'different_ifsc': return fill(t('mergeConflictIfsc'), v);
       default: return c.text;
@@ -135,7 +153,7 @@ export function AdminMerge() {
       <h2>{label}</h2>
       {value ? (
         <p className="admin-row">
-          <strong>{name(value)}</strong> <span className="muted small">{value.club}</span>
+          <strong>{name(value)}</strong> <span className="muted small" dir="ltr">{details(value)}</span>
           <Link to={`/climber/${value.id}`} target="_blank" className="small">↗</Link>
           <button className="link" onClick={() => set(null)}>{t('mergeChange')}</button>
         </p>
@@ -178,7 +196,10 @@ export function AdminMerge() {
           {report.differences.length === 0 ? <p className="muted">{t('mergeNoDiffs')}</p> : (
             <div className="table-wrap">
               <table className="admin-table">
-                <thead><tr><th /><th>{name(keep)}</th><th>{name(drop)}</th><th>{t('mergeAfter')}</th></tr></thead>
+                <thead><tr><th />
+                  <th>{name(keep)}<br /><span className="muted small" dir="ltr">{details(report.keep)}</span></th>
+                  <th>{name(drop)}<br /><span className="muted small" dir="ltr">{details(report.drop)}</span></th>
+                  <th>{t('mergeAfter')}</th></tr></thead>
                 <tbody>
                   {report.differences.map((d) => (
                     <tr key={d.field}>
@@ -207,6 +228,9 @@ export function AdminMerge() {
         <Sheet title={t('mergeConfirmTitle')} confirm={t('mergeButton')} danger
           onConfirm={() => void merge()} onCancel={() => setConfirming(false)}>
           <p className="sheet-result">{fill(t('mergeConfirmText'), { keep: name(keep), drop: name(drop) })}</p>
+          <p>{t('mergeKeep')}: <strong>{name(keep)}</strong> <span className="muted small" dir="ltr">{details(keep)}</span></p>
+          <p>{t('mergeDrop')}: <strong>{name(drop)}</strong> <span className="muted small" dir="ltr">{details(drop)}</span></p>
+          {report && <p>{fill(t('mergeRowsMoving'), { n: report.rows })}</p>}
         </Sheet>
       )}
 
@@ -216,9 +240,11 @@ export function AdminMerge() {
         <ul className="admin-rows">
           {suggestions?.slice(0, 100).map((s) => (
             <li key={`${s.a}:${s.b}`} className="admin-row">
-              <span>{s.a_name} · {s.b_name}</span>
+              <span>{s.a_name} <span className="muted small" dir="ltr">#{s.a.slice(0, 8)}</span>
+                {' · '}{s.b_name} <span className="muted small" dir="ltr">#{s.b.slice(0, 8)}</span></span>
               <span className="muted small">{t(s.reason === 'same_name' ? 'mergeSameName' : 'mergeSwappedName')}</span>
               <button className="link" onClick={() => void compare(s)}>{t('mergeCompare')}</button>
+              <button className="link" onClick={() => void notSamePerson(s)}>{t('mergeNotSame')}</button>
             </li>
           ))}
         </ul>
