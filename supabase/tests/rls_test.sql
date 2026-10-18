@@ -1663,6 +1663,14 @@ select report_client_error('staff', '/', 'flood ' || g) from generate_series(1, 
 reset role;
 select pg_temp.assert((select count(*) from client_errors where profile_id = '00000000-0000-0000-0000-00000000000e') = 30,
   'report_client_error stops at 30 per profile per 10 minutes');
+-- an account without a profile reports nothing (nobody to attribute it to)
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000f1', 'noprofile@test');
+delete from profiles where id = '00000000-0000-0000-0000-0000000000f1';
+select pg_temp.login('00000000-0000-0000-0000-0000000000f1');
+select report_client_error('staff', '/', 'from nobody');
+reset role;
+select pg_temp.assert(not exists (select 1 from client_errors where message = 'from nobody'), 'report_client_error ignores an account without a profile');
+delete from auth.users where id = '00000000-0000-0000-0000-0000000000f1';
 -- rows older than 30 days go with the next report
 insert into client_errors (created_at, profile_id, app, message) values (now() - interval '31 days', null, 'staff', 'ancient');
 select pg_temp.login('00000000-0000-0000-0000-000000000002');

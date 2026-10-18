@@ -58,12 +58,15 @@ export class ErrorReporter {
       if (!this.signedIn || !message || IGNORED.some((re) => re.test(message))) return;
       const now = (this.opts.now ?? Date.now)();
       // Same message and same context (which boulder, which code): one report a minute.
-      const key = `${message}\u0000${JSON.stringify(r.context ?? null)}`;
+      let context = r.context;
+      let ctxKey = 'null';
+      try { ctxKey = JSON.stringify(context ?? null); } catch { context = undefined; } // circular: send without it
+      const key = `${message}\u0000${ctxKey}`;
       const last = this.seen.get(key);
       if (last !== undefined && now - last < DEDUPE_MS) return;
       this.seen.set(key, now);
       if (this.seen.size > 200) for (const [k, at] of this.seen) if (now - at >= DEDUPE_MS) this.seen.delete(k);
-      this.waiting.push({ ...r, message });
+      this.waiting.push({ ...r, message, context });
       if (this.waiting.length > OFFLINE_KEEP) this.waiting.shift();
       void this.flush();
     } catch { /* never throw from reporting */ }

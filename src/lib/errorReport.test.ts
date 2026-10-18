@@ -124,4 +124,14 @@ describe('ErrorReporter', () => {
       vi.useRealTimers();
     }
   });
+  it('sends a report whose context cannot be serialised, without the context', async () => {
+    const sent: unknown[] = [];
+    const r = new ErrorReporter({ send: async (rep) => { sent.push(rep.context); return true; }, online: () => true });
+    r.setSignedIn(true);
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    r.report({ message: 'loop', context: circular });
+    await tick();
+    expect(sent).toEqual([undefined]);
+  });
 });
