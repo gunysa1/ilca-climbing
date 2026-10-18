@@ -732,6 +732,28 @@ await anon.goto(`${base}/admin`);
 await anon.waitForURL(/\/login$/);
 await anon.getByRole('button', { name: /Sign in|כניסה/ }).waitFor();
 
+step('new pages open: checklist, error reports, merging, calendar, big screen (Hebrew, 390px)');
+{
+  const compId = compUrl.split('/').pop();
+  const pages = [
+    ['checklist', `${base}/admin/competition/${compId}/checklist`, true],
+    ['errors', `${base}/admin/errors`, true],
+    ['merge', `${base}/admin/people/merge`, true],
+    ['calendar', `${view}/calendar`, false],
+    ['screen', `${view}/screen/${compId}`, false],
+  ];
+  for (const [name, url, staff] of pages) {
+    const np = await page('he', { width: 390, height: 844 }, staff ? session : null);
+    await np.goto(url);
+    await np.waitForLoadState('networkidle');
+    if (name !== 'screen') await np.locator('h1').first().waitFor();
+    if (name !== 'checklist' && await np.locator('.error').count()) problems.push(`${name}: ${(await np.locator('.error').allInnerTexts()).join(' | ')}`);
+    if (await np.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) problems.push(`${name} (he, 390px) scrolls sideways`);
+    await np.screenshot({ path: `${out}/new-${name}-he-390.png`, fullPage: true });
+    await np.close();
+  }
+}
+
 step('Hebrew + 390px screenshots');
 const he = await page('he', { width: 390, height: 844 });
 await he.goto(compUrl);
