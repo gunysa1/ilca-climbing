@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { errorText } from '../../lib/errors';
 import { useI18n } from '../../lib/i18n';
 import { parseRoster, planImport, type ImportPlan, type RosterError } from '../../lib/roster';
 import { allRows } from '../../lib/allRows';
@@ -26,7 +27,7 @@ export function RosterImport({ competitionId, categories, onDone }: {
     let profiles: { id: string; full_name: string; full_name_he: string | null; club: string | null }[];
     try {
       profiles = await allRows((from, to) => supabase.from('profiles').select('id, full_name, full_name_he, club').order('id').range(from, to));
-    } catch (e) { return setError((e as Error).message); }
+    } catch (e) { return setError(errorText(e, t)); }
     setPlan(planImport(rows, {
       categories,
       profiles,
@@ -56,11 +57,11 @@ export function RosterImport({ competitionId, categories, onDone }: {
       const { error } = await supabase.rpc('import_roster', {
         p_categories: newCats, p_profiles: newProfiles, p_private: privates, p_registrations: regs,
       });
-      if (error) throw new Error(error.message);
+      if (error) throw error;
       setPlan(null); setDone(true);
       await onDone();
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorText(e, t));
     } finally {
       setBusy(false);
     }
