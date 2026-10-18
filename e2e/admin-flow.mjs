@@ -580,7 +580,7 @@ step('people admin: IFSC link shown, unlink asked first, edit loads the athlete,
   const replace = p.getByRole('dialog', { name: 'Replace the IFSC number' });
   await replace.getByText('Replace IFSC 9005 with 7001 for Dana Suggested?').waitFor();
   await replace.getByRole('button', { name: 'Replace' }).click();
-  await p.getByText('This IFSC number is already linked to another climber').waitFor();
+  await expectText(p, 'This IFSC number is already linked to another climber');
   await dana.getByRole('link', { name: '9005' }).waitFor();
   // the refused update is expected: take its 409 (response and console line) off the problem list
   for (const re of [/^409 PATCH .*\/rest\/v1\/profiles/, /^console: .*409/]) {
