@@ -22,7 +22,7 @@ jobs:
 
       - uses: actions/setup-node@v4.4.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: npm
 
       # .npmrc sets legacy-peer-deps (vitest 5 peers).

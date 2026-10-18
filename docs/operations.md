@@ -374,7 +374,7 @@ tools/backup/dump.sh                  # → ~/ilca-backups/ilca-<UTC time>.sql.g
 tools/backup/dump.sh /path/outside/the/repo
 ```
 
-It is a data-only dump of the linked project (the Supabase CLI must be logged in and the repo
+It is a data-only dump of the linked project (Docker must be running, the Supabase CLI logged in and the repo
 linked), gzipped, readable by its owner only, and it prints just the file name and size. It refuses
 a folder inside the repository. When to run it: weekly, the evening before each event day, the
 morning after every event, and before large imports or data fixes.
@@ -394,8 +394,10 @@ caches (the rankings sections above).
 
 Rate limits: the app does not limit the public RPCs (`season_rankings`, `climber_page`,
 `favorites_live`, `home_page`, `round_page`); the caches keep the usual paths cheap and
-`favorites_live` is capped at 200 climbers. If abuse ever shows, add a Cloudflare rate-limiting rule
-on `/rest/v1/rpc/*` per IP.
+`favorites_live` is capped at 200 climbers. The browser calls Supabase directly (not through the
+Cloudflare sites), so a Cloudflare rule would never see that traffic. If abuse ever shows, the options
+are on the Supabase side: guards inside the SQL functions, a proxy in front of Supabase, or asking
+Supabase support for limits.
 
 The previous project in Seoul (`rkuuzforzfjbdnybddwb`) was deleted on 2026-10-17.
 

@@ -1,3 +1,4 @@
+import { formatDate } from '../../lib/dates';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { localized, useI18n } from '../../lib/i18n';
 import {
@@ -87,7 +88,7 @@ export function AdminRankings() {
                 <td className="name">
                   <strong>{name(r.climber_id)}</strong>
                   <span className="athlete-meta">
-                    {t(r.discipline === 'boulder' ? 'discBoulder' : 'discLead')} · {t(r.event_type)} · {r.event_name} · {r.starts_on}
+                    {t(r.discipline === 'boulder' ? 'discBoulder' : 'discLead')} · {t(r.event_type)} · {r.event_name} · {formatDate(r.starts_on, lang)}
                     {r.event_type === 'manual' ? ` · ${t(r.for_class === 'senior' ? 'seniors' : 'youthRanking')}`
                       : ` · ${r.place}/${r.field_size} · ${t(r.reached)}`}
                   </span>

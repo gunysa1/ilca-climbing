@@ -47,7 +47,7 @@ viewer's bundle doesn't even contain sign-in, judge, coach or admin code.
   (`/screen/<competition>`) that rotates the live rounds for a venue TV; **alerts for followed climbers** (on the
   wall, result, advancing, podium) while the app is open.
 - **Admin tools for event day**: an event checklist (automatic checks plus manual ticks), error
-  reports from the apps, and merging of duplicate climber profiles (logged).
+  reports from the staff app, and merging of duplicate climber profiles (logged).
 - **National rankings** (מדרג לאומי) per the ILCA 2025 criteria: seniors and U21 / U19 / U17, boulder
   and lead, validated against ILCA's published ranking tables.
 

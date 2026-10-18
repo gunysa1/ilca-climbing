@@ -387,7 +387,7 @@ const dict = {
   ifscId: { he: 'IFSC', en: 'IFSC' },
   ifscEdit: { he: 'עריכה', en: 'Edit' },
   ifscIdLabel: { he: 'מספר ספורטאי/ת ב-IFSC', en: 'IFSC athlete number' },
-  errDuplicate: { he: 'כבר קיים רשום כזה', en: 'That already exists' },
+  errDuplicate: { he: 'רשומה כזו כבר קיימת', en: 'That already exists' },
   errPermission: { he: 'אין הרשאה לפעולה הזו. אולי צריך להתחבר מחדש', en: 'You are not allowed to do this. You may need to sign in again' },
   errNetwork: { he: 'אין חיבור לשרת. בדקו את הקליטה ונסו שוב', en: 'Cannot reach the server. Check your signal and try again' },
   errSession: { he: 'ההתחברות פגה. התחברו מחדש', en: 'Your sign-in has expired. Sign in again' },

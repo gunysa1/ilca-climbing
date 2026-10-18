@@ -3,12 +3,13 @@
 # The dump holds personal data (names, birth dates of minors, auth.users with password hashes): it
 # never goes into git, and this script prints only the file name and size, never any rows.
 #   tools/backup/dump.sh [target-folder]      default: $HOME/ilca-backups
-# Needs the Supabase CLI logged in and the repo linked (npx -y supabase@2.121.0 link --project-ref <ref>).
+# Needs Docker running (the CLI runs pg_dump in a container), the Supabase CLI logged in and the repo linked (npx -y supabase@2.121.0 link --project-ref <ref>).
 # Restore drill and retention: docs/operations.md, "Backups".
 set -euo pipefail
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 target=${1:-$HOME/ilca-backups}
+case $target in /*) ;; *) target=$PWD/$target ;; esac   # absolute first, so the repo check below sees it
 
 # Check before creating anything: resolve the target through its nearest existing parent.
 probe=$target
