@@ -242,7 +242,7 @@ a changed season shows its previous payload (at most about a minute old).
 Setup (once, after `db push` applied 033): run `supabase/cron/rankings_cache.sql` in the SQL editor
 (its header checks `pg_has_role('postgres', 'anon', 'SET')` and runs the first build by hand).
 
-- Force a refresh now: `select public.refresh_rankings_cache();` (returns the number of seasons rebuilt).
+- Force a refresh now: `select public.refresh_rankings_cache();` (returns the number of seasons whose content changed; an unchanged season keeps its time, so its stored ranking tables stay current, migration 046).
 - Force a full rebuild (after a migration that changes scoring, the build or the payload, which no
   trigger notices): `insert into public.rankings_cache_changes (season) values (null);` then the refresh.
 - Check: `select season, built_at, length(payload::text) from public.season_rankings_cache order by 1;`

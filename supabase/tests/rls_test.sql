@@ -1022,12 +1022,19 @@ select pg_temp.assert(season_rankings_build('2026-27')::text ~ '10000000-0000-00
   'admin''s own build includes the draft competition (the fixture is visible to staff)');
 reset role;  -- postgres, still with the admin's claims
 select pg_temp.assert(current_setting('request.jwt.claim.sub') = '00000000-0000-0000-0000-00000000000a'
-  and refresh_rankings_cache() > 0, 'refresh with an admin''s claims in the session');
+  and refresh_rankings_cache() >= 0, 'refresh with an admin''s claims in the session');
+select pg_temp.assert(not exists (select 1 from rankings_cache_changes), 'the refresh took the pending marks');
 select pg_temp.assert(payload::text !~ '3e000000-0000-0000-0000-000000000002'
   and payload::text !~ '10000000-0000-0000-0000-000000000002' and payload::text !~ '20000000-0000-0000-0000-000000000002'
   and payload::text !~ '60000000-0000-0000-0000-0000000000e1',
   'the cache holds nothing of a draft competition (rounds, categories, its climbers'' profiles)')
 from season_rankings_cache where season = '2026-27';
+-- Unchanged content keeps built_at (migration 046): the stored ranking tables don't become due again.
+select built_at as before_built from season_rankings_cache where season = '2026-27' \gset
+insert into rankings_cache_changes (season) values (null);
+select pg_temp.assert(refresh_rankings_cache() = 0
+  and (select built_at from season_rankings_cache where season = '2026-27') = :'before_built'::timestamptz,
+  'refresh_rankings_cache: an every-season mark with no change rebuilds but keeps built_at (nothing due downstream)');
 select pg_temp.assert(payload::text !~* 'birth' and payload::text !~ '2009-05-01' and payload::text !~ '1990-01-01'
   and payload::text !~ '2010-01-01' and payload::text !~ '050-1111111' and payload::text !~ '050-2222222' and payload::text !~* 'asthma',
   'the cache holds no birth dates or other private data') from season_rankings_cache;
@@ -1102,8 +1109,8 @@ select pg_temp.assert(not exists (select 1 from rankings_cache_changes),
   'anon and non-admin writes that change no row append nothing to rankings_cache_changes');
 insert into rankings_cache_changes (season) values (null);
 select refresh_rankings_cache() as rebuilt \gset
-select pg_temp.assert(:rebuilt = (select count(*) from season_rankings_cache) and not exists (select 1 from rankings_cache_changes),
-  'every season rebuilt');
+select pg_temp.assert(:rebuilt = 0 and not exists (select 1 from rankings_cache_changes),
+  'every season rebuilt; none changed, so none counts (046) and the marks are taken');
 reset role;
 update competitions set season = null, series = 'other' where id = '10000000-0000-0000-0000-000000000001';
 select refresh_rankings_cache() as rebuilt \gset
@@ -2140,7 +2147,9 @@ select pg_temp.assert(pg_temp.red('category_rounds', 1), 'checklist: a category 
 select pg_temp.assert(pg_temp.red('round_boulders', 1), 'checklist: a round without boulders is red');
 select pg_temp.assert((pg_temp.check_of('first_starters')->>'ok')::boolean and pg_temp.red('starter_bibs', 1),
   'checklist: first-round starters exist but one has no bib');
-select pg_temp.assert(pg_temp.red('advance_quota', 1), 'checklist: a qualification without quota is red');
+select pg_temp.assert(pg_temp.red('advance_quota', 1) and pg_temp.check_of('advance_quota')->'items'->0->>'kind' = 'final'
+    and pg_temp.check_of('advance_quota')->'items'->0->>'gender' = 'female',
+  'checklist: the round people advance to (the final) without a quota is red, with the category''s gender');
 select pg_temp.assert(pg_temp.red('boulder_judges', 1) and (pg_temp.check_of('boulder_judges')->'items'->0->>'number')::int = 2,
   'checklist: a boulder nobody judges is listed');
 select pg_temp.assert(pg_temp.red('judges_signed_in', 1) and (pg_temp.check_of('judges_signed_in')->'items'->0->>'signed_in')::boolean = false,
@@ -2154,7 +2163,7 @@ update competitions set status = 'published' where id = 'c0000000-0000-0000-0000
 delete from categories where id = 'c1000000-0000-0000-0000-000000000002';
 insert into boulders (round_id, number) values ('c2000000-0000-0000-0000-000000000002', 1);
 update registrations set bib = 7 where category_id = 'c1000000-0000-0000-0000-000000000001';
-update rounds set advance_quota = 6 where id = 'c2000000-0000-0000-0000-000000000001';
+update rounds set advance_quota = 6 where id = 'c2000000-0000-0000-0000-000000000002';  -- the final: 6 advance to it
 insert into judge_assignments (round_id, boulder_id, judge_id) values
   ('c2000000-0000-0000-0000-000000000001', null, '00000000-0000-0000-0000-00000000000e'),
   ('c2000000-0000-0000-0000-000000000002', null, '00000000-0000-0000-0000-00000000000e');

@@ -49,7 +49,8 @@ export function AdminChecklist() {
         : t('judgeSignedInAt').replace('{when}', new Date(i.last_sign_in_at ?? '').toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB'));
       return `${name(i)} · ${state}`;
     }
-    return [name(i), i.kind && t(i.kind), i.number != null && `${t('boulder')} ${i.number}`].filter(Boolean).join(' · ');
+    return [name(i), i.gender && i.gender !== 'mixed' && t(i.gender), i.kind && t(i.kind), i.number != null && `${t('boulder')} ${i.number}`]
+      .filter(Boolean).join(' · ');
   };
 
   return (

@@ -427,7 +427,7 @@ const dict = {
   checkRoundBoulders: { he: 'לכל סבב יש בולדרים / מסלולים', en: 'Every round has boulders / routes' },
   checkFirstStarters: { he: 'בסבבים הראשונים יש מתחרים ברשימת הזינוק', en: 'First rounds have climbers on the start list' },
   checkStarterBibs: { he: 'לכל מתחרה בסבב ראשון יש מספר גב', en: 'Every climber in a first round has a bib' },
-  checkAdvanceQuota: { he: 'לסבבים שמהם עולים הלאה הוגדרה מכסת עולים', en: 'Rounds people advance from have a quota' },
+  checkAdvanceQuota: { he: 'לכל סבב המשך הוגדר כמה עולים אליו', en: 'Every later round says how many advance to it' },
   checkBoulderJudges: { he: 'לכל בולדר / מסלול יש שופט', en: 'Every boulder / route has a judge' },
   checkJudgesSignedIn: { he: 'לכל שופט משובץ יש משתמש והוא נכנס לפחות פעם אחת', en: 'Every assigned judge has an account and has signed in at least once' },
   checkOldAppeals: { he: 'אין ערעורים פתוחים מימים קודמים', en: 'No appeals left open from earlier days' },
