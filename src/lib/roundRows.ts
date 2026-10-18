@@ -1,4 +1,5 @@
 // The ranked rows of a round (rank and score text), shared by the round page and the big screen.
+import { formatClimbTime, isTimedRound } from './climbTime';
 import { leadStandings } from './lead';
 import { resultKey, toLeadResult, type LeadRow, type ResultRow, type Starter, type TotalsRow } from './roundData';
 import { EMPTY_RESULT, standings, totals, type ScoringFormat } from './scoring';
@@ -14,10 +15,13 @@ export function roundRows(
   if (round.scoring === 'lead') {
     const multi = boulders.length > 1;
     const seeds = new Map(shown.filter((s) => s.prev_place != null).map((s) => [s.climber_id, s.prev_place!]));
+    const timed = isTimedRound(round, boulders.length);
     return leadStandings(shown.map((s) => s.climber_id), boulders.map((b) => b.id), [...leadResults.values()].map(toLeadResult), seeds,
       round.kind === 'final' && round.time_tiebreak !== false)
-      // single route: the height is on the route chip; several routes: the geometric mean of rank points
-      .map((s) => ({ climber_id: s.climber_id, rank: s.rank, score: s.rank === null ? '–' : multi ? s.points.toFixed(2) : '' }));
+      // single route: the height is on the route chip (a final: the climbing time here); several routes:
+      // the geometric mean of rank points
+      .map((s) => ({ climber_id: s.climber_id, rank: s.rank, score: s.rank === null ? '–' : multi ? s.points.toFixed(2)
+        : timed ? formatClimbTime(s.results.get(boulders[0].id)?.time_ms) : '' }));
   }
   const format = round.scoring as ScoringFormat;
   // Totals-only rounds (older LogLig history) carry stored totals instead of per-boulder results.

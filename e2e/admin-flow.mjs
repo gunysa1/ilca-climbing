@@ -754,6 +754,244 @@ step('new pages open: checklist, error reports, merging, calendar, big screen (H
   }
 }
 
+step('lead competition (starts tomorrow): 2-route qualification, roster, judge assigned while planned');
+const israelDay = (offset) => {
+  const d = new Date(`${new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date())}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + offset);
+  return d.toISOString().slice(0, 10);
+};
+await p.goto(`${base}/admin`);
+await p.getByLabel('Name (English)').fill('Lead League');
+await p.getByLabel('Name (Hebrew)').fill('ליגת העל בהובלה');
+await p.getByLabel('Starts').fill(israelDay(1));
+await p.getByRole('button', { name: 'Create' }).click();
+await p.waitForURL(/\/admin\/competition\//);
+const leadCompUrl = p.url();
+{
+  const form = p.locator('form', { has: p.getByRole('heading', { name: 'New category' }) });
+  await form.getByLabel('Name (English)').fill('Lead Women');
+  await form.getByLabel('Name (Hebrew)').fill('בוגרות');
+  await form.getByRole('button', { name: 'Add' }).click();
+  await expectText(p, 'Lead Women');
+}
+await p.locator('select[name=scoring]').selectOption('lead');
+await p.getByRole('button', { name: 'Add round' }).click();
+const leadQualRow = p.locator('.admin-row', { hasText: 'Qualification' });
+await leadQualRow.getByLabel('Routes').waitFor();
+await leadQualRow.getByLabel('Routes').fill('2');
+await leadQualRow.getByLabel('Routes').press('Tab');
+await p.waitForFunction(() => document.querySelector('.admin-row input[type=number]')?.value === '2');
+await p.locator('input[type=file]').setInputFiles(new URL('./roster.csv', import.meta.url).pathname);
+await expectText(p, 'Preview');
+await p.getByRole('button', { name: 'Import', exact: true }).click();
+await expectText(p, 'Import complete');
+await expectText(p, 'Registrations (3)');
+await leadQualRow.getByRole('link', { name: 'Judges & corrections' }).click();
+await p.waitForURL(/\/admin\/round\//);
+const leadQualId = p.url().split('/').pop();
+await p.locator('select[name=judge]').selectOption({ label: 'Judge Yossi' });
+await p.getByRole('button', { name: 'Assign' }).click();
+await p.locator('.admin-row', { hasText: 'Judge Yossi' }).getByText('Whole round').waitFor();
+
+step('lead: paper score sheets per route (start order, blank boxes, signature)');
+await p.getByRole('link', { name: /Paper score sheets/ }).click();
+await p.waitForURL(/\/sheets$/);
+await p.locator('.score-sheet').nth(1).waitFor();
+if (await p.locator('.score-sheet').count() !== 2) problems.push(`score sheets: ${await p.locator('.score-sheet').count()} pages, not 2 (one per route)`);
+const sheetRows = await p.locator('.score-sheet').first().locator('tbody tr').allInnerTexts();
+if (sheetRows.length !== 3 || !/^1\s+101\s+נועה לוי/.test(sheetRows[0].trim())) problems.push(`score sheet rows: ${JSON.stringify(sheetRows)}`);
+await p.locator('.score-sheet').first().getByText('Judge signature').waitFor();
+if (await p.locator('.score-sheet th', { hasText: 'Climbing time' }).count()) problems.push('qualification score sheet has a time column');
+await p.screenshot({ path: `${out}/lead-score-sheets-en.png`, fullPage: true });
+await p.emulateMedia({ media: 'print' });
+if (await p.locator('.score-sheets .no-print').isVisible()) problems.push('score sheets: the toolbar is printed');
+await p.emulateMedia({ media: 'screen' });
+
+step('lead: the judge sees the planned round the day before, kept on the phone; the pad is read-only until live');
+await jp.goto(`${base}/judge`);
+const leadPanel = jp.locator('.panel', { hasText: 'Lead League' });
+await leadPanel.getByText('Not live yet').waitFor();
+await leadPanel.getByText('Kept on this phone').waitFor({ timeout: 10000 });
+await jp.screenshot({ path: `${out}/judge-home-planned-en.png` });
+await leadPanel.getByRole('link', { name: 'Route 1' }).click();
+await jp.getByText('This round is not live yet').waitFor();
+await jp.locator('.pad-head').getByText('נועה לוי').waitFor();
+if (!(await jp.getByRole('button', { name: '+1 Hold' }).isDisabled())) problems.push('the pad of a planned round is editable');
+{
+  const hj = await page('he', { width: 390, height: 844 }, judgeSession);   // planned: no claims, so a second phone is fine
+  await hj.goto(jp.url());
+  await hj.getByText('הסבב עוד לא פתוח').waitFor();
+  if (await hj.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) problems.push('planned lead pad (he, 390px) scrolls sideways');
+  await hj.screenshot({ path: `${out}/judge-lead-planned-he-390.png`, fullPage: true });
+  await hj.close();
+}
+step('lead: the signal goes while waiting for "live": the pad scores from the copy, with a note; back online it waits again');
+await jp.context().setOffline(true);                                // the 20 s check fails: like the copy on the phone
+await jp.waitForFunction(() => !document.querySelector('button[aria-label="+1 Hold"]')?.disabled, null, { timeout: 30000 });
+await jp.getByText("The copy on this phone says the round isn't live yet").waitFor();
+await jp.screenshot({ path: `${out}/judge-lead-planned-offline-en.png` });
+await jp.context().setOffline(false);                               // "online": checked at once, still planned
+await jp.getByText('This round is not live yet').waitFor({ timeout: 15000 });
+if (!(await jp.getByRole('button', { name: '+1 Hold' }).isDisabled())) problems.push('back online, the planned pad stayed editable');
+await p.goto(leadCompUrl);
+await p.getByLabel('Status').selectOption('published');
+await p.getByRole('button', { name: 'Save' }).click();
+await leadQualRow.getByRole('button', { name: 'Go live' }).click();
+await leadQualRow.getByRole('button', { name: 'Close round' }).waitFor();
+// the open pad asks every 20 s and opens by itself
+await jp.waitForFunction(() => !document.querySelector('button[aria-label="+1 Hold"]')?.disabled, null, { timeout: 30000 });
+await jp.getByText('This round is not live yet').waitFor({ state: 'detached' });
+await jp.getByRole('button', { name: /On the wall/ }).waitFor();     // claimed
+
+step('lead: the judge scores route 1 (TOP, TOP, 12+ saved offline), route 2 (20, 20, 5)');
+const leadClimb = async (hold, { plus = false, top = false, time = null } = {}) => {
+  await jp.getByRole('button', { name: /On the wall|Off the wall/ }).waitFor();
+  if (top) await jp.getByRole('button', { name: 'TOP', exact: true }).click();
+  for (let i = 0; i < hold; i++) await jp.getByRole('button', { name: '+1 Hold' }).click();
+  if (plus) await jp.getByRole('button', { name: '+ (move)' }).click();
+  if (time) await jp.locator('.pad-time input').fill(time);
+  await jp.getByRole('button', { name: /Next · lock/ }).click();
+  await jp.getByRole('dialog').getByRole('button', { name: 'Yes, lock' }).click();
+};
+await leadClimb(0, { top: true });                                  // נועה
+await jp.locator('.pad-head').getByText('תמר כהן').waitFor();
+await leadClimb(0, { top: true });                                  // תמר
+await jp.locator('.pad-head').getByText('מאיה גל').waitFor();
+await jp.getByRole('button', { name: /On the wall/ }).waitFor();
+await jp.context().setOffline(true);                                // מאיה: saved and locked without signal
+await leadClimb(12, { plus: true });
+await jp.locator('.outbox-badge').getByText('1 waiting').waitFor();
+await jp.screenshot({ path: `${out}/judge-lead-offline-en.png` });
+await jp.context().setOffline(false);
+await jp.locator('.outbox-badge').waitFor({ state: 'detached', timeout: 15000 });
+await jp.goto(`${base}/judge`);
+await leadPanel.getByRole('link', { name: 'Route 2' }).click();
+await jp.locator('.pad-head').getByText('נועה לוי').waitFor();
+await leadClimb(20);
+await jp.locator('.pad-head').getByText('תמר כהן').waitFor();
+await leadClimb(20);
+await jp.locator('.pad-head').getByText('מאיה גל').waitFor();
+await leadClimb(5);
+await jp.locator('.toast').getByText(/end of the list/).waitFor();
+await jp.locator('.outbox-badge').waitFor({ state: 'detached', timeout: 15000 });
+
+step('lead: the admin corrects a height; reopening a closed round makes it live again');
+await p.goto(`${base}/admin/round/${leadQualId}`);
+await p.locator('tr', { hasText: 'מאיה גל' }).getByText('🔒12+').waitFor();
+await p.locator('tr', { hasText: 'מאיה גל' }).getByRole('button', { name: '✎' }).click();
+if (await p.getByLabel('Climbing time 1').count()) problems.push('qualification correction form has a time field');
+await p.getByLabel('Hold 2').fill('7');
+await p.getByRole('button', { name: 'Save' }).click();
+await p.locator('tr', { hasText: 'מאיה גל' }).getByText('🔒7').waitFor();
+await p.locator('.panel', { hasText: 'Audit log' }).getByText('By Admin ILCA').first().waitFor();
+await p.goto(leadCompUrl);
+await leadQualRow.getByRole('button', { name: 'Close round' }).click();
+await leadQualRow.getByRole('button', { name: 'Reopen' }).click();  // confirmed (dialogs are accepted)
+await leadQualRow.getByRole('button', { name: 'Close round' }).waitFor();
+if (!/^live$/i.test((await leadQualRow.locator('.badge').innerText()).trim())) problems.push(`reopened round is not live: ${await leadQualRow.innerText()}`);
+
+step('lead: public results show 12+ / TOP and the geometric mean (a tie for first)');
+{
+  const lv = await page('en');
+  await lv.goto(`${view}/round/${leadQualId}`);
+  await lv.locator('tr', { hasText: 'מאיה גל' }).locator('.route-chip', { hasText: '12+' }).waitFor();
+  await lv.locator('tr', { hasText: 'מאיה גל' }).locator('.route-chip', { hasText: /^7$/ }).waitFor();
+  await lv.locator('tr', { hasText: 'נועה לוי' }).locator('.route-chip', { hasText: 'TOP' }).waitFor();
+  const ranks = (await lv.locator('tbody tr').allInnerTexts()).map((r) => r.replace(/\s+/g, ' ').trim());
+  if (!/^1 .*נועה לוי.* 1\.50$/.test(ranks[0]) || !/^1 .*תמר כהן.* 1\.50$/.test(ranks[1]) || !/^3 .*מאיה גל.* 3\.00$/.test(ranks[2])) problems.push(`lead qualification ranks: ${JSON.stringify(ranks)}`);
+  await lv.screenshot({ path: `${out}/lead-qualification-en.png`, fullPage: true });
+  await lv.close();
+}
+
+step('lead final (1 route): the judge enters times; the tie after countback breaks on time');
+await p.goto(leadCompUrl);
+await p.locator('select[name=kind]').selectOption('final');
+await p.locator('select[name=scoring]').selectOption('lead');
+await p.getByRole('button', { name: 'Add round' }).click();
+const leadFinalRow = p.locator('.admin-row', { hasText: 'Final' });
+await leadFinalRow.waitFor();
+await leadFinalRow.getByLabel('Routes').fill('1');
+await leadFinalRow.getByLabel('Routes').press('Tab');
+await leadFinalRow.getByLabel('Advance from previous round').fill('2');
+await leadFinalRow.getByLabel('Advance from previous round').press('Tab');
+await p.waitForTimeout(500);
+await leadFinalRow.getByRole('link', { name: 'Judges & corrections' }).click();
+await p.waitForURL(/\/admin\/round\//);
+const leadFinalId = p.url().split('/').pop();
+await p.locator('select[name=judge]').selectOption({ label: 'Judge Yossi' });
+await p.getByRole('button', { name: 'Assign' }).click();
+await p.locator('.admin-row', { hasText: 'Judge Yossi' }).getByText('Whole round').waitFor();
+// the judge opens the final's pad while it is planned and has no start list yet
+await jp.goto(`${base}/judge`);
+await jp.locator('.panel', { hasText: 'Final' }).filter({ hasText: 'Lead League' }).getByRole('link', { name: 'Route 1' }).click();
+await jp.getByText('This round is not live yet').waitFor();
+await jp.getByText(/1 \/ 0/).waitFor();
+await p.goto(leadCompUrl);
+await leadFinalRow.getByRole('button', { name: 'Generate start list' }).click();
+await leadFinalRow.getByText('Starters: 2').waitFor();
+await leadFinalRow.getByRole('button', { name: 'Go live' }).click();
+await leadFinalRow.getByRole('button', { name: 'Close round' }).waitFor();
+// the open pad reloads the round page: start list and live, without leaving the pad
+await jp.locator('.pad-time input:not([disabled])').waitFor({ timeout: 30000 });
+await jp.getByText(/1 \/ 2/).waitFor();
+await jp.getByRole('button', { name: /On the wall/ }).waitFor();
+{
+  // the same phone in Hebrew at 390px (a second phone would hold the claim)
+  await jp.setViewportSize({ width: 390, height: 844 });
+  await jp.getByRole('button', { name: 'עב', exact: true }).click();
+  await jp.getByText('בשניות, עם נקודה עשרונית').waitFor();
+  if (await jp.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) problems.push('lead final pad (he, 390px) scrolls sideways');
+  await jp.screenshot({ path: `${out}/judge-lead-final-he-390.png`, fullPage: true });
+  await jp.getByRole('button', { name: 'EN', exact: true }).click();
+  await jp.setViewportSize({ width: 1280, height: 900 });
+  await jp.getByText('In seconds, with decimals').waitFor();
+}
+const times = { 'נועה לוי': '130.5', 'תמר כהן': '118' };
+for (let i = 0; i < 2; i++) {
+  await jp.getByRole('button', { name: /On the wall/ }).waitFor();
+  const who = (await jp.locator('.pad-head h2').innerText()).trim();
+  if (!(who in times)) { problems.push(`unexpected finalist ${who}`); break; }
+  await jp.locator('.pad-time input').fill('2:7');
+  await jp.getByText('Not a valid time').waitFor();
+  if (!(await jp.getByRole('button', { name: /Next · lock/ }).isDisabled())) problems.push('a bad time can be locked');
+  for (let k = 0; k < 30; k++) await jp.getByRole('button', { name: '+1 Hold' }).click();
+  await jp.getByRole('button', { name: '+ (move)' }).click();
+  await jp.locator('.pad-time input').fill(times[who]);
+  await jp.getByRole('button', { name: /Next · lock/ }).click();
+  await jp.getByRole('dialog').getByText(who === 'תמר כהן' ? '30+ · 1:58' : '30+ · 2:10.5').waitFor();
+  if (i === 0) await jp.screenshot({ path: `${out}/judge-lead-final-en.png` });
+  await jp.getByRole('dialog').getByRole('button', { name: 'Yes, lock' }).click();
+  if (i === 0) await jp.locator('.pad-head h2', { hasNotText: who }).waitFor();
+}
+await jp.locator('.outbox-badge').waitFor({ state: 'detached', timeout: 15000 });
+{
+  const lv = await page('en');
+  await lv.goto(`${view}/round/${leadFinalId}`);
+  await lv.locator('th', { hasText: 'Climbing time' }).waitFor();
+  await lv.locator('tr', { hasText: 'תמר כהן' }).getByText('1:58').waitFor();
+  const rows = (await lv.locator('tbody tr').allInnerTexts()).map((r) => r.replace(/\s+/g, ' ').trim());
+  if (!/^1 .*תמר כהן.*30\+.* 1:58$/.test(rows[0]) || !/^2 .*נועה לוי.*30\+.* 2:10\.5$/.test(rows[1])) problems.push(`lead final: the tie should break on time: ${JSON.stringify(rows)}`);
+  await lv.screenshot({ path: `${out}/lead-final-en.png`, fullPage: true });
+  await lv.close();
+}
+await p.goto(`${base}/admin/round/${leadFinalId}`);
+await p.locator('tr', { hasText: 'נועה לוי' }).getByText('🔒30+ · 2:10.5').waitFor();
+await p.locator('tr', { hasText: 'נועה לוי' }).getByRole('button', { name: '✎' }).click();
+if (await p.getByLabel('Climbing time 1').inputValue() !== '2:10.5') problems.push('final correction form: the time is not loaded');
+await p.getByLabel('Climbing time 1').fill('1:50');
+await p.getByRole('button', { name: 'Save' }).click();
+await p.locator('tr', { hasText: 'נועה לוי' }).getByText('🔒30+ · 1:50').waitFor();
+{
+  const lv = await page('en');
+  await lv.goto(`${view}/round/${leadFinalId}`);
+  await lv.locator('tr', { hasText: 'נועה לוי' }).getByText('1:50').waitFor();
+  const first = (await lv.locator('tbody tr').first().innerText()).replace(/\s+/g, ' ').trim();
+  if (!/^1 .*נועה לוי/.test(first)) problems.push(`lead final after the admin's time correction: ${first}`);
+  await lv.close();
+}
+await p.goto(`${base}/admin/round/${leadFinalId}/sheets`);
+await p.locator('.score-sheet th', { hasText: 'Climbing time' }).waitFor();
+
 step('Hebrew + 390px screenshots');
 const he = await page('he', { width: 390, height: 844 });
 await he.goto(compUrl);

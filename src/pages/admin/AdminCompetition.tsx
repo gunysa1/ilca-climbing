@@ -266,7 +266,9 @@ function RoundRowEditor({ round, first, run }: { round: RoundRow; first: boolean
       </select>
       {round.status === 'planned' && <button className="secondary" onClick={() => void status('live')}>{t('goLive')}</button>}
       {round.status === 'live' && <button className="secondary" onClick={() => void status('closed')}>{t('closeRound')}</button>}
-      {round.status !== 'planned' && <button className="link" onClick={() => void status('planned')}>{t('reopen')}</button>}
+      {/* Reopen a closed round: live again (planned would hide it from the public and the rankings). */}
+      {round.status === 'closed' && <button className="link" onClick={() => window.confirm(t('confirmReopen')) && void status('live')}>{t('reopen')}</button>}
+      {round.status === 'live' && <button className="link" onClick={() => window.confirm(t('confirmBackToPlanned')) && void status('planned')}>{t('backToPlanned')}</button>}
       <span className="muted">{t('starters')}: {round.round_starters[0]?.count ?? 0}</span>
       {!first && (
         <>

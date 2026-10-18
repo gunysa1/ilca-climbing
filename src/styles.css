@@ -155,6 +155,7 @@ label.inline { display: inline-flex; gap: .35rem; align-items: center; font-weig
 .mono { font-family: ui-monospace, "IBM Plex Mono", monospace; white-space: nowrap; }
 .cell-edit { white-space: nowrap; }
 .cell-edit input { width: 3.2rem; padding: .3rem; margin-inline-end: 2px; }
+.cell-edit input.time-input { width: 4.8rem; }
 .role-toggles { display: flex; gap: .75rem; flex-wrap: wrap; }
 .picker { margin-top: .5rem; }
 .picker-hits { list-style: none; padding: 0; margin: .25rem 0 0; border: 1px solid var(--border); border-radius: 8px; }
@@ -339,7 +340,23 @@ a.ranking-part.dropped { text-decoration: line-through; }
   table.results { width: 100%; font-size: 11px; }
   table.results tr { break-inside: avoid; }
   .crumbs { display: block !important; }
+  .score-sheet { break-after: page; border: 0 !important; padding: 0 !important; margin: 0 !important; }
+  .score-sheet:last-child { break-after: auto; }
+  .score-sheet-table tr { break-inside: avoid; }
 }
+/* Admin: paper score sheets (lead fallback), one route per printed page. */
+.score-sheet { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; margin: 1rem 0; color: #000; }
+.score-sheet-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin-bottom: .5rem; }
+.score-sheet-head h2 { margin: 0; font-size: 1.05rem; }
+.score-sheet-route { font-size: 1.4rem; white-space: nowrap; }
+.score-sheet-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.score-sheet-table th, .score-sheet-table td { border: 1px solid #555; padding: .25rem .4rem; text-align: start; }
+.score-sheet-table td { height: 2.1rem; }
+.score-sheet-table .box { width: 6.5rem; }
+.score-sheet-table .small-box { width: 3.5rem; }
+.score-sheet .muted { color: #555; }
+.score-sheet-legend { margin: .5rem 0; }
+.score-sheet-sign { display: flex; flex-wrap: wrap; gap: 1rem 2rem; margin-top: 1.25rem; }
 
 /* Main page: competitions grouped by season */
 details.season { margin-bottom: .75rem; }
@@ -386,6 +403,13 @@ details.season[open] > summary::before { transform: rotate(90deg); }
 .pad-actions { display: grid; grid-template-columns: 1fr 2fr; gap: .6rem; }
 .pad-actions button, .judge .pad-save { min-height: 3.6rem; font-size: 1.1rem; font-weight: 700; width: 100%; }
 .claim-banner { display: flex; flex-direction: column; gap: .5rem; }
+/* Lead finals: the climbing time under the height. */
+.pad-time { display: grid; gap: .3rem; margin-top: .25rem; }
+.pad-time .pad-section { margin-bottom: 0; }
+.pad-time input { width: 100%; box-sizing: border-box; min-width: 0; font-size: 1.6rem; font-family: 'IBM Plex Mono', ui-monospace, monospace; padding: .5rem .75rem; text-align: center; }
+.pad-time input[aria-invalid="true"] { border-color: var(--live); }
+/* Judge home: a round that is not live yet (kept on the phone for offline use). */
+.judge-planned { opacity: .65; }
 .sheet-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(15, 20, 30, .55); display: flex; align-items: flex-end; justify-content: center; }
 .sheet { width: min(560px, 100%); background: var(--surface); border-radius: 18px 18px 0 0; padding: 1.25rem 1rem calc(1rem + env(safe-area-inset-bottom)); }
 .sheet h3 { margin: 0 0 .5rem; }
