@@ -159,7 +159,7 @@ export function diffAlerts(state: AlertState, input: AlertInput, settings: Alert
         }
       }
     }
-    next = { ...next, known: [...new Set([...baselined, ...input.favorites])], lastRead: now };
+    next = { ...next, known: [...input.favorites] /* every current favorite was read now; one unstarred meanwhile is a baseline again when re-starred */, lastRead: now };
   }
 
   return { alerts: alerts.filter((a) => settings.kinds[a.kind]), state: trimState(next) };

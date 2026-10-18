@@ -10,6 +10,11 @@
 --                (the first round's start list is the registration, not an advance)
 -- Security invoker, like the other public reads: RLS decides what anon sees (no draft competitions).
 -- At most 200 climbers.
+-- The "is a round live" and per-competition category lookups below ran as sequential scans (RLS checks
+-- on every row): these two indexes cut a call from ~0.5 s to ~0.2 s.
+create index if not exists categories_competition_id_idx on public.categories (competition_id);
+create index if not exists rounds_live_category_idx on public.rounds (category_id) where status = 'live';
+
 create function public.favorites_live(p_climbers uuid[]) returns json
   language plpgsql stable security invoker set search_path = public set jit = off as $$
 declare
@@ -17,6 +22,11 @@ declare
   cl uuid[] := coalesce(p_climbers[1:200], '{}');
   ids uuid[];
 begin
+  -- most of the year nothing is on: answer at once
+  if not exists (select 1 from public.competitions co where co.status <> 'draft' and co.ends_on >= today - 1 and co.starts_on <= today + 1)
+     and not exists (select 1 from public.rounds r where r.status = 'live') then
+    return '[]'::json;
+  end if;
   select array_agg(distinct r.id) into ids
   from public.round_starters s
   join public.rounds r on r.id = s.round_id

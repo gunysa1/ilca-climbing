@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { ALERT_DAYS_MS, ALERT_HIDDEN_MAX_MS, planFetch, type PollContext } from './alertPolling';
+import { ALERT_DAYS_MS, ALERT_HIDDEN_MAX_MS, mayLead, planFetch, type PollContext } from './alertPolling';
 
 const NOW = 1_000_000_000;
 const base: PollContext = {
   now: NOW, lastWall: 0, lastHist: 0, lastDays: NOW - 1000, anyLive: false, competitionDay: false, finishedPending: false,
-  needBaseline: false, wantHistory: true, histActive: true, hiddenSince: null,
+  needBaseline: false, wallProbe: false, wantHistory: true, histActive: true, hiddenSince: null,
 };
 const at = (o: Partial<PollContext>) => planFetch({ ...base, ...o });
 
@@ -50,6 +50,22 @@ describe('alert polling plan', () => {
   it('after the last round ended: one more read, even when nothing is live any more', () => {
     expect(at({ finishedPending: true, lastWall: NOW - 1000, lastHist: NOW - 60000 })).toBe('history');
     expect(at({ finishedPending: true, lastWall: NOW - 1000, lastHist: NOW - 1000 })).toBeNull();
+  });
+
+  it('after a days lookup without a competition day the live part is read once (a round may be live anyway)', () => {
+    expect(at({ wallProbe: true })).toBe('wall');
+    expect(at({ wallProbe: false })).toBeNull();
+  });
+
+  it('leader stamp: a fresh stamp of another tab wins, a visible tab takes over from a hidden one', () => {
+    const t = NOW;
+    expect(mayLead(null, 'me', t, false)).toBe(true);
+    expect(mayLead({ id: 'me', t, h: false }, 'me', t + 30000, true)).toBe(true);
+    expect(mayLead({ id: 'other', t, h: false }, 'me', t + 10000, false)).toBe(false);
+    expect(mayLead({ id: 'other', t, h: false }, 'me', t + 10000, true)).toBe(false);
+    expect(mayLead({ id: 'other', t, h: true }, 'me', t + 10000, false)).toBe(true);
+    expect(mayLead({ id: 'other', t, h: true }, 'me', t + 10000, true)).toBe(false);
+    expect(mayLead({ id: 'other', t, h: false }, 'me', t + 45000, true)).toBe(true); // stale
   });
 
   it('a page hidden for over 10 minutes stops asking', () => {

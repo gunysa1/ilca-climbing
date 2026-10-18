@@ -83,15 +83,22 @@ export function Screen() {
   // late starter) extends it instead of restarting it.
   const roundsRef = useRef(rounds);
   roundsRef.current = rounds;
+  // a new round on screen: its clock starts and its overflow is not known yet (the list reports it)
+  useEffect(() => { shownSince.current = Date.now(); overflow.current = 0; }, [current?.round_id]);
   useEffect(() => {
-    shownSince.current = Date.now();
-    overflow.current = 0;
     if (!current) return;
-    const upNext = nextRoundId(roundsRef.current, current.round_id);
-    if (upNext && upNext !== current.round_id) prefetchRound(upNext); // loaded while this one is shown
+    let prefetched = false;
     const timer = setInterval(() => {
-      if (roundsRef.current.length < 2 || Date.now() - shownSince.current < dwellMs(overflow.current)) return;
-      setCurrentId(nextRoundId(roundsRef.current, current.round_id));
+      const list = roundsRef.current;
+      if (list.length < 2) return;
+      const elapsed = Date.now() - shownSince.current;
+      const dwell = dwellMs(overflow.current);
+      if (!prefetched && elapsed >= dwell - 5000) { // a few seconds ahead, so the switch is instant and the copy fresh
+        prefetched = true;
+        const upNext = nextRoundId(list, current.round_id);
+        if (upNext && upNext !== current.round_id) prefetchRound(upNext, 10000);
+      }
+      if (elapsed >= dwell) setCurrentId(nextRoundId(list, current.round_id));
     }, 1000);
     return () => clearInterval(timer);
   }, [current?.round_id, roundsKey]);

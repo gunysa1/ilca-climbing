@@ -18,6 +18,8 @@ export interface PollContext {
   competitionDay: boolean;
   /** A live round just ended: its closing results / next start lists are still to be read once. */
   finishedPending: boolean;
+  /** The hourly days lookup found no competition today: read the live part once, in case a round is live anyway. */
+  wallProbe: boolean;
   /** Some starred climber was never read (just enabled, or newly starred): one read as baseline. */
   needBaseline: boolean;
   /** The history events (result, advance, podium) are on. */
@@ -35,6 +37,7 @@ export interface PollContext {
 export function planFetch(c: PollContext): 'days' | 'wall' | 'history' | null {
   if (c.hiddenSince !== null && c.now - c.hiddenSince > ALERT_HIDDEN_MAX_MS) return null;
   if (c.lastDays === 0 || c.now - c.lastDays >= ALERT_DAYS_MS - SLACK) return 'days';
+  if (c.wallProbe) return 'wall';
   const active = c.anyLive || c.competitionDay;
   if (!active && !c.finishedPending) return null;
   const urgent = c.needBaseline || c.finishedPending;
@@ -43,4 +46,14 @@ export function planFetch(c: PollContext): 'days' | 'wall' | 'history' | null {
   if (histDue) return 'history'; // the rarer read goes first, or the live part would always win
   const wallDue = c.now - c.lastWall >= (c.anyLive ? 30000 : 120000) - SLACK;
   return wallDue ? 'wall' : null;
+}
+
+/** The leader stamp kept in localStorage where Web Locks are missing: who polled last, when, and
+ * whether that tab was hidden. */
+export interface LeaderStamp { id: string; t: number; h: boolean }
+
+/** May this tab poll? Another tab's fresh stamp wins, except that a visible tab takes over from a hidden one. */
+export function mayLead(stamp: LeaderStamp | null, me: string, now: number, hidden: boolean): boolean {
+  if (!stamp || stamp.id === me || now - stamp.t >= ALERT_TICK_MS * 1.5) return true;
+  return stamp.h && !hidden;
 }

@@ -30,7 +30,7 @@ self.addEventListener('notificationclick', (e) => {
   // only controlled windows can be navigated; when that fails, open a new one
   e.waitUntil(self.clients.matchAll({ type: 'window' }).then(async (list) => {
     for (const c of list) {
-      try { await c.navigate(path); return await c.focus(); } catch { /* try the next, then a new window */ }
+      try { await c.focus(); await c.navigate(path); return; } catch { /* try the next, then a new window */ }
     }
     return self.clients.openWindow(path);
   }));

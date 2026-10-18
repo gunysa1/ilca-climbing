@@ -115,8 +115,9 @@ function keepOffline(key: string, roundId: string, page: RoundPage) {
 }
 
 /** Load a round page in the background (e.g. the other category's round), so opening it is instant. */
-export function prefetchRound(roundId: string) {
-  if (!pageCache.has(roundId)) void fetchRoundPage(roundId);
+export function prefetchRound(roundId: string, maxAgeMs = Infinity) {
+  const at = pageAt.get(roundId);
+  if (!pageCache.has(roundId) || (at !== undefined && Date.now() - at > maxAgeMs)) void fetchRoundPage(roundId);
 }
 
 const toState = (page: RoundPage): RoundData => ({

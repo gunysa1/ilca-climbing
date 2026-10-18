@@ -129,6 +129,14 @@ describe('favorite alerts', () => {
     expect(r.state.known.sort()).toEqual(['a', 'b']);
   });
 
+  it('a climber unstarred and starred again is a baseline again', () => {
+    const row = hist({ round: 'final', round_id: 'f2', round_status: 'planned', rank: null, first_round: false });
+    const s0 = run(EMPTY_STATE, input({ history: [] })).state;
+    const s1 = run(s0, input({ favorites: [], history: [] })).state; // unstarred
+    const s2 = run(s1, input({ favorites: [], history: [row] })).state; // it advanced meanwhile
+    expect(run(s2, input({ favorites: ['a'], history: [row] })).alerts).toEqual([]);
+  });
+
   it('settings filter what is told but the state still advances', () => {
     const s0 = run(EMPTY_STATE, input({ live: live([]) })).state;
     const off: AlertSettings = { enabled: true, kinds: { wall: false, result: true, advance: true, podium: true } };
