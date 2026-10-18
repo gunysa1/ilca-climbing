@@ -6,6 +6,7 @@ import { isRankedCompetition, uncountedCategories } from '../../lib/mixedCategor
 import { supabase } from '../../lib/supabase';
 import type { Category, Competition, Profile, Round } from '../../lib/types';
 import { AdminNav, ErrorLine } from './AdminHome';
+import { AdminLog } from './AdminLog';
 import { ClimberPicker } from './ClimberPicker';
 import { RosterImport } from './RosterImport';
 
@@ -19,7 +20,7 @@ export type CategoryRow = Category & { rounds: RoundRow[]; registrations: Regist
 
 export function AdminCompetition() {
   const { id } = useParams();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const navigate = useNavigate();
   const [comp, setComp] = useState<Competition | null>(null);
   const [cats, setCats] = useState<CategoryRow[]>([]);
@@ -121,6 +122,9 @@ export function AdminCompetition() {
       </form>
 
       <RosterImport competitionId={comp.id} categories={cats} ranked={isRankedCompetition(comp)} onDone={reload} />
+
+      <AdminLog by="competition_id" id={comp.id} stamp={cats} roundLabel={new Map(cats.flatMap((c) =>
+        c.rounds.map((r) => [r.id, `${localized(lang, c.name, c.name_he)} · ${t(r.kind)}`] as const)))} />
     </section>
   );
 }
