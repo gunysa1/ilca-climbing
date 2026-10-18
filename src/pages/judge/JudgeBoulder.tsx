@@ -3,10 +3,12 @@ import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../../lib/auth';
 import { localized, useI18n } from '../../lib/i18n';
 import { judgeRoundsKey, useOutbox } from '../../lib/judgeOutbox';
+import { formatClimbTime, isTimedRound } from '../../lib/climbTime';
 import { formatHeight } from '../../lib/lead';
 import { resultKey, useRoundData, type LeadRow, type Starter } from '../../lib/roundData';
 import { latestRow, outboxKey, type ResultTable } from '../../lib/saveQueue';
 import { EMPTY_RESULT, type BoulderResult } from '../../lib/scoring';
+import { supabase } from '../../lib/supabase';
 import { LeadPad } from './LeadPad';
 import { OutboxNotices, pendingEntry } from './OutboxNotices';
 import { type Row } from './padParts';
@@ -22,7 +24,7 @@ export function JudgeBoulder() {
   const { roundId, boulderId } = useParams();
   const { t, lang } = useI18n();
   const { profileId } = useAuth();
-  const { round, boulders, starters, results, leadResults, loading } = useRoundData(roundId, { offlineKey: profileId ? judgeRoundsKey(profileId) : undefined });
+  const { round, boulders, starters, results, leadResults, loading, offline } = useRoundData(roundId, { offlineKey: profileId ? judgeRoundsKey(profileId) : undefined });
   const boulder = boulders.find((b) => b.id === boulderId);
   const claims = useBoulderClaims(boulder?.id);
   const { snap } = useOutbox();
@@ -31,6 +33,18 @@ export function JudgeBoulder() {
   const [index, setIndex] = useState<number | null>(null);
   const [showList, setShowList] = useState(false);
   const [toast, setToast] = useState('');
+  const timed = isTimedRound(round);
+  // Not live yet (opened the evening before, JudgeHome) or closed: read-only, as the server would refuse
+  // the rows. Shown from the device copy (no signal): scoring goes on, the rows wait in the outbox.
+  const [liveNow, setLiveNow] = useState(false);
+  const notLive = !!round && round.status !== 'live' && !offline && !liveNow;
+  useEffect(() => {
+    if (!round || round.status !== 'planned' || offline || liveNow) return;
+    // Planned: ask every 20 s, so the pad opens by itself when the admin sets the round live.
+    const poll = setInterval(() => void supabase.from('rounds').select('status').eq('id', round.id).maybeSingle()
+      .then(({ data }) => { if (data?.status === 'live') setLiveNow(true); }), 20_000);
+    return () => clearInterval(poll);
+  }, [round, offline, liveNow]);
   // What the pad shows for a climber: the judge's unsent row, else the newest of the server's row, the
   // last one the server returned to this judge (acked: newer than a page kept for offline use) and the
   // one a refused row found on the server ("changed": the admin's values).
@@ -79,6 +93,8 @@ export function JudgeBoulder() {
         </div>
         <button className="secondary" onClick={() => setShowList((v) => !v)} aria-expanded={showList}>☰ {t('climberList')}</button>
       </div>
+      {notLive && <p className="notice" role="status">{t(round.status === 'planned' ? 'roundNotLiveYet' : 'roundClosedJudge')}</p>}
+      {offline && round.status !== 'live' && <p className="muted small">{t('roundNotLiveOffline')}</p>}
       <div className="judge-steps">
         <button className="secondary" onClick={() => go(i - 1)} disabled={i === 0}>{t('prevClimber')}</button>
         <button className="secondary" onClick={() => go(i + 1)} disabled={i >= starters.length - 1}>{t('followingClimber')}</button>
@@ -100,7 +116,7 @@ export function JudgeBoulder() {
                     {waiting && '⏳ '}
                     {locked(s) && '🔒 '}
                     {claims.has(s.climber_id) && `✋ ${claims.get(s.climber_id)} · `}
-                    {l ? formatHeight(l) : r ? shorthand(r) : ''}
+                    {l ? `${formatHeight(l)}${timed && l.time_ms ? ` · ${formatClimbTime(l.time_ms)}` : ''}` : r ? shorthand(r) : ''}
                   </span>
                 </button>
               </li>
@@ -116,11 +132,11 @@ export function JudgeBoulder() {
         const padKey = `${current.climber_id}:${failed?.id ?? ''}`;
         return lead
           ? <LeadPad key={padKey} roundId={roundId!} routeId={boulder.id} starter={current} label={label(current)} baseRow={saved ?? null}
-              initial={shown as unknown as LeadRow | undefined} locked={locked(current)}
+              initial={shown as unknown as LeadRow | undefined} locked={locked(current)} timed={timed} notLive={notLive}
               onLocked={() => afterLock(current.bib)} nextFree={nextFree(i)} onGo={go} />
           : <ScorePad key={padKey} roundId={roundId!} boulderId={boulder.id} starter={current} label={label(current)} baseRow={saved ?? null}
               initial={(shown as unknown as BoulderResult | undefined) ?? EMPTY_RESULT}
-              locked={locked(current)} onLocked={() => afterLock(current.bib)} nextFree={nextFree(i)} onGo={go} />;
+              locked={locked(current)} notLive={notLive} onLocked={() => afterLock(current.bib)} nextFree={nextFree(i)} onGo={go} />;
       })()}
       {toast && <div className="toast" role="status">{toast}</div>}
     </section>

@@ -7,6 +7,7 @@ import { onWallByClimber, onWallList, useOnWall } from '../lib/onWall';
 import { switchTarget } from '../lib/categorySwitch';
 import { saveLastViewed } from '../lib/lastViewed';
 import { localized, useI18n, type Lang } from '../lib/i18n';
+import { isTimedRound } from '../lib/climbTime';
 import { formatHeight } from '../lib/lead';
 import { prefetchRound, resultKey, useRoundData, type LeadRow, type ResultRow, type Starter } from '../lib/roundData';
 import { roundRows, type Row } from '../lib/roundRows';
@@ -104,7 +105,7 @@ export function RoundResults() {
   if (loading) return <p className="muted">{t('loading')}</p>;
   if (!round) return <p className="muted">{t('empty')}</p>;
   const lead = round.scoring === 'lead';
-  const scoreHeader = lead ? (boulders.length > 1 ? t('rankPoints') : '')
+  const scoreHeader = lead ? (boulders.length > 1 ? t('rankPoints') : isTimedRound(round) ? t('climbTime') : '')
     : round.scoring === 'ifsc2025' ? t('points') : `${t('tops')}/${t('zones')}`;
 
   return (

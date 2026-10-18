@@ -47,6 +47,8 @@ export interface RoundData {
   totals: Map<string, TotalsRow>;
   appeals: Appeal[];
   loading: boolean;
+  /** Shown from the copy kept on the device: the server couldn't be reached (judge pad). */
+  offline?: boolean;
 }
 
 /** Start list of a round, joined with bib and age class from the category's registrations. */
@@ -98,9 +100,9 @@ function fetchRoundPage(roundId: string): Promise<RoundPage | null> {
   return p;
 }
 
-/** Judge pad: the last round pages it opened, kept on the device (per profile, under `key`) so the pad
- *  reopens without signal. */
-const OFFLINE_KEEP = 4;
+/** Judge pad: the last round pages it opened or prefetched (JudgeHome), kept on the device (per profile,
+ *  under `key`) so the pad reopens without signal. */
+export const OFFLINE_KEEP = 8;
 function readOffline(key: string): Record<string, RoundPage> {
   try {
     const v = JSON.parse(localStorage.getItem(key) ?? '{}') as unknown;
@@ -112,6 +114,14 @@ function keepOffline(key: string, roundId: string, page: RoundPage) {
   delete all[roundId];
   const kept = Object.entries(all).slice(-(OFFLINE_KEEP - 1));
   try { localStorage.setItem(key, JSON.stringify(Object.fromEntries([...kept, [roundId, page]]))); } catch { /* full or blocked */ }
+}
+
+/** Judge home: load a round page now and keep it on the device (`key`), so its pad opens without
+ *  signal later (e.g. the evening before). False when it couldn't be loaded. */
+export async function keepRoundOffline(key: string, roundId: string): Promise<boolean> {
+  const page = await fetchRoundPage(roundId);
+  if (page) keepOffline(key, roundId, page);
+  return !!page;
 }
 
 /** Load a round page in the background (e.g. the other category's round), so opening it is instant. */
@@ -156,7 +166,7 @@ export function useRoundData(roundId: string | undefined, { offlineKey, reuseMs 
       if (cancelled) return;
       if (loaded && offlineKey) keepOffline(offlineKey, roundId, loaded);
       const page = loaded ?? (offlineKey ? readOffline(offlineKey)[roundId] : undefined);
-      setState(page ? toState(page) : (s) => ({ ...s, loading: false }));
+      setState(page ? { ...toState(page), offline: !loaded } : (s) => ({ ...s, loading: false }));
     });
     // Offline-capable (judge pad): back online, catch up with what others saved meanwhile.
     const reload = () => {

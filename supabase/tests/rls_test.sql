@@ -507,6 +507,70 @@ select pg_temp.denied($$insert into lead_results (boulder_id, climber_id, round_
   values ('40000000-0000-0000-0000-000000000063', '60000000-0000-0000-0000-00000000000d', '30000000-0000-0000-0000-000000000062', 1, true, true)$$,
   'lead TOP with plus rejected');
 
+-- The judge pad writes the climbing time in a lead final (the outbox's upsert) and the tie breaks on it:
+-- a and b are tied on height and seed in final 65; the judge's times make a the faster one now.
+insert into judge_assignments (round_id, boulder_id, judge_id) values
+  ('30000000-0000-0000-0000-000000000065', '40000000-0000-0000-0000-000000000067', '00000000-0000-0000-0000-00000000000e');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+insert into lead_results as x (boulder_id, climber_id, round_id, hold, plus, top, time_ms) values
+  ('40000000-0000-0000-0000-000000000067', '60000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-000000000065', 35, true, false, 120000),
+  ('40000000-0000-0000-0000-000000000067', '60000000-0000-0000-0000-00000000000b', '30000000-0000-0000-0000-000000000065', 35, true, false, 125500)
+  on conflict (boulder_id, climber_id) do update set hold = excluded.hold, plus = excluded.plus, top = excluded.top, time_ms = excluded.time_ms;
+select pg_temp.assert((select array_agg(time_ms order by climber_id) from lead_results
+    where round_id = '30000000-0000-0000-0000-000000000065') = '{120000,125500}',
+  'judge writes the climbing time in a lead final');
+select pg_temp.assert(
+  (select array_agg(right(climber_id::text, 1) || rank order by rank) from lead_scores
+    where round_id = '30000000-0000-0000-0000-000000000065') = '{a1,b2}',
+  'lead final: the judge''s times break the tie');
+select pg_temp.denied($$update lead_results set time_ms = 1000 where round_id = '30000000-0000-0000-0000-000000000063'$$,
+  'judge writes a time on a round they are not assigned to');
+reset role;
+select pg_temp.assert(exists (select 1 from lead_events where round_id = '30000000-0000-0000-0000-000000000065'
+    and time_ms = 125500 and judge_id = '00000000-0000-0000-0000-00000000000e'),
+  'the judge''s time is audited');
+delete from judge_assignments where round_id = '30000000-0000-0000-0000-000000000065';
+
+-- A judge opens a planned round the evening before (judge home): the round page (route, start list)
+-- loads, so the pad is kept on the phone; scoring waits until the admin sets the round live.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into competitions (id, name, starts_on, ends_on, status) values
+  ('a3000000-0000-0000-0000-000000000001', 'Lead league (not published yet)', '2026-10-28', '2026-10-29', 'draft');
+insert into categories (id, competition_id, name, gender) values
+  ('a3000000-0000-0000-0000-000000000002', 'a3000000-0000-0000-0000-000000000001', 'Lead U17', 'female');
+insert into rounds (id, category_id, kind, status, scoring) values
+  ('a3000000-0000-0000-0000-000000000003', 'a3000000-0000-0000-0000-000000000002', 'qualification', 'planned', 'lead');
+insert into boulders (id, round_id, number) values
+  ('a3000000-0000-0000-0000-000000000004', 'a3000000-0000-0000-0000-000000000003', 1);
+insert into registrations (category_id, climber_id, bib) values
+  ('a3000000-0000-0000-0000-000000000002', '60000000-0000-0000-0000-00000000000a', 11);
+insert into judge_assignments (round_id, boulder_id, judge_id) values
+  ('a3000000-0000-0000-0000-000000000003', 'a3000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-00000000000e');
+select set_config('request.jwt.claim.sub', '', false);
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select pg_temp.assert((select count(*) from judge_assignments ja join rounds r on r.id = ja.round_id
+    join categories c on c.id = r.category_id join competitions co on co.id = c.competition_id
+    where r.status = 'planned' and co.starts_on = '2026-10-28') = 1,
+  'judge lists own assignment in a planned round with its competition dates');
+select pg_temp.assert((select jsonb_array_length(p -> 'boulders') = 1 and jsonb_array_length(p -> 'starters') = 1
+    and p -> 'starters' -> 0 ->> 'bib' = '11' and p -> 'round' ->> 'status' = 'planned'
+    from round_page('a3000000-0000-0000-0000-000000000003') p),
+  'judge loads a planned round''s page (route, start list) to keep it offline');
+select pg_temp.denied($$insert into lead_results (boulder_id, climber_id, round_id, hold)
+  values ('a3000000-0000-0000-0000-000000000004', '60000000-0000-0000-0000-00000000000a', 'a3000000-0000-0000-0000-000000000003', 5)$$,
+  'judge scores a lead round that is not live yet');
+select pg_temp.login('00000000-0000-0000-0000-000000000001');
+select pg_temp.assert((select round_page('a3000000-0000-0000-0000-000000000003')) is null,
+  'a climber does not see the planned round of an unpublished competition');
+reset role;
+update rounds set status = 'live' where id = 'a3000000-0000-0000-0000-000000000003';
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+insert into lead_results (boulder_id, climber_id, round_id, hold)
+  values ('a3000000-0000-0000-0000-000000000004', '60000000-0000-0000-0000-00000000000a', 'a3000000-0000-0000-0000-000000000003', 5);
+select pg_temp.assert((select hold from lead_results where boulder_id = 'a3000000-0000-0000-0000-000000000004') = 5,
+  'once live, the same judge scores it');
+reset role;
+
 -- ---------------------------------------------------------------- qualification groups
 -- IFSC-style: two qualification groups ranked separately; advancement takes the top from each group.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);

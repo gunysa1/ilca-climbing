@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { RoundStatus } from '../../components/RoundStatus';
 import { useAuth } from '../../lib/auth';
 import { localized, useI18n } from '../../lib/i18n';
+import { formatClimbTime, isTimedRound, parseClimbTime } from '../../lib/climbTime';
 import { formatHeight } from '../../lib/lead';
 import { loadStarters, resultKey, type LeadRow, type ResultRow, type Starter } from '../../lib/roundData';
 import { supabase } from '../../lib/supabase';
@@ -17,13 +18,14 @@ interface Assignment { id: string; boulder_id: string | null; judge: { id: strin
 interface ScoreEvent {
   id: number; boulder_id: string; climber_id: string; judge_id: string | null; created_at: string;
   attempts?: number; zone_attempt?: number | null; top_attempt?: number | null;
-  hold?: number; plus?: boolean; top?: boolean;
+  hold?: number; plus?: boolean; top?: boolean; time_ms?: number | null;
 }
 interface AppealRow {
   id: string; boulder_id: string | null; climber_id: string; status: 'open' | 'upheld' | 'rejected'; created_at: string;
   details: { reason: string; decision: string | null } | null;
 }
-const eventText = (e: ScoreEvent) => e.hold != null ? formatHeight({ hold: e.hold, plus: !!e.plus, top: !!e.top })
+const eventText = (e: ScoreEvent) => e.hold != null
+  ? `${formatHeight({ hold: e.hold, plus: !!e.plus, top: !!e.top })}${e.time_ms ? ` · ${formatClimbTime(e.time_ms)}` : ''}`
   : `${e.attempts}/${e.zone_attempt ?? '-'}/${e.top_attempt ?? '-'}`;
 
 export function AdminRound() {
@@ -90,6 +92,7 @@ export function AdminRound() {
 
   if (!round) return <section><AdminNav /><ErrorLine error={error} /><p className="muted">{t('loading')}</p></section>;
   const lead = round.scoring === 'lead';
+  const timed = isTimedRound(round);
 
   function assign(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -104,7 +107,8 @@ export function AdminRound() {
     <section>
       <h1>{localized(lang, round.category.name, round.category.name_he)} · {t(round.kind)} <RoundStatus status={round.status} /></h1>
       <AdminNav />
-      <p><Link to={`/admin/competition/${round.category.competition_id}`}>{lang === 'he' ? '→' : '←'} {t('competition')}</Link></p>
+      <p><Link to={`/admin/competition/${round.category.competition_id}`}>{lang === 'he' ? '→' : '←'} {t('competition')}</Link>
+        {lead && <> · <Link to={`/admin/round/${round.id}/sheets`}>🖨 {t('scoreSheets')}</Link></>}</p>
       <ErrorLine error={error} />
 
       <div className="panel">
@@ -140,7 +144,7 @@ export function AdminRound() {
             </thead>
             <tbody>
               {starters.map((s) => editing === s.climber_id ? (lead
-                ? <LeadCorrectionRow key={s.climber_id} starter={s} routes={boulders} results={leadResults}
+                ? <LeadCorrectionRow key={s.climber_id} starter={s} routes={boulders} results={leadResults} timed={timed}
                     onCancel={() => setEditing(null)} onSave={async (p) => { await run(p); setEditing(null); }} />
                 : <CorrectionRow key={s.climber_id} starter={s} boulders={boulders} results={results}
                     onCancel={() => setEditing(null)} onSave={async (p) => { await run(p); setEditing(null); }} />
@@ -151,7 +155,7 @@ export function AdminRound() {
                   {boulders.map((b) => {
                     if (lead) {
                       const l = leadResults.get(resultKey(b.id, s.climber_id));
-                      return <td key={b.id} className="mono" dir="ltr">{l ? formatHeight(l) : ''}</td>;
+                      return <td key={b.id} className="mono" dir="ltr">{l ? `${l.locked ? '🔒' : ''}${formatHeight(l)}${timed && l.time_ms ? ` · ${formatClimbTime(l.time_ms)}` : ''}` : ''}</td>;
                     }
                     const r = results.get(resultKey(b.id, s.climber_id));
                     return <td key={b.id} className="mono">{r ? `${r.locked ? '🔒' : ''}${r.attempts}/${r.zone_attempt ?? '-'}/${r.top_attempt ?? '-'}` : ''}</td>;
@@ -311,17 +315,20 @@ function CorrectionRow({ starter, boulders, results, onSave, onCancel }: {
 }
 
 /** Inline editor for one climber's lead results across the round's routes. */
-function LeadCorrectionRow({ starter, routes, results, onSave, onCancel }: {
+function LeadCorrectionRow({ starter, routes, results, timed, onSave, onCancel }: {
   starter: Starter; routes: Boulder[]; results: Map<string, LeadRow>;
+  /** Lead final: a climbing time per route (seconds or m:ss). */
+  timed: boolean;
   onSave: (p: PromiseLike<{ error: { message: string } | null }>) => Promise<void>;
   onCancel: () => void;
 }) {
   const { t, lang } = useI18n();
-  type LeadCell = { hold: string; plus: boolean; top: boolean };
+  type LeadCell = { hold: string; plus: boolean; top: boolean; time: string };
   const [cells, setCells] = useState<Record<string, LeadCell>>(() => Object.fromEntries(routes.map((b) => {
     const r = results.get(resultKey(b.id, starter.climber_id));
-    return [b.id, { hold: r ? String(r.hold) : '', plus: r?.plus ?? false, top: r?.top ?? false }];
+    return [b.id, { hold: r ? String(r.hold) : '', plus: r?.plus ?? false, top: r?.top ?? false, time: formatClimbTime(r?.time_ms) }];
   })));
+  const [invalid, setInvalid] = useState<string | null>(null);
   const set = (id: string, patch: Partial<LeadCell>) => setCells({ ...cells, [id]: { ...cells[id], ...patch } });
 
   async function save() {
@@ -331,9 +338,12 @@ function LeadCorrectionRow({ starter, routes, results, onSave, onCancel }: {
       const c = cells[b.id];
       const had = results.has(resultKey(b.id, starter.climber_id));
       if (c.hold.trim() === '' && !c.top) { if (had) deletes.push(b.id); continue; }
+      const time = timed ? parseClimbTime(c.time) : null;
+      if (time === undefined) { setInvalid(`${t('climbTime')} ${b.number}`); return; }
       upserts.push({ boulder_id: b.id, climber_id: starter.climber_id, round_id: b.round_id,
-        hold: Number(c.hold) || 0, plus: c.top ? false : c.plus, top: c.top });
+        hold: Number(c.hold) || 0, plus: c.top ? false : c.plus, top: c.top, ...(timed ? { time_ms: time } : {}) });
     }
+    setInvalid(null);
     await onSave((async () => {
       if (upserts.length) {
         const { error } = await supabase.from('lead_results').upsert(upserts, { onConflict: 'boulder_id,climber_id' });
@@ -350,7 +360,7 @@ function LeadCorrectionRow({ starter, routes, results, onSave, onCancel }: {
   return (
     <tr className="editing">
       <td>{starter.bib}</td>
-      <td>{localized(lang, starter.profile.full_name, starter.profile.full_name_he)}</td>
+      <td>{localized(lang, starter.profile.full_name, starter.profile.full_name_he)}{invalid && <span className="error small"> ✗ {invalid}</span>}</td>
       {routes.map((b) => (
         <td key={b.id} className="cell-edit">
           <input aria-label={`${t('hold')} ${b.number}`} type="number" min={0} value={cells[b.id].hold}
@@ -359,6 +369,8 @@ function LeadCorrectionRow({ starter, routes, results, onSave, onCancel }: {
             disabled={cells[b.id].top} onChange={(e) => set(b.id, { plus: e.target.checked })} />+</label>
           <label className="inline small"><input type="checkbox" aria-label={`TOP ${b.number}`} checked={cells[b.id].top}
             onChange={(e) => set(b.id, { top: e.target.checked, plus: false })} />TOP</label>
+          {timed && <input aria-label={`${t('climbTime')} ${b.number}`} className="time-input" inputMode="decimal" dir="ltr" placeholder="m:ss"
+            value={cells[b.id].time} onChange={(e) => set(b.id, { time: e.target.value })} />}
         </td>
       ))}
       <td>

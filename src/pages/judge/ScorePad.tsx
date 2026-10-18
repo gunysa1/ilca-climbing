@@ -9,10 +9,10 @@ import { PadStatus, unsentNow } from './OutboxNotices';
 import { PadBlocked, PadHeader, type PadLabel, type PadNav, type Row } from './padParts';
 import { useClaim, WallToggle } from './useClaim';
 
-export function ScorePad({ roundId, boulderId, starter, label, baseRow, initial, locked: initiallyLocked, ...nav }:
-  { roundId: string; boulderId: string; starter: Starter; label: PadLabel; baseRow: Row | null; initial: BoulderResult; locked: boolean } & PadNav) {
+export function ScorePad({ roundId, boulderId, starter, label, baseRow, initial, locked: initiallyLocked, notLive = false, ...nav }:
+  { roundId: string; boulderId: string; starter: Starter; label: PadLabel; baseRow: Row | null; initial: BoulderResult; locked: boolean; notLive?: boolean } & PadNav) {
   const { t } = useI18n();
-  const { holder, mine, onWall, markWall } = useClaim(roundId, boulderId, starter.climber_id, !initiallyLocked);
+  const { holder, mine, onWall, markWall } = useClaim(roundId, boulderId, starter.climber_id, !initiallyLocked && !notLive);
   const { queue } = useOutbox();
   const key = outboxKey('boulder_results', boulderId, starter.climber_id);
   const [since, setSince] = useState(() => unsentNow(queue, key));
@@ -25,7 +25,7 @@ export function ScorePad({ roundId, boulderId, starter, label, baseRow, initial,
   const [ask, setAsk] = useState<null | 'zone' | 'top' | 'lock'>(null);
   const [lockedNow, setLockedNow] = useState(false); // before the live update arrives
   const locked = initiallyLocked || lockedNow;
-  const blocked = locked || !mine || !queue;
+  const blocked = locked || notLive || !mine || !queue;
   const topped = state.top_attempt != null;
   const climbed = state.attempts > 0 || state.zone_attempt != null || state.top_attempt != null;
   const points = useMemo(() => boulderPoints(state), [state]);

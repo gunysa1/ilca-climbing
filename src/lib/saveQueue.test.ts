@@ -3,6 +3,7 @@ import {
   ackedSince, conflict, isAuthFailure, isTransient, keyState, landed, latestRow, outboxKey, parseOutbox, retryDelay, SaveQueue,
   type OutboxEntry, type SaveQueueOptions, type SendResult,
 } from './saveQueue';
+import { leadPadRow } from './climbTime';
 
 /** localStorage stand-in. */
 function memoryStorage(init: Record<string, string> = {}) {
@@ -483,5 +484,28 @@ describe('saveQueue', () => {
     off();
     put(q, 'c2', 1);
     expect(seen).toEqual([1, 0]);
+  });
+
+  it('lead final: the time goes with the row, offline too, and counts in the landed / conflict checks', async () => {
+    const LK = outboxKey('lead_results', 'r1', 'c1');
+    const lead = (hold: number, timeMs: number | null) =>
+      leadPadRow({ routeId: 'r1', climberId: 'c1', roundId: 'f1', hold, plus: true, top: false, timed: true, timeMs });
+    const send = sendMock().mockResolvedValueOnce(OFFLINE).mockResolvedValue(OK);
+    const q = queue({ send });
+    q.enqueue({ key: LK, table: 'lead_results', row: lead(35, 130_500), lock: true, baseRow: null });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(keyState(q.snapshot(), LK)).toBe('pending');          // no signal: kept, with its time
+    expect(q.pendingRow(LK)).toMatchObject({ hold: 35, plus: true, time_ms: 130_500 });
+    await vi.advanceTimersByTimeAsync(retryDelay(1));
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1][0]).toMatchObject({ table: 'lead_results', lock: true, row: { hold: 35, time_ms: 130_500 } });
+    expect(keyState(q.snapshot(), LK)).toBe('saved');
+    // A server row with another time is not this save, and is someone else's change.
+    const entry = { key: LK, id: 'x', table: 'lead_results', row: lead(35, 130_500), lock: false, queuedAt: 0, tries: 1,
+      baseRow: { ...lead(35, 140_000), locked: false } } as OutboxEntry;
+    expect(landed(entry, { ...lead(35, 140_000), locked: false })).toBe(false);
+    expect(landed(entry, { ...lead(35, 130_500), locked: false })).toBe(true);
+    expect(conflict(entry, { ...lead(35, 150_000), locked: false })).toBe(true);
+    expect(conflict(entry, { ...lead(35, 140_000), locked: false })).toBe(false);
   });
 });

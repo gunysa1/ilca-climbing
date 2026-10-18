@@ -28,6 +28,7 @@ const AdminPeople = lazy(() => import('../../pages/admin/AdminPeople').then((m) 
 const AdminMerge = lazy(() => import('../../pages/admin/AdminMerge').then((m) => ({ default: m.AdminMerge })));
 const AdminRankings = lazy(() => import('../../pages/admin/AdminRankings').then((m) => ({ default: m.AdminRankings })));
 const AdminRound = lazy(() => import('../../pages/admin/AdminRound').then((m) => ({ default: m.AdminRound })));
+const ScoreSheets = lazy(() => import('../../pages/admin/ScoreSheets').then((m) => ({ default: m.ScoreSheets })));
 const AdminChecklist = lazy(() => import('../../pages/admin/AdminChecklist').then((m) => ({ default: m.AdminChecklist })));
 const AdminErrors = lazy(() => import('../../pages/admin/AdminErrors').then((m) => ({ default: m.AdminErrors })));
 /** The staff app: judges, coaches and admins. Sign-in first. */
@@ -51,6 +52,7 @@ export function StaffApp() {
                 <Route path="admin/competition/:id/checklist" element={<RequireRole role="admin"><AdminChecklist /></RequireRole>} />
                 <Route path="admin/errors" element={<RequireRole role="admin"><AdminErrors /></RequireRole>} />
                 <Route path="admin/round/:id" element={<RequireRole role="admin"><AdminRound /></RequireRole>} />
+                <Route path="admin/round/:id/sheets" element={<RequireRole role="admin"><ScoreSheets /></RequireRole>} />
                 <Route path="admin/people" element={<RequireRole role="admin"><AdminPeople /></RequireRole>} />
                 <Route path="admin/people/merge" element={<RequireRole role="admin"><AdminMerge /></RequireRole>} />
                 <Route path="admin/rankings" element={<RequireRole role="admin"><AdminRankings /></RequireRole>} />

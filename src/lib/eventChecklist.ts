@@ -48,6 +48,7 @@ export const MANUAL_ITEMS = [
   { id: 'judges_opened', text: 'manualJudgesOpened' },
   { id: 'venue_signal', text: 'manualVenueSignal' },
   { id: 'fallback_app', text: 'manualFallbackApp' },
+  { id: 'score_sheets', text: 'manualScoreSheets' },
   { id: 'power', text: 'manualPower' },
   { id: 'pdf', text: 'manualPdf' },
 ] as const satisfies readonly { id: string; text: MsgKey }[];
