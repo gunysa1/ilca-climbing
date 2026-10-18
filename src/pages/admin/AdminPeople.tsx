@@ -37,12 +37,16 @@ export function AdminPeople() {
     let profError: string | null = null;
     const [acc, prof, cl] = await Promise.all([
       supabase.rpc('admin_accounts'),
-      allRows<ProfileRow>((from, to) => supabase.from('profiles').select('id, full_name, full_name_he, club, country, gender, user_id, ifsc_id')
+      allRows<Omit<ProfileRow, 'user_id'>>((from, to) => supabase.from('profiles').select('id, full_name, full_name_he, club, country, gender, ifsc_id')
         .order('full_name').order('id').range(from, to)).catch((e: Error) => { profError = e.message; return []; }),
       supabase.from('coach_athletes').select('coach_id, climber_id'),
     ]);
-    setAccounts((acc.data as AdminAccount[]) ?? []);
-    setProfiles(prof);
+    const accs = (acc.data as AdminAccount[]) ?? [];
+    // profiles.user_id is not readable through the table (migration 042): the login of a profile comes from
+    // admin_accounts() (admins only).
+    const login = new Map(accs.filter((a) => a.profile_id).map((a) => [a.profile_id!, a.user_id]));
+    setAccounts(accs);
+    setProfiles(prof.map((p) => ({ ...p, user_id: login.get(p.id) ?? null })));
     setLinks((cl.data as CoachLink[]) ?? []);
     setError(acc.error?.message ?? profError ?? cl.error?.message ?? null);
   }, []);

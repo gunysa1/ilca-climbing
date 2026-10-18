@@ -299,7 +299,8 @@ insert into profile_private (id, email, medical_notes) values
   ('50000000-0000-0000-0000-000000000001', 'kid@test', 'peanut allergy');
 insert into registrations values
   ('20000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', 3);
-select pg_temp.assert((select user_id from profiles where id = '50000000-0000-0000-0000-000000000001') is null,
+select pg_temp.assert(exists (select 1 from profiles where id = '50000000-0000-0000-0000-000000000001')
+  and not exists (select 1 from admin_accounts() where profile_id = '50000000-0000-0000-0000-000000000001'),
   'admin creates a climber profile without an account');
 select pg_temp.assert(
   (select count(*) from admin_accounts() where email in ('noa@test', 'judge@test')) = 2,
@@ -332,7 +333,7 @@ insert into auth.users (id, email, raw_user_meta_data) values
 select pg_temp.login('00000000-0000-0000-0000-00000000000a');
 select link_account('50000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000f');
 select pg_temp.assert(
-  (select user_id from profiles where id = '50000000-0000-0000-0000-000000000001') = '00000000-0000-0000-0000-00000000000f'
+  (select user_id from admin_accounts() where profile_id = '50000000-0000-0000-0000-000000000001') = '00000000-0000-0000-0000-00000000000f'
   and not exists (select 1 from profiles where id = '00000000-0000-0000-0000-00000000000f'),
   'link_account attaches the account and drops its empty auto profile');
 select pg_temp.denied($$select link_account('50000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')$$,
@@ -2143,5 +2144,29 @@ select pg_temp.assert(favorites_live(array['00000000-0000-0000-0000-000000000001
 reset role;
 select pg_temp.assert(not prosecdef, 'favorites_live runs with the caller''s rights (RLS as the caller)')
 from pg_proc where oid = 'public.favorites_live(uuid[])'::regprocedure;
+
+-- ---------------------------------------------------------------- profiles: public columns only (migration 042)
+select pg_temp.login(null);
+select pg_temp.assert((select count(*) from (select id, full_name, full_name_he, gender, club, country, ifsc_id from profiles) p) > 0,
+  'anon reads the public profile columns');
+select pg_temp.denied($$select user_id from profiles$$, 'anon reads profiles.user_id (the account id of a linked profile)');
+select pg_temp.denied($$select created_at from profiles$$, 'anon reads profiles.created_at');
+select pg_temp.denied($$select * from profiles$$, 'anon selects every profile column');
+select pg_temp.denied($$select id from profiles where user_id is not null$$, 'anon filters profiles by user_id');
+reset role;
+select pg_temp.login('00000000-0000-0000-0000-000000000001');
+select pg_temp.denied($$select user_id from profiles where id = auth.uid()$$, 'a climber reads profiles.user_id, even their own');
+select pg_temp.assert(my_profile_id() = '00000000-0000-0000-0000-000000000001', 'a climber finds their own profile through my_profile_id()');
+reset role;
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.denied($$select user_id from profiles$$, 'an admin reads profiles.user_id through the table (admin_accounts() instead)');
+select pg_temp.assert((select profile_id from admin_accounts() where user_id = '00000000-0000-0000-0000-000000000001')
+  = '00000000-0000-0000-0000-000000000001', 'an admin sees which profile an account has through admin_accounts()');
+reset role;
+select pg_temp.assert(not has_column_privilege('anon', 'public.profiles', 'user_id', 'select')
+  and not has_column_privilege('authenticated', 'public.profiles', 'user_id', 'select')
+  and not has_column_privilege('authenticated', 'public.profiles', 'created_at', 'select')
+  and has_column_privilege('service_role', 'public.profiles', 'user_id', 'select'),
+  'profiles.user_id / created_at: no select grant for anon or authenticated (service role keeps it)');
 
 \echo ALL RLS TESTS PASSED
