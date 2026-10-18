@@ -25,6 +25,15 @@ describe('parseHome', () => {
     expect(d.live[0].on_wall).toEqual([]);
     expect(d.latest[0].winners).toEqual([]);
   });
+
+  it('keeps a competition that is on today (day 2 of a 2-day event, between rounds) with its flag', () => {
+    const on = { id: 'two-day', name: 'Two-day cup', name_he: null, venue: null, starts_on: '2026-10-28', ends_on: '2026-10-29', today: true };
+    const next = { id: 'next', name: 'Next', name_he: null, venue: null, starts_on: '2026-11-10', ends_on: '2026-11-10', today: false };
+    const d = parseHome({ upcoming: [on, next] });
+    expect(d.upcoming.map((c) => [c.id, c.today])).toEqual([['two-day', true], ['next', false]]);
+    // once a round of it is live it moves to "live now"
+    expect(withLive(d, [{ round_id: 'r', competition: { id: 'two-day' } } as HomeLiveRound]).upcoming.map((c) => c.id)).toEqual(['next']);
+  });
 });
 
 describe('winnersByCategory', () => {

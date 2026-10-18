@@ -2169,4 +2169,24 @@ select pg_temp.assert(not has_column_privilege('anon', 'public.profiles', 'user_
   and has_column_privilege('service_role', 'public.profiles', 'user_id', 'select'),
   'profiles.user_id / created_at: no select grant for anon or authenticated (service role keeps it)');
 
+-- ---------------------------------------------------------------- home_page: upcoming until the last day (migration 043)
+-- a 2-day competition that started yesterday and ends today, nothing live: still on the home page, flagged today
+insert into competitions (id, name, starts_on, ends_on, status) values
+  ('1c000000-0000-0000-0000-000000000001', 'Two-day cup', (now() at time zone 'Asia/Jerusalem')::date - 1, (now() at time zone 'Asia/Jerusalem')::date, 'published'),
+  ('1c000000-0000-0000-0000-000000000002', 'Next day cup', (now() at time zone 'Asia/Jerusalem')::date + 1, (now() at time zone 'Asia/Jerusalem')::date + 2, 'published');
+select pg_temp.login(null);
+select pg_temp.assert((select (e ->> 'today')::boolean from json_array_elements(home_page() -> 'upcoming') e
+    where e ->> 'id' = '1c000000-0000-0000-0000-000000000001'),
+  'home_page: a competition on its second day, between rounds, is under upcoming flagged today');
+select pg_temp.assert((select json_agg(e ->> 'id') -> 0 from json_array_elements(home_page() -> 'upcoming') e)::text
+    = '"1c000000-0000-0000-0000-000000000001"',
+  'home_page: upcoming is ordered by the first day (the one on today first)');
+select pg_temp.assert((select (e ->> 'today')::boolean from json_array_elements(home_page() -> 'upcoming') e
+    where e ->> 'id' = '1c000000-0000-0000-0000-000000000002') = false,
+  'home_page: a competition starting tomorrow is not flagged today');
+select pg_temp.assert(not exists (select 1 from json_array_elements(home_page() -> 'upcoming') e
+    where e ->> 'id' in ('1b000000-0000-0000-0000-000000000001', '1a000000-0000-0000-0000-000000000002')),
+  'home_page: a competition whose last day has passed is not upcoming');
+reset role;
+
 \echo ALL RLS TESTS PASSED
