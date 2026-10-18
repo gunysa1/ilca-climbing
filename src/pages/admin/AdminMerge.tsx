@@ -8,7 +8,7 @@ import { AdminNav, ErrorLine } from './AdminHome';
 import { ClimberPicker } from './ClimberPicker';
 import { fill } from './ifscSync';
 
-/** Report of merge_profiles() (migration 039). */
+/** Report of merge_profiles() (migration 040). */
 interface ReportPerson { id: string; full_name: string; club: string | null; birth_year: number | null }
 interface MergeReport {
   keep: ReportPerson;

@@ -378,6 +378,7 @@ begin
   delete from ifsc_dismissed x where x.climber_id = p_drop and exists (select 1 from ifsc_dismissed y
     where y.climber_id = p_keep and y.ifsc_event_id = x.ifsc_event_id and y.ifsc_dcat_id = x.ifsc_dcat_id);
   update ifsc_dismissed set climber_id = p_keep where climber_id = p_drop;
+  update client_errors set profile_id = p_keep where profile_id = p_drop;  -- the staff app's error reports (039)
   -- "Not the same person" marks: the duplicate's carry over to keep (a mark between the two goes).
   delete from profile_not_duplicates where (a, b) in ((least(p_keep, p_drop), greatest(p_keep, p_drop)));
   insert into profile_not_duplicates (a, b, created_at)

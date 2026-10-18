@@ -1624,6 +1624,7 @@ insert into ifsc_dismissed (climber_id, ifsc_event_id, ifsc_dcat_id) values
 insert into climber_cache_rounds (round_id) values ('ee000000-0000-0000-0001-000000000003');
 insert into climber_cache_entries (climber_id, round_id, entry) values
   ('ee000000-0000-0000-0003-000000000002', 'ee000000-0000-0000-0001-000000000003', '{}');
+insert into client_errors (profile_id, app, path, message) values ('ee000000-0000-0000-0003-000000000002', 'staff', '/judge', 'merge fixture');
 
 create function pg_temp.refs_to(p uuid) returns bigint language plpgsql as $$
 declare r record; n bigint; total bigint := 0;
@@ -1996,7 +1997,11 @@ select pg_temp.assert(has_function_privilege('authenticated', 'public.admin_acco
   and has_function_privilege('anon', 'public.has_role(public.app_role)', 'execute'),
   'admins (authenticated) keep admin RPCs; RLS helpers stay executable');
 
--- Event day (migration 040): error reports and the checklist.
+select pg_temp.assert((select profile_id from client_errors where message = 'merge fixture') = 'ee000000-0000-0000-0003-000000000001',
+  'merge moves the duplicate''s error reports to the kept profile');
+delete from client_errors where message = 'merge fixture';
+
+-- Event day (migration 039): error reports and the checklist.
 select pg_temp.login(null);
 select pg_temp.denied($$select report_client_error('staff', '/', 'boom')$$, 'anon reports a client error');
 select pg_temp.denied($$select * from client_errors$$, 'anon reads client errors');

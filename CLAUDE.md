@@ -27,10 +27,10 @@ view only, no sign-in; `src/apps/viewer`) and the **staff** app (sign-in; judge,
   hash), redeploying the function and POSTing `{"all": true}` (docs/operations.md). A new table the build reads needs the `rankings_cache_*` triggers
   (migration 033); a migration changing scoring or the build must queue a full rebuild (docs/operations.md).
 - Identity: profiles exist without accounts. `profiles.user_id` links a login (only via `link_account()`, or
-  moved by the admin-only `merge_profiles()` when a duplicate profile is merged, migration 039);
+  moved by the admin-only `merge_profiles()` when a duplicate profile is merged, migration 040);
   policies use `my_profile_id()`, never `auth.uid()` = profile id. Client code uses `useAuth().profileId`.
 - Merging profiles moves every column that references `profiles(id)` (found from the FKs). A profile-id column
-  without an FK must be added to `private.profile_refs()` and moved in `merge_profiles()` (migration 039).
+  without an FK must be added to `private.profile_refs()` and moved in `merge_profiles()` (migration 040).
 - Who climbs a round = `round_starters` (first rounds follow registrations by trigger; later rounds via
   `generate_start_list()`, top `rounds.advance_quota`). Results are only accepted for starters.
 - Clients must select `RESULT_COLUMNS` from `boulder_results` (never `*`): `updated_by` is not granted.

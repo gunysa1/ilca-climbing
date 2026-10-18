@@ -32,7 +32,7 @@ only the caller's own claim. Client callers (judgeOutbox.ts, Judge.tsx) only rel
 no client change expected — confirm. RLS test: an admin's release_claim leaves another judge's claim;
 the owner's call removes it.
 
-### A2. Merge two climber profiles (039 + admin UI)
+### A2. Merge two climber profiles (040 after renumbering + admin UI)
 
 Why: LogLig imports and IFSC matching left the same climber as two profiles (spelling variants).
 History, rankings and the climber page must show one person.
@@ -79,7 +79,7 @@ when no conflicts, a second confirmation naming both people and saying it cannot
 possible-duplicates list with a "compare" button that fills the two pickers. After merging, show the
 kept climber's link.
 
-## Track B — event-day checklist + error reporting (migration 040; PGPORT_TEST=54332)
+## Track B — event-day checklist + error reporting (migration 039 after renumbering; PGPORT_TEST=54332)
 
 ### B1. Event-day checklist (staff, admin)
 
