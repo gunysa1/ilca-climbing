@@ -17,6 +17,9 @@ const tableCache = new Map<string, RankingTable>();
 /** National rankings (מדרג לאומי) per season, discipline, class and gender. One request (ranking_page(): the
  *  season list and the stored table); a table not stored yet is computed here from the season's data
  *  (rankingsView.ts, also when ranking_page() fails). */
+/** IFSC world-ranking lists (cuwr) per discipline and gender; the ifsc-sync function reads the same ones. */
+const WORLD_DCAT: Partial<Record<string, Record<Gender, number>>> = { boulder: { male: 3, female: 7 }, lead: { male: 1, female: 5 } };
+
 export function Rankings() {
   const { t, lang } = useI18n();
   const [params, setParams] = useSearchParams();
@@ -109,11 +112,15 @@ export function Rankings() {
                         {r.events.map((e) => {
                           // 2027 criteria: an international event earns nothing itself (the world ranking does): its place only
                           const placeOnly = e.kind === 'intl' && e.points === 0 && edition?.criteria.seniorIntl === 'world_ranking';
-                          const cls = `ranking-part${e.counted || placeOnly ? '' : ' dropped'}`;
+                          // no points (e.g. a 2027 international event): greyed; points left out of the total: struck through
+                          const cls = `ranking-part${e.points === 0 ? ' zero' : e.counted ? '' : ' dropped'}`;
                           const body = <>{e.kind === 'intl' ? '🌍 ' : e.kind === 'world' ? '🌐 ' : ''}{placeOnly ? e.place
                             : e.place ? <>{e.place}<small> · {fmt(e.points)}</small></> : fmt(e.points)}</>;
-                          // ILCA league events link to their competition; international ones to the IFSC event page
-                          if (e.href) return <a key={e.competition_id} href={e.href} target="_blank" rel="noopener" className={cls} title={e.label}>{body}</a>;
+                          // ILCA league events link to their competition; international ones to the IFSC event page,
+                          // the world ranking to IFSC's world ranking of this discipline and gender
+                          const href = e.href ?? (e.kind === 'world' && WORLD_DCAT[discipline]
+                            ? `https://ifsc.results.info/rankings/cuwr/${WORLD_DCAT[discipline]![gender]}` : undefined);
+                          if (href) return <a key={e.competition_id} href={href} target="_blank" rel="noopener" className={cls} title={e.label}>{body}</a>;
                           return e.kind === 'league'
                             ? <Link key={e.competition_id} to={`/competition/${e.competition_id}`} className={cls} title={e.label}>{body}</Link>
                             : <span key={e.competition_id} className={cls} title={e.label}>{body}</span>;

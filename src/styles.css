@@ -293,6 +293,7 @@ h1 .fav-star { font-size: 1.6rem; }
 .ranking-part { font-size: 12px; padding: 1px 7px; border: 1px solid var(--border); border-radius: 999px; color: var(--text); }
 .ranking-part small { color: var(--muted); }
 .ranking-part.dropped { opacity: .45; text-decoration: line-through; }
+.ranking-part.zero { opacity: .45; }
 .ranking-part.champ { border-color: var(--accent); }
 .ranking-part.adjust { border-style: dashed; }
 a.ranking-part { text-decoration: none; }
