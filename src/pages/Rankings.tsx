@@ -7,7 +7,6 @@ import { RANK_CLASSES, type Gender, type RankClass } from '../lib/rankings';
 import { criteriaForSeason, FIRST_YOUTH_SEASON } from '../lib/criteria';
 import { loadRankingsView } from '../lib/rankingsView';
 import { fmtPoints, rankingsLoaders, type RankingTable } from '../lib/seasonRankings';
-import { supabase } from '../lib/supabase';
 
 const CLASS_LABEL: Record<RankClass, MsgKey | null> = { senior: 'seniors', U21: null, U19: null, U17: null };
 
@@ -50,16 +49,6 @@ export function Rankings() {
   }, [asked, rankClass, gender, discipline]);
 
   const rows = table?.rows ?? [];
-  // The world-ranking chip links to the climber's IFSC page (their results and ranking there).
-  const [ifscIds, setIfscIds] = useState<Map<string, string>>(new Map());
-  const worldIds = rows.filter((r) => r.events.some((e) => e.kind === 'world')).map((r) => r.climber_id).sort().join(',');
-  useEffect(() => {
-    if (!worldIds) return;
-    let live = true;
-    void supabase.from('profiles').select('id, ifsc_id').in('id', worldIds.split(',')).not('ifsc_id', 'is', null)
-      .then(({ data }) => { if (live && data) setIfscIds(new Map(data.map((p) => [p.id as string, p.ifsc_id as string]))); });
-    return () => { live = false; };
-  }, [worldIds]);
   const edition = season ? criteriaForSeason(season) : null;
   const worldMissing = !!table?.meta.world_missing;
   const provisional = !!table?.meta.provisional;
@@ -117,17 +106,14 @@ export function Rankings() {
                       <Link className="athlete" to={`/climber/${r.climber_id}?d=${discipline}`}>{r.full_name != null ? localized(lang, r.full_name, r.full_name_he) : '?'}</Link>
                       {r.club && <span className="athlete-meta">{r.club}</span>}
                       <span className="ranking-parts">
-                        {r.events
-                          // 2027 criteria: international events earn nothing per event (the world ranking does), so they aren't listed
-                          .filter((e) => !(e.kind === 'intl' && e.points === 0 && edition?.criteria.seniorIntl === 'world_ranking'))
-                          .map((e) => {
-                          const cls = `ranking-part${e.counted ? '' : ' dropped'}`;
-                          const body = <>{e.kind === 'intl' ? '🌍 ' : e.kind === 'world' ? '🌐 ' : ''}{e.place ? <>{e.place}<small> · {fmt(e.points)}</small></> : fmt(e.points)}</>;
-                          // ILCA league events link to their competition; international ones to the IFSC results page,
-                          // the world ranking to the climber's IFSC page
-                          const ifsc = e.kind === 'world' ? ifscIds.get(r.climber_id) : undefined;
-                          const href = e.href ?? (ifsc ? `https://ifsc.results.info/athlete/${ifsc}` : undefined);
-                          if (href) return <a key={e.competition_id} href={href} target="_blank" rel="noopener" className={cls} title={e.label}>{body}</a>;
+                        {r.events.map((e) => {
+                          // 2027 criteria: an international event earns nothing itself (the world ranking does): its place only
+                          const placeOnly = e.kind === 'intl' && e.points === 0 && edition?.criteria.seniorIntl === 'world_ranking';
+                          const cls = `ranking-part${e.counted || placeOnly ? '' : ' dropped'}`;
+                          const body = <>{e.kind === 'intl' ? '🌍 ' : e.kind === 'world' ? '🌐 ' : ''}{placeOnly ? e.place
+                            : e.place ? <>{e.place}<small> · {fmt(e.points)}</small></> : fmt(e.points)}</>;
+                          // ILCA league events link to their competition; international ones to the IFSC event page
+                          if (e.href) return <a key={e.competition_id} href={e.href} target="_blank" rel="noopener" className={cls} title={e.label}>{body}</a>;
                           return e.kind === 'league'
                             ? <Link key={e.competition_id} to={`/competition/${e.competition_id}`} className={cls} title={e.label}>{body}</Link>
                             : <span key={e.competition_id} className={cls} title={e.label}>{body}</span>;
