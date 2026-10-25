@@ -60,8 +60,29 @@ function memStore(init: { linked?: [number, string][]; candidates?: Candidate[];
 const rnk = (athlete_id: number, rank: number | null, country = 'ISR', firstname = 'X', lastname = 'Y') =>
   ({ athlete_id, firstname, lastname, country, rank, rounds: [{ round_name: 'Qualification', score: '1T', rank }] });
 
-/** IFSC API of one season (2026): a World Cup with BOULDER Men (ISR 101 linked, 102 matchable, 103 unknown, 104 no place). */
-function api(over: Record<string, unknown> = {}) {
+/** The fixtures below are written per league (the IFSC shape until 2026-10); IFSC now answers league pages only when
+ * signed in. This serves them as IFSC does now: the season page lists the events with their league_season_id, each
+ * event page (/api/v1/events/<id>) its d_cats; the league pages are removed, so a request for one fails the test. */
+function publicShape(paths: Record<string, unknown>) {
+  for (const [path, season] of Object.entries(paths)) {
+    if (!/^\/api\/v1\/seasons\/\d+$/.test(path) || !season) continue;
+    const events: unknown[] = [];
+    for (const lg of (season as { leagues: { url: string }[] }).leagues) {
+      const league = paths[lg.url] as { events?: { event_id: number; d_cats: Record<string, unknown>[] }[] } | undefined;
+      for (const { d_cats, ...ev } of league?.events ?? []) {
+        events.push({ ...ev, league_season_id: Number(lg.url.split('/').pop()) });
+        paths[`/api/v1/events/${ev.event_id}`] = { d_cats: d_cats.map(({ id, name, result_url, ...dc }) =>
+          ({ ...dc, ...(id === undefined ? {} : { dcat_id: id }), dcat_name: name, full_results_url: result_url })) };
+      }
+    }
+    paths[path] = { ...(season as object), events };
+  }
+  for (const path of Object.keys(paths)) if (path.startsWith('/api/v1/season_leagues/')) delete paths[path];
+}
+
+/** IFSC API of one season (2026): a World Cup with BOULDER Men (ISR 101 linked, 102 matchable, 103 unknown, 104 no place).
+ * `raw` paths are served as given, after the reshaping. */
+function api(over: Record<string, unknown> = {}, raw: Record<string, unknown> = {}) {
   const paths: Record<string, unknown> = {
     '/api/v1/': { seasons: [{ name: '2027', url: '/api/v1/seasons/39' }, { name: '2026', url: '/api/v1/seasons/38' },
       { name: '2025', url: '/api/v1/seasons/37' }] },
@@ -89,6 +110,8 @@ function api(over: Record<string, unknown> = {}) {
     for (const c of [7, 1, 5]) paths[`/api/v1/cuwr/${c}?date=${d}`] = { ranking: [{ athlete_id: 300 + c, rank: 1, country: 'USA' }] };
   }
   Object.assign(paths, over);
+  publicShape(paths);
+  Object.assign(paths, raw);
   const calls: string[] = [];
   const ifsc: Ifsc = {
     get: async (path) => {
@@ -133,6 +156,9 @@ describe('runSync', () => {
     expect(calls).not.toContain('/api/v1/seasons/37');
     expect(calls).not.toContain('/api/v1/seasons/39');
     expect(calls.filter((c) => c.includes('/result/'))).toEqual(['/api/v1/events/1500/result/3']);
+    // event pages only for ILCA events in the window; never a league page (signed-in only at IFSC since 2026-10)
+    expect(calls.filter((c) => /^\/api\/v1\/events\/\d+$/.test(c))).toEqual(['/api/v1/events/1500']);
+    expect(calls.some((c) => c.includes('season_leagues'))).toBe(false);
     // linked athletes need no details; the athlete without a place is skipped entirely
     expect(calls.filter((c) => c.startsWith('/api/v1/athletes/'))).toEqual(['/api/v1/athletes/102', '/api/v1/athletes/103']);
     expect(s.world.replaced).toEqual([{ season: '2026-27', asOf: '2026-10-17', rows: [
@@ -157,6 +183,16 @@ describe('runSync', () => {
     await runSync(ifsc, s.store, '2026-10-17');
     expect(s.results.get('p1')).toMatchObject([{ discipline: 'lead', event_type: 'european_cup', ifsc_event_id: 1502, ifsc_dcat_id: 5,
       event_name: 'IFSC Europe Cup Kranj 2026 (LEAD Women)', field_size: 1 }]);
+  });
+
+  it('skips an event whose page fails with a warning, keeps the other events', async () => {
+    const s = base();
+    const { ifsc } = api(twoCategories);
+    const failing: Ifsc = { get: async (p) => { if (p === '/api/v1/events/1500') throw new Error(`IFSC ${p}: HTTP 401`); return ifsc.get(p); } };
+    const sum = await runSync(failing, s.store, '2026-10-17');
+    expect(sum.warnings).toEqual(['IFSC /api/v1/events/1500: HTTP 401']);
+    expect(s.results.get('p1')?.map((r) => r.ifsc_event_id)).toEqual([1503]);
+    expect(sum.world).toBe(1);
   });
 
   it('merges a pending athlete\'s results seen in another event', async () => {
@@ -219,14 +255,15 @@ describe('runSync', () => {
   });
 
   it.each([
-    ['a league without events', { '/api/v1/season_leagues/457': {} }],
+    ['a season page without events', {}, { '/api/v1/seasons/38': { leagues: [] } }],
     ['a failing season list', { '/api/v1/': undefined }],
     ['every category and world-list request failing', { '/api/v1/events/1500/result/3': undefined, '/api/v1/events/1503/result/3': undefined,
       ...Object.fromEntries([3, 7, 1, 5].map((c) => [`/api/v1/cuwr/${c}?date=2026-10-17`, undefined])) }],
-  ])('rejects on %s without writing anything', async (_, over) => {
+    ['every event page failing', {}, { '/api/v1/events/1500': undefined, '/api/v1/events/1503': undefined }],
+  ])('rejects on %s without writing anything', async (_, over, raw: Record<string, unknown> = {}) => {
     const s = base();
-    const o = { ...twoCategories, ...over } as Record<string, unknown>;
-    const { ifsc } = api(o);
+    const o = { ...twoCategories, ...over, ...raw } as Record<string, unknown>;
+    const { ifsc } = api({ ...twoCategories, ...over }, raw);
     const failing: Ifsc = { get: async (p) => { if (p in o && o[p] === undefined) throw new Error('HTTP 500'); return ifsc.get(p); } };
     await expect(runSync(failing, s.store, '2026-10-17')).rejects.toThrow();
     expect(s.writes).toEqual([]);

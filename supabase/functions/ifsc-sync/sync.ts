@@ -142,6 +142,8 @@ const sameWorld = (stored: WorldRow[], rows: WorldPosition[], asOf: string) => s
  * A failing world list skips the world part only (the stored positions stay). When at least two category, athlete
  * and world-list requests were made and every one failed, IFSC is taken as down and the run fails; any success
  * (e.g. the world lists) keeps it a run with warnings, so a few broken categories never block the world update.
+ * An event page (its categories) that fails is skipped with a warning too; it is not one of those requests, but at
+ * least two event pages all failing also fails the run.
  */
 export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { onlyAthlete?: number } = {}): Promise<RunSummary> {
   const linked = await store.linkedProfiles();
@@ -173,13 +175,15 @@ export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { o
     return sum;
   }
 
-  // A category or athlete request: its failure is a warning, unless every one fails.
-  let tried = 0;
-  async function attempt<T>(f: () => Promise<T>): Promise<T | null> {
-    tried++;
+  // A category or athlete request: its failure is a warning, unless every one fails. Event pages count apart.
+  const count = { tried: 0, failed: 0 };
+  const pages = { tried: 0, failed: 0 };
+  async function attempt<T>(f: () => Promise<T>, c = count): Promise<T | null> {
+    c.tried++;
     try {
       return await f();
     } catch (e) {
+      c.failed++;
       sum.warnings.push(message(e));
       return null;
     }
@@ -189,34 +193,41 @@ export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { o
   const from = addDays(today, -60);
   const years = new Set([from.slice(0, 4), today.slice(0, 4)]);
   const athletes = new Map<number, { firstname: string; lastname: string; rows: ResultRow[] }>();
+  // The season lists its events (with their league); the categories come from each event. IFSC answers the league
+  // pages (/api/v1/season_leagues/…) only when signed in since 2026-10-20.
   for (const s of list(await ifsc.get('/api/v1/'), 'seasons', '/api/v1/')) {
     if (!years.has(String(s.name))) continue;
-    for (const lg of list(await ifsc.get(s.url), 'leagues', s.url)) {
-      if (!LEAGUES.has(lg.name)) continue;
-      for (const ev of list(await ifsc.get(lg.url), 'events', lg.url)) {
-        const date: string = ev.local_start_date;
-        if (!date || date < from || date > today) continue;
-        const type = eventType(ev.event);
-        if (!type) continue;
-        for (const dc of list(ev, 'd_cats', lg.url)) {
-          const disc = String(dc.name).split(' ')[0].toLowerCase() as ResultRow['discipline'];
-          if ((disc !== 'boulder' && disc !== 'lead') || dc.status !== 'finished') continue;
-          // The category's Israeli rows, all or none.
-          const found = await attempt(async () => {
-            const dcatId = Number(dc.id ?? String(dc.result_url).match(/\/result\/(\d+)/)?.[1]);
-            if (!Number.isInteger(dcatId)) throw new Error(`IFSC ${lg.url}: no category id for ${ev.event} ${dc.name}`);
-            const ranking = list(await ifsc.get(dc.result_url), 'ranking', dc.result_url);
-            const fieldSize = ranking.filter((x) => x.rank).length;
-            return ranking.filter((x) => x.country === 'ISR' && x.rank).map((x) => ({ x, row: {
-              season: ilcaSeason(date), discipline: disc, event_type: type, event_name: `${ev.event} (${dc.name})`,
-              starts_on: date, place: x.rank, field_size: fieldSize, reached: reachedOf(x.rounds ?? []),
-              ifsc_event_id: ev.event_id, ifsc_dcat_id: dcatId } as ResultRow }));
-          });
-          for (const { x, row } of found ?? []) {
-            const a = athletes.get(x.athlete_id) ?? { firstname: x.firstname, lastname: x.lastname, rows: [] as ResultRow[] };
-            a.rows.push(row);
-            athletes.set(x.athlete_id, a);
-          }
+    const season = await ifsc.get(s.url);
+    const leagues = new Set(list(season, 'leagues', s.url).filter((lg) => LEAGUES.has(lg.name))
+      .map((lg) => Number(String(lg.url).match(/\/season_leagues\/(\d+)/)?.[1])));
+    for (const ev of list(season, 'events', s.url)) {
+      if (!leagues.has(ev.league_season_id)) continue;
+      const date: string = ev.local_start_date;
+      if (!date || date < from || date > today) continue;
+      const type = eventType(ev.event);
+      if (!type) continue;
+      const path = `/api/v1/events/${ev.event_id}`;
+      const detail = await attempt(async () => list(await ifsc.get(path), 'd_cats', path), pages);
+      for (const dc of detail ?? []) {
+        const name = String(dc.dcat_name ?? dc.name);
+        const url = dc.full_results_url ?? dc.result_url;
+        const disc = name.split(' ')[0].toLowerCase() as ResultRow['discipline'];
+        if ((disc !== 'boulder' && disc !== 'lead') || dc.status !== 'finished') continue;
+        // The category's Israeli rows, all or none.
+        const found = await attempt(async () => {
+          const dcatId = Number(dc.dcat_id ?? dc.id ?? String(url).match(/\/result\/(\d+)/)?.[1]);
+          if (!Number.isInteger(dcatId)) throw new Error(`IFSC ${path}: no category id for ${ev.event} ${name}`);
+          const ranking = list(await ifsc.get(url), 'ranking', url);
+          const fieldSize = ranking.filter((x) => x.rank).length;
+          return ranking.filter((x) => x.country === 'ISR' && x.rank).map((x) => ({ x, row: {
+            season: ilcaSeason(date), discipline: disc, event_type: type, event_name: `${ev.event} (${name})`,
+            starts_on: date, place: x.rank, field_size: fieldSize, reached: reachedOf(x.rounds ?? []),
+            ifsc_event_id: ev.event_id, ifsc_dcat_id: dcatId } as ResultRow }));
+        });
+        for (const { x, row } of found ?? []) {
+          const a = athletes.get(x.athlete_id) ?? { firstname: x.firstname, lastname: x.lastname, rows: [] as ResultRow[] };
+          a.rows.push(row);
+          athletes.set(x.athlete_id, a);
         }
       }
     }
@@ -274,7 +285,9 @@ export async function runSync(ifsc: Ifsc, store: Store, today: string, opts: { o
     }
     if (lists.every((l) => l)) worldIsr = lists.flatMap((l) => l!);
   }
-  if (tried >= 2 && sum.warnings.length === tried) throw new Error(`IFSC failing: every request failed (${sum.warnings[0]})`);
+  for (const c of [count, pages]) {
+    if (c.tried >= 2 && c.failed === c.tried) throw new Error(`IFSC failing: every request failed (${sum.warnings[0]})`);
+  }
 
   // 5. Writes. A waiting row is cleared only once its results are in.
   for (const [id, profile] of newLinks) {
