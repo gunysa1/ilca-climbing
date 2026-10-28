@@ -87,12 +87,14 @@ def main() -> None:
             'prev_place': r.get('previousPlace') or None, 'new_id': uid('climber', r['name'].strip(), r.get('club') or ''),
         })
     by_key = {c['key']: c for c in climbers}
+    # did not start: on the start list, unranked (the temporary app can hold an empty placeholder result for them)
+    dns = {f"{r['bib']}|{r['category']}|{r['gender']}" for r in roster if r.get('liveFlag') == 'DNS'}
 
     results = []
     for raw, rec in (ev.get('results') or {}).items():
         bib, cat, gen, route = unquote(raw).split('|')
         c = by_key.get(f'{bib}|{cat}|{gen}')
-        if not c or not route.isdigit():
+        if not c or not route.isdigit() or c['key'] in dns:
             continue
         if lead:
             top = bool(rec.get('top'))
