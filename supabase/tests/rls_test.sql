@@ -272,6 +272,34 @@ delete from registrations where category_id = '20000000-0000-0000-0000-000000000
   and climber_id = '00000000-0000-0000-0000-00000000000c';
 select pg_temp.assert(not exists (select 1 from round_starters where round_id = '30000000-0000-0000-0000-000000000006'
   and climber_id = '00000000-0000-0000-0000-00000000000c'), 'unregistering removes the first-round starter');
+-- ILCA lead league: a lead final without a quota takes half the ranked climbers (rounded up) under 30, else 24
+select pg_temp.assert(lead_final_quota(3) = 2 and lead_final_quota(28) = 14 and lead_final_quota(29) = 15
+    and lead_final_quota(30) = 24 and lead_final_quota(60) = 24, 'lead final quota: half under 30 climbers, 24 from 30');
+insert into categories (id, competition_id, name, gender) values
+  ('20000000-0000-0000-0000-0000000000f1', '10000000-0000-0000-0000-000000000003', 'Lead League', 'mixed');
+insert into rounds (id, category_id, kind, status, scoring) values
+  ('30000000-0000-0000-0000-0000000000f1', '20000000-0000-0000-0000-0000000000f1', 'qualification', 'closed', 'lead'),
+  ('30000000-0000-0000-0000-0000000000f2', '20000000-0000-0000-0000-0000000000f1', 'final', 'planned', 'lead');
+insert into boulders (id, round_id, number) values
+  ('40000000-0000-0000-0000-0000000000f1', '30000000-0000-0000-0000-0000000000f1', 1);
+insert into registrations (category_id, climber_id, bib) values
+  ('20000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-000000000001', 1),
+  ('20000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-000000000002', 2),
+  ('20000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-00000000000c', 3);
+insert into lead_results (boulder_id, climber_id, round_id, hold, plus, top) values
+  ('40000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-0000000000f1', 30, false, false),
+  ('40000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-0000000000f1', 20, false, false),
+  ('40000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-00000000000c', '30000000-0000-0000-0000-0000000000f1', 10, false, false);
+select generate_start_list('30000000-0000-0000-0000-0000000000f2');
+select pg_temp.assert((select array_agg(climber_id order by start_order) from round_starters where round_id = '30000000-0000-0000-0000-0000000000f2')
+      = array['00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001']::uuid[],
+  'a lead final without a quota: the top half of 3 ranked climbers (2), worst first');
+select pg_temp.assert(not exists (select 1 from jsonb_array_elements(event_checklist('10000000-0000-0000-0000-000000000003')->'checks') c,
+    jsonb_array_elements(c->'items') i where c->>'id' = 'advance_quota' and i->>'round_id' = '30000000-0000-0000-0000-0000000000f2'),
+  'checklist: a lead final without a quota is not red (the rule applies)');
+update rounds set advance_quota = 1 where id = '30000000-0000-0000-0000-0000000000f2';
+select pg_temp.assert(generate_start_list('30000000-0000-0000-0000-0000000000f2') = 1, 'a lead final''s own quota wins over the rule');
+delete from categories where id = '20000000-0000-0000-0000-0000000000f1';
 reset role;
 
 select pg_temp.login('00000000-0000-0000-0000-000000000001');

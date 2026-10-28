@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { climbsRoutes, competitionDisciplines, disciplinesOf, roundFormatsFor } from './discipline';
+import { climbsRoutes, competitionDisciplines, disciplinesOf, roundFormatsFor, roundKindsFor } from './discipline';
 
 describe('disciplinesOf', () => {
   it('maps boulder formats to boulder and lead to lead', () => {
@@ -36,5 +36,13 @@ describe('roundFormatsFor', () => {
     expect(roundFormatsFor('boulder')).toEqual(['ifsc2025', 'classic']);
     expect(roundFormatsFor('speed')).toEqual([]);
     expect(roundFormatsFor(null)).toEqual(['ifsc2025', 'classic', 'lead']);
+  });
+});
+
+describe('roundKindsFor', () => {
+  it('lead: qualification and final only; otherwise a semi-final too', () => {
+    expect(roundKindsFor('lead')).toEqual(['qualification', 'final']);
+    expect(roundKindsFor('boulder')).toEqual(['qualification', 'semifinal', 'final']);
+    expect(roundKindsFor(null)).toEqual(['qualification', 'semifinal', 'final']);
   });
 });

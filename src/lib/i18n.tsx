@@ -258,6 +258,7 @@ const dict = {
   plusMove: { he: '+ (תנועה)', en: '+ (move)' },
   ageClass: { he: 'גיל', en: 'Age class' },
   advanceQuota: { he: 'עולים מהסבב הקודם', en: 'Advance from previous round' },
+  leadFinalQuotaRule: { he: 'ריק: פחות מ-30 מטפסים – חצי עולים (מעוגל למעלה); 30 ומעלה – 24', en: 'Empty: under 30 climbers, half advance (rounded up); 30 or more, 24' },
   generateStartList: { he: 'צור רשימת עלייה', en: 'Generate start list' },
   startListMade: { he: 'רשימת העלייה נוצרה · מטפסים בסבב: {n}', en: 'Start list made · climbers in the round: {n}' },
   startListEmpty: { he: 'אין עדיין מדורגים בסבב הקודם. רשימת העלייה נבנית מהתוצאות שלו, אחרי שמטפסים בו.', en: 'No one is ranked in the previous round yet. The start list is built from its results, once it has been climbed.' },

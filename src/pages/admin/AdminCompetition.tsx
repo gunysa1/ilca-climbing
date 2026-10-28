@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { RoundStatus } from '../../components/RoundStatus';
-import { climbsRoutes, DISC_LABEL, DISCIPLINES, problemsWord, problemWord, roundFormatsFor, type Discipline } from '../../lib/discipline';
+import { climbsRoutes, DISC_LABEL, DISCIPLINES, problemsWord, problemWord, roundFormatsFor, roundKindsFor, type Discipline } from '../../lib/discipline';
 import { errorText } from '../../lib/errors';
 import { localized, useI18n } from '../../lib/i18n';
 import { isRankedCompetition, uncountedCategories } from '../../lib/mixedCategories';
@@ -170,7 +170,7 @@ function MixedWarning({ comp, cats, run }: { comp: Competition; cats: CategoryRo
 function CategoryPanel({ cat, discipline, run, reload }: { cat: CategoryRow; discipline: Discipline | null; run: Run; reload: () => Promise<void> }) {
   const { t, lang } = useI18n();
   const rounds = [...cat.rounds].sort((a, b) => KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind));
-  const missing = KINDS.filter((k) => !rounds.some((r) => r.kind === k));
+  const missing = roundKindsFor(discipline).filter((k) => !rounds.some((r) => r.kind === k));
   const regs = [...cat.registrations].sort((a, b) => (a.bib ?? 1e9) - (b.bib ?? 1e9));
 
   return (
@@ -299,6 +299,8 @@ function RoundRowEditor({ round, first, discipline, run }: { round: RoundRow; fi
     }
   }
 
+  // ILCA lead final without a quota of its own: generate_start_list applies the rule (lead_final_quota)
+  const leadRule = round.scoring === 'lead' && round.kind === 'final';
   const status = (s: Round['status']) => run(supabase.from('rounds').update({ status: s }).eq('id', round.id));
   // Says what happened: how many start, or why nobody does (the previous round has no ranked climbers yet).
   const [made, setMade] = useState<string | null>(null);
@@ -339,6 +341,7 @@ function RoundRowEditor({ round, first, discipline, run }: { round: RoundRow; fi
                 if (q !== round.advance_quota) void run(supabase.from('rounds').update({ advance_quota: q }).eq('id', round.id));
               }} />
           </label>
+          {leadRule && round.advance_quota == null && <span className="muted small">{t('leadFinalQuotaRule')}</span>}
           <button className="secondary" onClick={() => void makeStartList()}>
             {t('generateStartList')}
           </button>

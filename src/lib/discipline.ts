@@ -1,5 +1,5 @@
 import type { MsgKey } from './i18n';
-import type { RoundFormat } from './types';
+import type { Round, RoundFormat } from './types';
 
 export type Discipline = 'boulder' | 'lead' | 'speed';
 export const DISCIPLINES: Discipline[] = ['boulder', 'lead', 'speed'];
@@ -40,4 +40,9 @@ export function roundFormatsFor(discipline: Discipline | null | undefined): Roun
     case 'speed': return [];
     default: return ['ifsc2025', 'classic', 'lead'];
   }
+}
+
+/** Round kinds a category may have: ILCA lead events have a qualification and a final only. */
+export function roundKindsFor(discipline: Discipline | null | undefined): Round['kind'][] {
+  return discipline === 'lead' ? ['qualification', 'final'] : ['qualification', 'semifinal', 'final'];
 }
