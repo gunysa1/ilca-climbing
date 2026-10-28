@@ -403,7 +403,8 @@ positions) and again with `2027-01-01` once that date has passed: that sets the 
 While events still run on the temporary app (ilca-boulder-score.netlify.app), its current round can
 be mirrored read-only into this app: the script reads the app's public event data and prints one
 idempotent SQL sync (competition, groups with age classes, the round with seeds, results upserted
-only when changed). Run it every minute during the round and stop when the temporary app moves to
+only when changed; lead events go to the lead results; `--competition-id` mirrors into a competition set up in the
+admin, matching categories by name, `--groups` limits it to some groups). Run it every minute during the round and stop when the temporary app moves to
 another round (it keeps one round at a time and clears results between rounds).
 
 ## Backups
