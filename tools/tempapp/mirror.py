@@ -69,7 +69,13 @@ def main() -> None:
         return 'female' if re.search(r'בוגרות|בנות|נערות|נשים', g) else 'male'
 
     groups = sorted({group_of.get(r['category'], r['category']) for r in roster})
-    cats = [{'id': uid('category', key, g), 'name': g, 'gender': gender(g)} for g in groups]
+    def english(g: str) -> str:
+        age = re.search(r'U\d+', g)
+        if age:
+            return f"{age.group(0)} {'girls' if gender(g) == 'female' else 'boys'}"
+        return 'Senior women' if gender(g) == 'female' else 'Senior men' if re.search(r'בוגרי|גברים', g) else g
+
+    cats = [{'id': uid('category', key, g), 'name': english(g), 'name_he': g, 'gender': gender(g)} for g in groups]
     rounds = [{'id': uid('round', key, g, a.kind), 'grp': g} for g in groups]
     route_counts = config.get('categoryRouteCounts') or {}
     boulders = []
@@ -148,13 +154,13 @@ create temp table _m on commit drop as select $m${payload}$m$::jsonb as d;
 {competition}
 -- categories by name, rounds by kind, routes by number: new ones get the mirror's ids
 insert into public.categories (id, competition_id, name, name_he, gender)
-select x.id, {q(comp_id)}, x.name, x.name, x.gender::public.gender
-from _m, jsonb_to_recordset(d->'cats') x(id uuid, name text, gender text)
-where not exists (select 1 from public.categories k where k.competition_id = {q(comp_id)} and k.name_he = x.name)
+select x.id, {q(comp_id)}, x.name, x.name_he, x.gender::public.gender
+from _m, jsonb_to_recordset(d->'cats') x(id uuid, name text, name_he text, gender text)
+where not exists (select 1 from public.categories k where k.competition_id = {q(comp_id)} and k.name_he = x.name_he)
 on conflict (id) do nothing;
 create temp table _k on commit drop as
-select x.name as grp, k.id from _m, jsonb_to_recordset(d->'cats') x(name text)
-join public.categories k on k.competition_id = {q(comp_id)} and k.name_he = x.name;
+select x.name_he as grp, k.id from _m, jsonb_to_recordset(d->'cats') x(name_he text)
+join public.categories k on k.competition_id = {q(comp_id)} and k.name_he = x.name_he;
 insert into public.rounds (id, category_id, kind, status, scoring)
 select x.id, k.id, {q(a.kind)}::public.round_kind, 'live', {q(scoring)}::public.scoring_format
 from _m, jsonb_to_recordset(d->'rounds') x(id uuid, grp text) join _k k on k.grp = x.grp
