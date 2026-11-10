@@ -75,10 +75,10 @@ export const outboxStorageKey = (profileId: string) => `ilca.outbox.${profileId}
 
 /** Worth retrying: no answer (network, timeout), a server error, 408 or 429. */
 export const isTransient = (status: number) => status === 0 || status === 408 || status === 429 || status >= 500;
-/** Not signed in (expired or missing session): never a reason to drop a row. */
 /** The server's refusal of a result for a climber marked DNS / DSQ (check_violation, migration 049). */
 export const isMarkedRefusal = (code: string | undefined, message: string) =>
   code === '23514' && message === 'climber is marked DNS/DSQ in this round';
+/** Not signed in (expired or missing session): never a reason to drop a row. */
 export const isAuthFailure = (r: SendResult) => !r.ok && (r.status === 401 || r.code === 'PGRST301');
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 15000, 30000];

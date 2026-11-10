@@ -135,6 +135,8 @@ end $$;"""
 select b.id, c.climber_id, b.round_id, x.hold, x.plus, x.top, x.time_ms
 from _m, jsonb_to_recordset(d->'results') x(key text, grp text, number int, hold int, plus boolean, top boolean, time_ms int)
 join _c c on c.key = x.key join _b b on b.grp = x.grp and b.number = x.number
+join public.round_starters rs on rs.round_id = b.round_id and rs.climber_id = c.climber_id
+where rs.status is null
 on conflict (boulder_id, climber_id) do update set hold = excluded.hold, plus = excluded.plus, top = excluded.top,
   time_ms = excluded.time_ms
 where (lead_results.hold, lead_results.plus, lead_results.top, lead_results.time_ms)
@@ -144,6 +146,8 @@ where (lead_results.hold, lead_results.plus, lead_results.top, lead_results.time
 select b.id, c.climber_id, b.round_id, x.attempts, x.zone_attempt, x.top_attempt
 from _m, jsonb_to_recordset(d->'results') x(key text, grp text, number int, attempts int, zone_attempt int, top_attempt int)
 join _c c on c.key = x.key join _b b on b.grp = x.grp and b.number = x.number
+join public.round_starters rs on rs.round_id = b.round_id and rs.climber_id = c.climber_id
+where rs.status is null
 on conflict (boulder_id, climber_id) do update set attempts = excluded.attempts, zone_attempt = excluded.zone_attempt,
   top_attempt = excluded.top_attempt
 where (boulder_results.attempts, boulder_results.zone_attempt, boulder_results.top_attempt)
@@ -202,11 +206,13 @@ insert into public.profile_private (id) select climber_id from _c on conflict (i
 insert into public.registrations (category_id, climber_id, bib, age_class)
 select category_id, climber_id, bib, age_class from _c
 on conflict (category_id, climber_id) do update set bib = excluded.bib, age_class = excluded.age_class;
--- DNS follows the temporary app (set, and cleared again when the flag goes); a DSQ set by an admin here stays
+-- Status rule: an admin's DSQ always wins and is never overwritten; DNS follows the temporary app's flag (set, and
+-- cleared again when the flag goes). Results are sent below only for climbers whose stored status is null (the
+-- database refuses results for a marked climber, which would roll the whole sync back).
 insert into public.round_starters (round_id, climber_id, start_order, prev_place, status)
 select round_id, climber_id, start_order, prev_place, status from _c
 on conflict (round_id, climber_id) do update set start_order = excluded.start_order, prev_place = excluded.prev_place,
-  status = case when excluded.status = 'dns' then 'dns' when round_starters.status = 'dsq' then 'dsq' else null end;
+  status = case when round_starters.status = 'dsq' then 'dsq' else excluded.status end;
 
 {upsert}
 update public.rounds r set status = {q(a.status)}::public.round_status{tiebreak}

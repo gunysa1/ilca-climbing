@@ -9,15 +9,18 @@ import { supabase } from '../../lib/supabase';
 export function StarterStatus({ roundId, starter, onDone }: { roundId: string; starter: Starter; onDone: (error: string | null) => void }) {
   const { t, lang } = useI18n();
   const [asking, setAsking] = useState(false);
+  const [saving, setSaving] = useState(false);
   const current = starter.status ?? '';
   async function save(status: Status) {
     setAsking(false);
+    setSaving(true);
     const { error } = await supabase.from('round_starters').update({ status }).eq('round_id', roundId).eq('climber_id', starter.climber_id);
+    setSaving(false);
     onDone(errorText(error, t));
   }
   return (
     <>
-      <select value={current} aria-label={`${t('starterStatus')}: ${starter.profile.full_name}`}
+      <select value={current} disabled={saving} aria-label={`${t('starterStatus')}: ${starter.profile.full_name}`}
         onChange={(e) => { const v = e.target.value as Status | ''; if (v === 'dsq') setAsking(true); else void save(v || null); }}>
         <option value="">{t('statusClimbs')}</option>
         <option value="dns">{t('statusDns')}</option>

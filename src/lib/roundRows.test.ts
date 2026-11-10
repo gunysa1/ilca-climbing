@@ -79,7 +79,7 @@ describe('round rows: DNS / DSQ', () => {
     const boulders = [{ id: 'r1', round_id: 'q', number: 1 }];
     const rows = [lead('a', 20, null), lead('b', 25, null), lead('c', 30, null)];
     const fin = (c: Starter['status']) => show(roundRows(round('final'), [st('a', 1, null), st('b', 2, null), st('c', 3, c)], boulders, new Map(), results(rows), new Map()));
-    expect(fin(null)).toEqual(['c1', 'b2', 'a3'])
+    expect(fin(null)).toEqual(['c1', 'b2', 'a3']);
     expect(fin('dsq')).toEqual(['b1', 'a2', 'c-']);
   });
 });
