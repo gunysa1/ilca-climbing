@@ -6,6 +6,9 @@ import { type Boulder, type Profile, type Round } from './types';
 import type { LeadResult } from './lead';
 import type { BoulderResult } from './scoring';
 
+/** Set by an admin: the climber did not start / was disqualified. Unranked; takes no results. */
+export type StarterStatus = 'dns' | 'dsq' | null;
+
 /** A climber on a round's start list (round_starters + their registration). */
 export interface Starter {
   climber_id: string;
@@ -16,6 +19,8 @@ export interface Starter {
   prev_place: number | null;
   /** Qualification group (A, B, ...): groups are ranked separately. */
   group_label: string | null;
+  /** DNS / DSQ (null: climbs). Missing in pages kept on a device before the status existed. */
+  status?: StarterStatus;
   profile: Profile;
 }
 export interface ResultRow extends BoulderResult { boulder_id: string; climber_id: string; locked?: boolean; updated_at?: string }
@@ -60,7 +65,7 @@ export interface RoundData {
 export async function loadStarters(round: Pick<Round, 'id' | 'category_id'>): Promise<{ starters: Starter[]; error: string | null }> {
   const [{ data: rows, error: e1 }, { data: regs, error: e2 }] = await Promise.all([
     supabase.from('round_starters')
-      .select('climber_id, start_order, prev_place, group_label, profile:profiles(id, full_name, full_name_he, club, country)')
+      .select('climber_id, start_order, prev_place, group_label, status, profile:profiles(id, full_name, full_name_he, club, country)')
       .eq('round_id', round.id),
     supabase.from('registrations').select('climber_id, bib, age_class').eq('category_id', round.category_id),
   ]);

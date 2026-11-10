@@ -16,7 +16,7 @@ export function OutboxBadge() {
 /** Why the server refused a row, for the judge. */
 export function useFailureText() {
   const { t } = useI18n();
-  return (f: FailedEntry) => (f.code === 'held' ? `${t('claimedBy')} ${f.error}` : f.code === 'changed' ? t('changedOnServer') : f.error);
+  return (f: FailedEntry) => (f.code === 'held' ? `${t('claimedBy')} ${f.error}` : f.code === 'changed' ? t('changedOnServer') : f.code === 'marked' ? t('markedStarter') : f.error);
 }
 
 let storageWarningSeen = false;

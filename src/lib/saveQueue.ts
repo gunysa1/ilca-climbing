@@ -43,8 +43,9 @@ export interface OutboxEntry {
   /** For the failed-results notice: who and where. */
   meta?: { climber: string; boulder: number };
 }
-/** `held`: another judge holds the climber (error: their name); `changed`: changed on the server meanwhile. */
-export type FailCode = 'held' | 'changed';
+/** `held`: another judge holds the climber (error: their name); `changed`: changed on the server meanwhile;
+ *  `marked`: the climber is marked DNS / DSQ in this round (final: nothing to retry or recheck). */
+export type FailCode = 'held' | 'changed' | 'marked';
 /** `server`: the server's row when it was refused for having changed (the pad shows it). */
 export interface FailedEntry extends OutboxEntry { error: string; code?: FailCode; server?: Row }
 /** The server's row as returned by a save, and when it came (ms). */
@@ -75,6 +76,9 @@ export const outboxStorageKey = (profileId: string) => `ilca.outbox.${profileId}
 /** Worth retrying: no answer (network, timeout), a server error, 408 or 429. */
 export const isTransient = (status: number) => status === 0 || status === 408 || status === 429 || status >= 500;
 /** Not signed in (expired or missing session): never a reason to drop a row. */
+/** The server's refusal of a result for a climber marked DNS / DSQ (check_violation, migration 049). */
+export const isMarkedRefusal = (code: string | undefined, message: string) =>
+  code === '23514' && message === 'climber is marked DNS/DSQ in this round';
 export const isAuthFailure = (r: SendResult) => !r.ok && (r.status === 401 || r.code === 'PGRST301');
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 15000, 30000];
@@ -351,7 +355,7 @@ export class SaveQueue {
           if (!this.stopped) this.timer = setTimeout(() => { this.timer = null; void this.flush(); }, retryDelay(this.failures));
           break;
         } else if (!replaced) {
-          const code = result.code === 'held' || result.code === 'changed' ? result.code : undefined;
+          const code = result.code === 'held' || result.code === 'changed' || result.code === 'marked' ? result.code : undefined;
           const server = code === 'changed' ? result.row : undefined;
           try { this.opts.onFailed?.({ ...entry, error: result.message, ...(code ? { code } : {}) }); } catch { /* reporting only */ }
           this.mutate((s) => ({
@@ -359,7 +363,7 @@ export class SaveQueue {
             pending: s.pending.filter((e) => e.id !== entry.id),
             failed: [...s.failed.filter((e) => e.key !== entry.key),
               { ...entry, error: result.message, ...(code ? { code } : {}), ...(server ? { server } : {}) }],
-            recheck: code && !s.recheck.includes(entry.key) ? [...s.recheck, entry.key] : s.recheck,
+            recheck: code && code !== 'marked' && !s.recheck.includes(entry.key) ? [...s.recheck, entry.key] : s.recheck,
           }));
         }
       }

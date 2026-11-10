@@ -12,6 +12,7 @@ import { supabase } from '../../lib/supabase';
 import { LEAD_COLUMNS, RESULT_COLUMNS, type AdminAccount, type Boulder, type Round } from '../../lib/types';
 import { AdminNav, ErrorLine } from './AdminHome';
 import { AdminLog } from './AdminLog';
+import { StarterStatus } from './StarterStatus';
 
 interface RoundInfo extends Round {
   category: { name: string; name_he: string | null; competition_id: string; competition: { discipline: Discipline | null } | null };
@@ -146,7 +147,7 @@ export function AdminRound() {
         <div className="table-wrap">
           <table className="admin-table">
             <thead>
-              <tr><th>{t('bib')}</th><th>{t('athlete')}</th>{boulders.map((b) => <th key={b.id}>{b.number}</th>)}<th /></tr>
+              <tr><th>{t('bib')}</th><th>{t('athlete')}</th><th>{t('starterStatus')}</th>{boulders.map((b) => <th key={b.id}>{b.number}</th>)}<th /></tr>
             </thead>
             <tbody>
               {starters.map((s) => editing === s.climber_id ? (lead
@@ -158,6 +159,7 @@ export function AdminRound() {
                 <tr key={s.climber_id}>
                   <td>{s.bib}</td>
                   <td>{localized(lang, s.profile.full_name, s.profile.full_name_he)}</td>
+                  <td><StarterStatus roundId={round.id} starter={s} onDone={(e) => { setError(e); if (!e) void reload(); }} /></td>
                   {boulders.map((b) => {
                     if (lead) {
                       const l = leadResults.get(resultKey(b.id, s.climber_id));
@@ -307,6 +309,7 @@ function CorrectionRow({ starter, boulders, results, onSave, onCancel }: {
     <tr className="editing">
       <td>{starter.bib}</td>
       <td>{localized(lang, starter.profile.full_name, starter.profile.full_name_he)}{invalid && <span className="error small"> ✗ {invalid}</span>}</td>
+      <td />
       {boulders.map((b) => (
         <td key={b.id} className="cell-edit">
           <input aria-label={`${t('attempts')} ${b.number}`} type="number" min={0} value={cells[b.id].attempts} onChange={set(b.id, 'attempts')} />
@@ -369,6 +372,7 @@ function LeadCorrectionRow({ starter, routes, results, timed, onSave, onCancel }
     <tr className="editing">
       <td>{starter.bib}</td>
       <td>{localized(lang, starter.profile.full_name, starter.profile.full_name_he)}{invalid && <span className="error small"> ✗ {invalid}</span>}</td>
+      <td />
       {routes.map((b) => (
         <td key={b.id} className="cell-edit">
           <input aria-label={`${t('hold')} ${b.number}`} type="number" min={0} value={cells[b.id].hold}

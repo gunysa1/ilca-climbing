@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../../lib/auth';
 import { localized, useI18n } from '../../lib/i18n';
@@ -24,7 +24,9 @@ export function JudgeBoulder() {
   const { roundId, boulderId } = useParams();
   const { t, lang } = useI18n();
   const { profileId } = useAuth();
-  const { round, boulders, starters, results, leadResults, loading, offline, reload } = useRoundData(roundId, { offlineKey: profileId ? judgeRoundsKey(profileId) : undefined });
+  const { round, boulders, starters: allStarters, results, leadResults, loading, offline, reload } = useRoundData(roundId, { offlineKey: profileId ? judgeRoundsKey(profileId) : undefined });
+  // Climbers marked DNS / DSQ are not offered: no list entry, no "next", not in the count.
+  const starters = useMemo(() => allStarters.filter((s) => !s.status), [allStarters]);
   const boulder = boulders.find((b) => b.id === boulderId);
   const claims = useBoulderClaims(boulder?.id);
   const { snap } = useOutbox();

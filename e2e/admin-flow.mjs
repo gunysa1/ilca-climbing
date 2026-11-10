@@ -409,6 +409,28 @@ await p.evaluate(() => window.dispatchEvent(new Event('afterprint')));
 await p.locator('table.print-table').waitFor({ state: 'detached' });
 await p.screenshot({ path: `${out}/results-appeal-en.png`, fullPage: true });
 
+step('DNS / DSQ: the admin marks a starter DNS (DSQ asks first); the public results say DNS, the climber is unranked');
+await p.goto(`${base}/admin/round/${roundId}`);
+const statusRow = p.locator('tr', { hasText: 'תמר כהן' });
+await statusRow.getByRole('combobox', { name: /Status/ }).selectOption('dsq');
+await p.getByRole('dialog').getByText('Disqualify this climber?').waitFor();
+await p.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+if ((await statusRow.getByRole('combobox', { name: /Status/ }).inputValue()) !== '') problems.push('DSQ was applied without confirmation');
+await statusRow.getByRole('combobox', { name: /Status/ }).selectOption('dns');
+await p.waitForFunction(() => [...document.querySelectorAll('tr')].some((r) => r.textContent.includes('תמר כהן') && r.querySelector('select')?.value === 'dns'));
+await p.goto(`${view}/round/${roundId}`);
+await p.locator('tr.status-dns', { hasText: 'תמר' }).waitFor();
+const dnsRow = (await p.locator('tr.status-dns', { hasText: 'תמר' }).innerText()).replace(/\s+/g, ' ');
+if (!dnsRow.startsWith('DNS')) problems.push(`DNS row should show DNS as the place: "${dnsRow}"`);
+if (await p.locator('tr.status-dns .asc').count()) problems.push('a DNS row shows score chips');
+await p.screenshot({ path: `${out}/results-dns-en.png`, fullPage: true });
+await p.goto(`${base}/admin/round/${roundId}`);
+await p.locator('tr', { hasText: 'תמר כהן' }).getByRole('combobox', { name: /Status/ }).selectOption('');
+await p.waitForTimeout(500);
+await p.goto(`${view}/round/${roundId}`);
+await p.locator('tr', { hasText: 'תמר' }).waitFor();
+if (await p.locator('tr.status-dns').count()) problems.push('DNS stayed after the admin put the climber back to climbing');
+
 step('final: quota 1, generated start list has only the leader');
 await p.goto(compUrl);
 await p.locator('select[name=kind]').selectOption('final');

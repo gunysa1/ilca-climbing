@@ -84,6 +84,8 @@ def main() -> None:
                        + [int(route_counts.get(g) or config.get('routeCount') or 0)])
         boulders += [{'id': uid('boulder', uid('round', key, g, a.kind), n), 'grp': g, 'number': n} for n in range(1, n_routes + 1)]
 
+    # did not start: round_starters.status 'dns' (unranked, takes no results; none are sent for them below)
+    dns = {f"{r['bib']}|{r['category']}|{r['gender']}" for r in roster if r.get('liveFlag') == 'DNS'}
     climbers = []
     for r in roster:
         climbers.append({
@@ -91,10 +93,9 @@ def main() -> None:
             'gender': 'female' if r['gender'] == 'W' else 'male', 'bib': int(r['bib']) if str(r['bib']).isdigit() else None,
             'age_class': r['category'], 'grp': group_of.get(r['category'], r['category']), 'start_order': r.get('startingOrder'),
             'prev_place': r.get('previousPlace') or None, 'new_id': uid('climber', r['name'].strip(), r.get('club') or ''),
+            'status': 'dns' if f"{r['bib']}|{r['category']}|{r['gender']}" in dns else None,
         })
     by_key = {c['key']: c for c in climbers}
-    # did not start: on the start list, unranked (the temporary app can hold an empty placeholder result for them)
-    dns = {f"{r['bib']}|{r['category']}|{r['gender']}" for r in roster if r.get('liveFlag') == 'DNS'}
 
     results = []
     for raw, rec in (ev.get('results') or {}).items():
@@ -193,7 +194,7 @@ select x.*, k.id as category_id, r.id as round_id, coalesce(
    having count(*) = 1),
   x.new_id) as climber_id
 from _m, jsonb_to_recordset(d->'climbers') x(key text, name text, club text, gender text, bib int, age_class text,
-  grp text, start_order int, prev_place int, new_id uuid)
+  grp text, start_order int, prev_place int, new_id uuid, status text)
 join _k k on k.grp = x.grp join _r r on r.grp = x.grp;
 insert into public.profiles (id, full_name, full_name_he, club, gender)
 select climber_id, name, name, club, gender::public.gender from _c on conflict (id) do nothing;
@@ -201,9 +202,11 @@ insert into public.profile_private (id) select climber_id from _c on conflict (i
 insert into public.registrations (category_id, climber_id, bib, age_class)
 select category_id, climber_id, bib, age_class from _c
 on conflict (category_id, climber_id) do update set bib = excluded.bib, age_class = excluded.age_class;
-insert into public.round_starters (round_id, climber_id, start_order, prev_place)
-select round_id, climber_id, start_order, prev_place from _c
-on conflict (round_id, climber_id) do update set start_order = excluded.start_order, prev_place = excluded.prev_place;
+-- DNS follows the temporary app (set, and cleared again when the flag goes); a DSQ set by an admin here stays
+insert into public.round_starters (round_id, climber_id, start_order, prev_place, status)
+select round_id, climber_id, start_order, prev_place, status from _c
+on conflict (round_id, climber_id) do update set start_order = excluded.start_order, prev_place = excluded.prev_place,
+  status = case when excluded.status = 'dns' then 'dns' when round_starters.status = 'dsq' then 'dsq' else null end;
 
 {upsert}
 update public.rounds r set status = {q(a.status)}::public.round_status{tiebreak}

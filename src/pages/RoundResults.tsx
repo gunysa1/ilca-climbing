@@ -264,20 +264,20 @@ function ResultRowView({ row, starter: s, lang, boulders, lead, results, leadRes
 }) {
   const { t } = useI18n();
   return (
-    <tr className={[favorite && 'favorite', climbing && 'on-wall-row'].filter(Boolean).join(' ') || undefined}>
-      <td className="rank">{row.rank ?? '–'}</td>
+    <tr className={[favorite && 'favorite', climbing && 'on-wall-row', row.status && `status-${row.status}`].filter(Boolean).join(' ') || undefined}>
+      <td className="rank">{row.status ? t(row.status) : row.rank ?? '–'}</td>
       <td className="name">
         <FavoriteStar climberId={s.climber_id} name={s.profile.full_name} />
         <Link className="athlete" to={`/climber/${s.climber_id}?d=${lead ? 'lead' : 'boulder'}`}>{localized(lang, s.profile.full_name, s.profile.full_name_he)}</Link>
         {appeal && <span className="appeal-badge" title={t('appealOpen')}>{t('appeal')}</span>}
         {climbing && <span className="climbing-badge">{t('climbingNow')}</span>}
         <span className="athlete-meta">{[s.bib, s.age_class, s.profile.club].filter(Boolean).join(' • ')}</span>
-        <span className="ascents">
+        {row.status !== 'dns' && <span className="ascents">
           {boulders.map((b) => lead
             ? <RouteChip key={b.id} number={b.number} r={leadResults.get(resultKey(b.id, row.climber_id))} climbing={!!climbing?.includes(b.id)} />
             : <Cell key={b.id} number={b.number} r={results.get(resultKey(b.id, row.climber_id))} appeal={!!appeal?.includes(b.id)}
                 climbing={!!climbing?.includes(b.id)} />)}
-        </span>
+        </span>}
       </td>
       <td className="score">{row.score}</td>
     </tr>
@@ -313,14 +313,15 @@ function PrintResults({ rows, byId, boulders, lead, results, leadResults, scoreH
         {rows.map((row) => {
           const s = byId.get(row.climber_id)!;
           return (
-            <tr key={row.climber_id}>
-              <td className="num strong">{row.rank ?? '–'}</td>
+            <tr key={row.climber_id} className={row.status ? `status-${row.status}` : undefined}>
+              <td className="num strong">{row.status ? t(row.status) : row.rank ?? '–'}</td>
               <td className="strong">{localized(lang, s.profile.full_name, s.profile.full_name_he)}{s.age_class ? <span className="muted"> · {s.age_class}</span> : null}</td>
               {bibs && <td className="num">{s.bib ?? ''}</td>}
               {clubs && <td>{s.profile.club ?? ''}</td>}
               {boulders.map((b) => {
                 const key = resultKey(b.id, row.climber_id);
                 const l = lead ? leadResults.get(key) : undefined;
+                if (row.status === 'dns') return <td key={b.id} className="num" />;
                 return <td key={b.id} className="num" dir="ltr">
                   {lead ? (l ? formatHeight(l) + (showTime && l.time_ms ? ` · ${formatClimbTime(l.time_ms)}` : '') : '') : boulderCellText(results.get(key))}
                 </td>;

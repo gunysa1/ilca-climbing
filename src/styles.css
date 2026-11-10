@@ -511,3 +511,8 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
 .sys-lines li.red { color: var(--live); font-weight: 600; }
 .mixed-warning ul { margin: .25rem 0 0; padding-inline-start: 1.2rem; }
 .admin-log td { font-size: .85rem; }
+
+/* DNS / DSQ rows in the results: the place column says so; DSQ scores are greyed (DNS shows none) */
+.results tr.status-dsq .ascents, .results tr.status-dsq .score { opacity: .45; filter: grayscale(1); }
+.results tr.status-dns .rank, .results tr.status-dsq .rank { font-size: .8em; font-weight: 700; letter-spacing: .02em; }
+.print-table tr.status-dsq td:not(:first-child):not(:nth-child(2)) { color: #888; }

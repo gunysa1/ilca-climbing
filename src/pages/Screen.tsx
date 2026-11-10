@@ -197,18 +197,18 @@ function ScreenRound({ roundId, live, onOverflow }: { roundId: string; live: boo
                 if (!s) return null;
                 const climbing = wallBy.get(row.climber_id);
                 return (
-                  <tr key={`${b.group}-${row.climber_id}`} className={climbing ? 'on-wall-row' : undefined}>
-                    <td className="rank">{row.rank ?? '–'}</td>
+                  <tr key={`${b.group}-${row.climber_id}`} className={[climbing && 'on-wall-row', row.status && `status-${row.status}`].filter(Boolean).join(' ') || undefined}>
+                    <td className="rank">{row.status ? t(row.status) : row.rank ?? '–'}</td>
                     <td className="name">
                       <span className="athlete">{localized(lang, s.profile.full_name, s.profile.full_name_he)}</span>
                       <span className="athlete-meta">{[s.age_class, s.profile.club].filter(Boolean).join(' • ')}</span>
                     </td>
                     <td className="asc-col">
-                      <span className="ascents">
+                      {row.status !== 'dns' && <span className="ascents">
                         {boulders.map((bo) => isLead
                           ? <RouteChip key={bo.id} number={bo.number} r={leadResults.get(resultKey(bo.id, row.climber_id))} climbing={!!climbing?.includes(bo.id)} />
                           : <Cell key={bo.id} number={bo.number} r={results.get(resultKey(bo.id, row.climber_id))} climbing={!!climbing?.includes(bo.id)} />)}
-                      </span>
+                      </span>}
                     </td>
                     <td className="score">{row.score}</td>
                   </tr>
