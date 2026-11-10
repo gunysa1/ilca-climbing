@@ -99,14 +99,26 @@ already have published it: fix or revert at once, and not on an event day.
 3. **Rounds**: qualification with its number of boulders (lead: routes), set in the add-round form
    or on the round row. Later rounds: set
    "advance from previous round" and generate the start list (ties at the cutoff advance; seeds are
-   kept for countback). Qualification groups have no admin screen yet: set `round_starters.group_label`
-   in the database (each group is ranked separately).
+   kept for countback). On the round page, "start order": place number (the others shift), group
+   (none / A / B; each group is ranked separately), "split into A / B by start order" and "clear groups".
+   Changing groups after results exist asks first. Edits are logged under "רשימת עלייה" (migration 050).
+   **DNS / DSQ**: set per climber on the same page (DSQ asks to confirm). Marked climbers are unranked, don't
+   advance, get no ranking points, can't get new results (the judge is told) and are skipped on the pads;
+   results show DNS (no scores) or DSQ (greyed). Migration 049.
 4. **Judges**: assign each judge to the whole round or one boulder (route).
 5. **Publish** the competition and set the round **live**. Judges work in the staff app; the public
    follows in the viewer.
 6. **During the round**: corrections and unlocks on the round page (every change is in the audit
    log; status, quota, judge and appeal changes are under "Admin changes" on the round and competition pages); appeals are opened and resolved there and show as "ערעור" on the public results.
 7. **Close** the round, generate the next start list, repeat; mark the competition finished.
+8. **CSV**: a CSV button next to PDF on each round's results (viewer and staff), and "all rounds" on the
+   competition page. UTF-8 with BOM (opens in Excel), the whole round's official places (not the age-class
+   filter); text starting with `= + - @` gets a leading `'`.
+
+**Merging two categories** (competition admin page; migration 051): preview first, then apply. Refused if either
+category has results or stored totals, a climber or a bib is in both, or they belong to different competitions.
+Registrations move (an empty age class gets the dropped category's name), the dropped category is deleted with its
+rounds; its DNS marks and groups are not carried over. No undo.
 
 ### Event days (judge pad offline)
 
@@ -238,6 +250,11 @@ first sign-in gets none; the old People page shows an error). So:
 2. `db push` (042–045), then `db advisors --linked`.
 3. Apply `supabase/cron/cron_cleanup.sql` in the SQL editor.
 4. Ask judges and admins to reload the staff app once (or sign out and in) before 28.10.
+
+### Release of migrations 049-051 (start-list tools)
+
+`db push` applies them. 049 queues full rankings and climber cache rebuilds by itself (picked up within a
+minute); no manual rebuild needed. Push main for the apps (not on an event day).
 
 ### Rankings cache (pg_cron `rankings-cache`)
 
@@ -405,7 +422,8 @@ be mirrored read-only into this app: the script reads the app's public event dat
 idempotent SQL sync (competition, groups with age classes, the round with seeds, results upserted
 only when changed; lead events go to the lead results; `--competition-id` mirrors into a competition set up in the
 admin, matching categories by name, `--groups` limits it to some groups). Run it every minute during the round and stop when the temporary app moves to
-another round (it keeps one round at a time and clears results between rounds).
+another round (it keeps one round at a time and clears results between rounds). Climbers the temporary app marks
+DNS become DNS here; an admin's DSQ is never overwritten; results are sent only for unmarked climbers.
 
 ## Backups
 
