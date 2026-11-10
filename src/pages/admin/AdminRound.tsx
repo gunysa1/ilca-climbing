@@ -144,7 +144,7 @@ export function AdminRound() {
 
       <StartList roundId={round.id} starters={starters} onOptimistic={setStarters}
         hasResults={(lead ? leadResults : results).size > 0}
-        onDone={(e) => { void reload().then(() => { if (e) setError(e); }); }} />
+        onDone={(e) => { void reload().then(() => setError(e)); }} />
 
       <div className="panel">
         <h2>{t('corrections')}</h2>

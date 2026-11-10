@@ -18,21 +18,22 @@ export function StartList({ roundId, starters, hasResults, onOptimistic, onDone 
 }) {
   const { t, lang } = useI18n();
   const [pending, setPending] = useState<null | (() => Promise<void>)>(null);
-  const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const busy = saving || !!pending; // also while the warning is open
   const groups = [...new Set([...LABELS, ...starters.map((s) => s.group_label).filter((g): g is string => !!g)])].sort();
 
   async function finish(p: PromiseLike<{ error: { message: string } | null }>) {
-    setBusy(true);
+    setSaving(true);
     const { error } = await p;
-    setBusy(false);
+    setSaving(false);
     onDone(errorText(error, t));
   }
   /** Group changes ask first when there are results. */
   const changeGroups = (act: () => Promise<void>) => { if (hasResults) setPending(() => act); else void act(); };
 
-  async function move(s: Starter, input: HTMLInputElement) {
+  async function move(s: Starter, place: number, input: HTMLInputElement) {
     const pos = Number.parseInt(input.value, 10);
-    if (!Number.isFinite(pos) || pos === s.start_order) { input.value = String(s.start_order ?? ''); return; } // a bad entry goes back
+    if (!Number.isFinite(pos) || pos === place) { input.value = String(place); return; } // a bad entry goes back
     onOptimistic(moveStarter(starters, s.climber_id, pos));
     await finish(supabase.rpc('move_starter', { p_round: roundId, p_climber: s.climber_id, p_position: pos }));
   }
@@ -52,10 +53,10 @@ export function StartList({ roundId, starters, hasResults, onOptimistic, onDone 
         {starters.map((s, i) => {
           const name = localized(lang, s.profile.full_name, s.profile.full_name_he);
           return (
-            <li key={`${s.climber_id}:${s.start_order}`} className="admin-row start-row">
-              <input className="start-pos" type="number" inputMode="numeric" min={1} max={starters.length} defaultValue={s.start_order ?? i + 1}
+            <li key={`${s.climber_id}:${i}`} className="admin-row start-row">
+              <input className="start-pos" type="number" inputMode="numeric" min={1} max={starters.length} defaultValue={i + 1}
                 aria-label={`${t('startPlace')}: ${name}`} disabled={busy}
-                onBlur={(e) => void move(s, e.currentTarget)}
+                onBlur={(e) => void move(s, i + 1, e.currentTarget)}
                 onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
               <strong className="start-name">{s.bib ? `${s.bib} · ` : ''}{name}</strong>
               <select value={s.group_label ?? ''} disabled={busy} aria-label={`${t('group')}: ${name}`}
