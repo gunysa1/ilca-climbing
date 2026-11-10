@@ -7,11 +7,11 @@ import { onWallByClimber, onWallList, useOnWall } from '../lib/onWall';
 import { switchTarget } from '../lib/categorySwitch';
 import { saveLastViewed } from '../lib/lastViewed';
 import { localized, useI18n, type Lang } from '../lib/i18n';
-import { formatClimbTime, isTimedRound } from '../lib/climbTime';
 import { formatHeight } from '../lib/lead';
 import { prefetchRound, resultKey, useRoundData, type LeadRow, type ResultRow, type Starter } from '../lib/roundData';
-import { roundRows, type Row } from '../lib/roundRows';
-import { boulderCellText, usePrinting } from '../lib/printing';
+import { roundRows, scoreHeader, type Row } from '../lib/roundRows';
+import { ascentCellText, usePrinting } from '../lib/printing';
+import { csvFileName, csvLabels, downloadCsv, resultsCsvText, roundTable } from '../lib/resultsCsv';
 import { boulderPoints } from '../lib/scoring';
 import type { Boulder } from '../lib/types';
 
@@ -107,8 +107,7 @@ export function RoundResults() {
   if (loading) return <p className="muted">{t('loading')}</p>;
   if (!round) return <p className="muted">{t('empty')}</p>;
   const lead = round.scoring === 'lead';
-  const scoreHeader = lead ? (boulders.length > 1 ? t('rankPoints') : isTimedRound(round, boulders.length) ? t('climbTime') : '')
-    : round.scoring === 'ifsc2025' ? t('points') : `${t('tops')}/${t('zones')}`;
+  const scoreHead = scoreHeader(round, boulders.length, t);
 
   return (
     <section>
@@ -134,6 +133,11 @@ export function RoundResults() {
         {lastUpdate && <span className="muted small">{t('updatedAt')} {lastUpdate.toLocaleTimeString(lang === 'he' ? 'he-IL' : 'en-GB')}</span>}
         {openAppeals.size > 0 && <span className="appeal-badge">{t('appealOpen')}</span>}
         <button className="chip no-print" onClick={print} title={t('printPdf')}>PDF ⤓</button>
+        <button className="chip no-print" title={t('exportCsv')} onClick={() => {
+          downloadCsv(csvFileName([category ? localized(lang, category.competition.name, category.competition.name_he) : '',
+            category ? localized(lang, category.name, category.name_he) : '', t(round.kind)]),
+          resultsCsvText([roundTable({ round, boulders, starters, results, leadResults, totals: storedTotals, lang, labels: csvLabels(t, scoreHead) })]));
+        }}>CSV ⤓</button>
       </div>
       {wall.length > 0 && (
         <div className="on-wall no-print" aria-live="polite">
@@ -168,7 +172,7 @@ export function RoundResults() {
       )}
       {printing ? (tab === 'startlist'
         ? <PrintStartList starters={groups.length ? starters.filter((s) => s.group_label === group) : starters} />
-        : <PrintResults rows={visible} byId={byId} boulders={boulders} lead={lead} results={results} leadResults={leadResults} scoreHeader={scoreHeader}
+        : <PrintResults rows={visible} byId={byId} boulders={boulders} lead={lead} results={results} leadResults={leadResults} scoreHeader={scoreHead}
             showTime={lead && round.kind === 'final' && round.time_tiebreak !== false} />)
       : tab === 'startlist' ? <StartList starters={groups.length ? starters.filter((s) => s.group_label === group) : starters} groups={groups} group={group} onGroup={setGroup} climbing={wallByClimber} /> : <>
       {groups.length > 0 && (
@@ -197,7 +201,7 @@ export function RoundResults() {
             <tr>
               <th className="rank">{t('rank')}</th>
               <th className="name">{t('athlete')}</th>
-              <th className="score">{scoreHeader}</th>
+              <th className="score">{scoreHead}</th>
             </tr>
           </thead>
           <tbody>
@@ -320,11 +324,8 @@ function PrintResults({ rows, byId, boulders, lead, results, leadResults, scoreH
               {clubs && <td>{s.profile.club ?? ''}</td>}
               {boulders.map((b) => {
                 const key = resultKey(b.id, row.climber_id);
-                const l = lead ? leadResults.get(key) : undefined;
-                if (row.status === 'dns') return <td key={b.id} className="num" />;
-                return <td key={b.id} className="num" dir="ltr">
-                  {lead ? (l ? formatHeight(l) + (showTime && l.time_ms ? ` · ${formatClimbTime(l.time_ms)}` : '') : '') : boulderCellText(results.get(key))}
-                </td>;
+                const text = ascentCellText({ lead, status: row.status, showTime, boulder: results.get(key), route: leadResults.get(key) });
+                return <td key={b.id} className="num" dir="ltr">{text}</td>;
               })}
               <td className="num strong" dir="ltr">{row.score}</td>
             </tr>

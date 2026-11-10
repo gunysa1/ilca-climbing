@@ -110,6 +110,12 @@ function fetchRoundPage(roundId: string): Promise<RoundPage | null> {
   return p;
 }
 
+/** One round loaded now, fresh, in one request (round_page), without the live subscription: for exports. */
+export async function loadRoundData(roundId: string): Promise<RoundData | null> {
+  const page = await fetchRoundPage(roundId);
+  return page ? toState(page) : null;
+}
+
 /** Judge pad: the last round pages it opened or prefetched (JudgeHome), kept on the device (per profile,
  *  under `key`) so the pad reopens without signal. */
 export const OFFLINE_KEEP = 8;

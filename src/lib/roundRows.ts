@@ -51,3 +51,9 @@ function rankedRows(
       ? r.points.toFixed(1) : `${r.tops}T${r.zones}z ${r.top_attempts} ${r.zone_attempts}`,
   }));
 }
+
+/** Heading of the score column: rank points / climbing time (lead), points (IFSC 2025), tops / zones (classic). */
+export function scoreHeader(round: Round, routes: number, t: (k: 'rankPoints' | 'climbTime' | 'points' | 'tops' | 'zones') => string): string {
+  return round.scoring === 'lead' ? (routes > 1 ? t('rankPoints') : isTimedRound(round, routes) ? t('climbTime') : '')
+    : round.scoring === 'ifsc2025' ? t('points') : `${t('tops')}/${t('zones')}`;
+}

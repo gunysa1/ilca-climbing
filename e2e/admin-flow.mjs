@@ -1,5 +1,6 @@
 // Drives the admin UI end to end as a signed-in admin (see e2e/run.sh).
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import { chromium } from 'playwright';
 import { parseSeason, RANKING_CODE_VERSION, rankingTable } from '../src/lib/rankingTables.ts';
@@ -408,6 +409,22 @@ if (!(await p.locator('table.print-table th', { hasText: 'Boulder 2' }).count())
 await p.evaluate(() => window.dispatchEvent(new Event('afterprint')));
 await p.locator('table.print-table').waitFor({ state: 'detached' });
 await p.screenshot({ path: `${out}/results-appeal-en.png`, fullPage: true });
+
+step('CSV export: the round page and the competition page download a file with the BOM, the header row and the climbers');
+{
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.getByRole('button', { name: /CSV/ }).click()]);
+  const text = readFileSync(await dl.path(), 'utf8');
+  if (!text.startsWith('\uFEFFRank,Bib,Athlete,Club,Age class,Boulder 1,Boulder 2,Boulder 3,Boulder 4,Points\r\n')) problems.push(`CSV: no BOM + header row: ${JSON.stringify(text.slice(0, 120))}`);
+  if (!text.includes('מאיה גל')) problems.push('CSV: the climber is missing');
+  if (!dl.suggestedFilename().endsWith('.csv') || /[\\/:*?"<>|]/.test(dl.suggestedFilename())) problems.push(`CSV: file name "${dl.suggestedFilename()}"`);
+  console.log(`  round file ${dl.suggestedFilename()}: ${JSON.stringify(text.split('\r\n').slice(0, 3))}`);
+  await p.goto(`${view}/competition/${compUrl.split('/').pop()}`);
+  const [dl2] = await Promise.all([p.waitForEvent('download'), p.getByRole('button', { name: /CSV/ }).click()]);
+  const all = readFileSync(await dl2.path(), 'utf8');
+  if (!all.startsWith('\uFEFF') || !all.includes('Rank,Bib,Athlete') || !all.includes('מאיה גל')) problems.push(`CSV (competition): ${JSON.stringify(all.slice(0, 120))}`);
+  console.log(`  competition file ${dl2.suggestedFilename()}: ${JSON.stringify(all.split('\r\n').slice(0, 2))}`);
+  await p.goto(`${view}/round/${roundId}`);
+}
 
 step('DNS / DSQ: the admin marks a starter DNS (DSQ asks first); the public results say DNS, the climber is unranked');
 await p.goto(`${base}/admin/round/${roundId}`);

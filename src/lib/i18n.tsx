@@ -367,6 +367,8 @@ const dict = {
   onWallShown: { he: 'מוצג/ת לקהל כמטפס/ת עכשיו', en: 'Shown to the public as climbing now' },
   onWallHint: { he: 'כשהמטפס/ת עולה לקיר', en: 'When the climber starts' },
   printPdf: { he: 'הדפסה / שמירה כ-PDF', en: 'Print / save as PDF' },
+  exportCsv: { he: 'שמירה כקובץ CSV (אקסל)', en: 'Save as CSV file (Excel)' },
+  exportAllCsv: { he: 'כל הסבבים בקובץ CSV', en: 'All rounds as one CSV file' },
   printedAt: { he: 'הודפס', en: 'Printed' },
   youthRankingsFrom: { he: 'מדרגי הנוער מוצגים מעונת 2024-25 (לפני כן ליגות הנוער נוהלו במבנה אחר)', en: 'Youth rankings start with 2024-25 (youth leagues were organised differently before)' },
   series: { he: 'סדרה (למדרג)', en: 'Series (rankings)' },

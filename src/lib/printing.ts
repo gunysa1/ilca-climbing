@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
-import type { ResultRow } from './roundData';
+import { formatClimbTime } from './climbTime';
+import { formatHeight } from './lead';
+import type { LeadRow, ResultRow, StarterStatus } from './roundData';
 
 /** True while the page is being printed (the PDF button or the browser's own print), so a page can swap
  * its screen layout for a plain table. flushSync: the print snapshot is taken right after beforeprint. */
@@ -24,4 +26,13 @@ export function boulderCellText(r: Pick<ResultRow, 'attempts' | 'top_attempt' | 
   if (r.top_attempt != null) return `T${r.top_attempt} Z${r.zone_attempt ?? r.top_attempt}`;
   if (r.zone_attempt != null) return `Z${r.zone_attempt}`;
   return '–';
+}
+
+/** A boulder / route cell of the printed table and of the CSV: empty for DNS; a lead route as its height
+ *  ("36+", "TOP"), with the climbing time where it breaks ties (`showTime`); a boulder as boulderCellText. */
+export function ascentCellText(o: { lead: boolean; status: StarterStatus; showTime: boolean; boulder?: ResultRow; route?: LeadRow }): string {
+  if (o.status === 'dns') return '';
+  if (!o.lead) return boulderCellText(o.boulder);
+  const l = o.route;
+  return l ? formatHeight(l) + (o.showTime && l.time_ms ? ` · ${formatClimbTime(l.time_ms)}` : '') : '';
 }
