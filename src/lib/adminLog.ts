@@ -1,7 +1,7 @@
 // admin_log (migration 045): who changed competitions, categories, rounds, judge assignments, roles and appeals. The
 // admin round and competition pages list the entries; these pure steps pick the fields to show. Pure.
 
-export type AdminLogTable = 'competitions' | 'categories' | 'rounds' | 'judge_assignments' | 'user_roles' | 'appeals';
+export type AdminLogTable = 'competitions' | 'categories' | 'rounds' | 'judge_assignments' | 'user_roles' | 'appeals' | 'round_starters';
 export interface AdminLogEntry {
   id: number;
   at: string;
@@ -23,12 +23,15 @@ const CONTEXT = new Set(['id', 'created_at', 'competition_id', 'category_id', 'r
 
 /** The fields of an entry to show: what changed (before, after), or what was added / deleted (its non-empty
  * fields, without ids of where it belongs). */
-export function logFields(e: Pick<AdminLogEntry, 'action' | 'changes'>): LogField[] {
+export function logFields(e: Pick<AdminLogEntry, 'action' | 'changes'> & Partial<Pick<AdminLogEntry, 'table_name' | 'row_id'>>): LogField[] {
   if (e.action === 'update') {
-    return Object.entries(e.changes).map(([field, v]) => {
+    const fields = Object.entries(e.changes).map(([field, v]) => {
       const [before, after] = Array.isArray(v) ? v : [undefined, v];
       return { field, before, after };
     });
+    // a start-list row has no id of its own and its changes omit the climber: row_id is 'round_id:climber_id'
+    const climber = e.table_name === 'round_starters' ? e.row_id?.split(':')[1] : undefined;
+    return climber ? [{ field: 'climber_id', after: climber }, ...fields] : fields;
   }
   return Object.entries(e.changes).filter(([f, v]) => !CONTEXT.has(f) && v != null).map(([field, after]) => ({ field, after }));
 }

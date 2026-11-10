@@ -7,7 +7,7 @@ import { ErrorLine } from './AdminHome';
 
 const TABLE_KEY: Record<AdminLogTable, MsgKey> = {
   competitions: 'logTableCompetitions', categories: 'logTableCategories', rounds: 'logTableRounds', judge_assignments: 'logTableJudges',
-  user_roles: 'logTableRoles', appeals: 'logTableAppeals',
+  user_roles: 'logTableRoles', appeals: 'logTableAppeals', round_starters: 'logTableStarters',
 };
 const ACTION_KEY = { insert: 'logInsert', update: 'logUpdate', delete: 'logDelete' } as const;
 const FIELD_KEY: Record<string, MsgKey> = {

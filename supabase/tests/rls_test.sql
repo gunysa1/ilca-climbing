@@ -2573,7 +2573,7 @@ update round_starters set status = 'dsq' where round_id = '3e000000-0000-0000-00
 select pg_temp.assert((select count(*) from round_starters where status is not null) = 4, 'an admin marks climbers DNS / DSQ');
 reset role;
 select pg_temp.assert(exists (select 1 from admin_log where table_name = 'round_starters' and action = 'update'
-    and row_id is not null and changes = '{"status": [null, "dsq"]}'::jsonb and actor_id = '00000000-0000-0000-0000-00000000000a'
+    and row_id = '3e000000-0000-0000-0000-000000000001:e0000000-0000-0000-0000-00000000000c' and changes = '{"status": [null, "dsq"]}'::jsonb and actor_id = '00000000-0000-0000-0000-00000000000a'
     and round_id = '3e000000-0000-0000-0000-000000000001' and competition_id = '1e000000-0000-0000-0000-000000000001'),
   'admin_log: a DNS / DSQ mark (who, which round and competition)');
 
@@ -2584,9 +2584,10 @@ select pg_temp.assert((select array_agg(right(climber_id::text, 1) || coalesce(r
 select pg_temp.assert((select array_agg(right(climber_id::text, 1) || coalesce(rank::text, '-') order by group_label, rank nulls last, climber_id) from round_scores
     where round_id = '3e000000-0000-0000-0000-000000000002') = '{a1,b2,c1,d-}',
   'status classic with groups: DNS unranked, the group ranks as if the climber were absent');
-select pg_temp.assert((select array_agg(right(climber_id::text, 1) || coalesce(rank::text, '-') order by rank nulls last, climber_id) from lead_scores
-    where round_id = '3e000000-0000-0000-0000-000000000003') = '{a1,b2,c3,d-}',
-  'status lead, two routes: DNS unranked, route ranks computed without the climber');
+select pg_temp.assert((select array_agg(right(climber_id::text, 1) || coalesce(rank::text, '-') || ':' || coalesce(round(points, 2)::text, '')
+    order by rank nulls last, climber_id) from lead_scores
+    where round_id = '3e000000-0000-0000-0000-000000000003') = '{a1:1.00,b2:2.00,c3:3.00,d-:}',
+  'status lead, two routes: DNS unranked, route points computed without the climber (d would have been first on both routes)');
 select pg_temp.assert((select array_agg(right(climber_id::text, 1) order by climber_id) from round_ranks
     where round_id = '3e000000-0000-0000-0000-000000000001' and rank is not null) = '{a,b}', 'status: round_ranks follows');
 reset role;
@@ -2660,5 +2661,48 @@ insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_at
 select pg_temp.assert(exists (select 1 from boulder_results where climber_id = 'e0000000-0000-0000-0000-00000000000d'
     and round_id = '3e000000-0000-0000-0000-000000000001'), 'after clearing the status results are accepted again');
 reset role;
+
+-- bookkeeping updates of a marked climber's result pass (lock, updated_by, merges); a result-column update does not
+insert into profiles (id, full_name) values
+  ('f0000000-0000-0000-0000-000000000001', 'Merge keep judge'), ('f0000000-0000-0000-0000-000000000002', 'Merge dup judge'),
+  ('f0000000-0000-0000-0000-000000000003', 'Merge keep climber'), ('f0000000-0000-0000-0000-000000000004', 'Merge dup climber'),
+  ('f0000000-0000-0000-0000-000000000005', 'Marked by dup judge');
+insert into round_starters (round_id, climber_id, start_order, status) values
+  ('3e000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000004', 8, null),
+  ('3e000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000005', 9, null);
+insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt) values
+  ('4e000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000004', '3e000000-0000-0000-0000-000000000001', 2, 1, 2),
+  ('4e000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000005', '3e000000-0000-0000-0000-000000000001', 1, 1, 1);
+update round_starters set status = 'dsq' where round_id = '3e000000-0000-0000-0000-000000000001'
+  and climber_id in ('f0000000-0000-0000-0000-000000000004', 'f0000000-0000-0000-0000-000000000005');
+update rounds set status = 'closed' where id = '3e000000-0000-0000-0000-000000000001';  -- merges wait for live rounds
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+update boulder_results set locked = true where climber_id = 'f0000000-0000-0000-0000-000000000005';
+update boulder_results set locked = false where climber_id = 'f0000000-0000-0000-0000-000000000005';
+select pg_temp.assert(exists (select 1 from boulder_results where climber_id = 'f0000000-0000-0000-0000-000000000005' and not locked),
+  'an admin locks and unlocks a marked climber''s leftover result');
+select pg_temp.refused_status($$update boulder_results set top_attempt = null where climber_id = 'f0000000-0000-0000-0000-000000000005'$$,
+  'a result-column update of a marked climber is still refused');
+-- the stamp trigger always writes the caller: set the duplicate judge as the writer past it, as the judge's own write would
+reset role;
+set session_replication_role = replica;
+update boulder_results set updated_by = 'f0000000-0000-0000-0000-000000000002' where climber_id = 'f0000000-0000-0000-0000-000000000005';
+set session_replication_role = origin;
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+-- merging: the duplicate climber's mark moves to the kept profile; a duplicate judge's updated_by moves although
+-- the result belongs to a marked climber
+select pg_temp.assert((merge_profiles('f0000000-0000-0000-0000-000000000003', 'f0000000-0000-0000-0000-000000000004', true) ->> 'applied')::boolean,
+  'merge: a duplicate marked DSQ merges');
+select pg_temp.assert((select status from round_starters where round_id = '3e000000-0000-0000-0000-000000000001'
+    and climber_id = 'f0000000-0000-0000-0000-000000000003') = 'dsq'
+  and exists (select 1 from boulder_results where climber_id = 'f0000000-0000-0000-0000-000000000003'
+    and round_id = '3e000000-0000-0000-0000-000000000001'),
+  'merge: the kept profile keeps the duplicate''s DSQ mark (and its result)');
+select pg_temp.assert((merge_profiles('f0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', true) ->> 'applied')::boolean,
+  'merge: a duplicate judge whose result belongs to a marked climber merges');
+reset role;
+select pg_temp.assert((select updated_by from boulder_results where climber_id = 'f0000000-0000-0000-0000-000000000005') = 'f0000000-0000-0000-0000-000000000001'
+  and (select status from round_starters where climber_id = 'f0000000-0000-0000-0000-000000000005') = 'dsq',
+  'merge: the duplicate judge''s updated_by moved to the kept profile and the mark stayed');
 
 \echo ALL RLS TESTS PASSED

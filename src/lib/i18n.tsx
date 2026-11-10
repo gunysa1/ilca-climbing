@@ -567,6 +567,7 @@ const dict = {
   logTableJudges: { he: 'שיבוץ שופט', en: 'Judge assignment' },
   logTableRoles: { he: 'תפקיד', en: 'Role' },
   logTableAppeals: { he: 'ערעור', en: 'Appeal' },
+  logTableStarters: { he: 'רשימת עלייה', en: 'Start list' },
   logInsert: { he: 'נוסף', en: 'added' },
   logUpdate: { he: 'שונה', en: 'changed' },
   logDelete: { he: 'נמחק', en: 'deleted' },
