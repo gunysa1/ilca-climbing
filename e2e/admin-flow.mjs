@@ -1064,6 +1064,66 @@ await p.locator('tr', { hasText: 'נועה לוי' }).getByText('🔒30+ · 1:50
 await p.goto(`${base}/admin/round/${leadFinalId}/sheets`);
 await p.locator('.score-sheet th', { hasText: 'Climbing time' }).waitFor();
 
+step('merge two categories: a bib clash is refused in plain words; merging moves the climbers to the kept category\'s first round');
+execFileSync('psql', ['-h', '127.0.0.1', '-p', process.env.E2E_PGPORT, '-U', 'postgres', '-d', 'app', '-v', 'ON_ERROR_STOP=1', '-qc', `
+  insert into profiles (id, full_name, full_name_he, gender) values
+    ('e5000000-0000-0000-0000-000000000001', 'Gali Ron', 'גלי רון', 'female'),
+    ('e5000000-0000-0000-0000-000000000002', 'Dana Bar', 'דנה בר', 'female'),
+    ('e5000000-0000-0000-0000-000000000003', 'Yael Tal', 'יעל טל', 'female'),
+    ('e5000000-0000-0000-0000-000000000004', 'Shir Paz', 'שיר פז', 'female');
+  insert into competitions (id, name, name_he, starts_on, ends_on, status, discipline) values
+    ('e5100000-0000-0000-0000-000000000001', 'Merge Cup', 'גביע איחוד', '2026-12-30', '2026-12-30', 'draft', 'boulder');
+  insert into categories (id, competition_id, name, name_he, gender) values
+    ('e5200000-0000-0000-0000-000000000001', 'e5100000-0000-0000-0000-000000000001', 'U17 Girls', 'בנות U17', 'female'),
+    ('e5200000-0000-0000-0000-000000000002', 'e5100000-0000-0000-0000-000000000001', 'U15 Girls', 'בנות U15', 'female'),
+    ('e5200000-0000-0000-0000-000000000003', 'e5100000-0000-0000-0000-000000000001', 'U13 Girls', 'בנות U13', 'female');
+  insert into rounds (id, category_id, kind) values
+    ('e5300000-0000-0000-0000-000000000001', 'e5200000-0000-0000-0000-000000000001', 'qualification'),
+    ('e5300000-0000-0000-0000-000000000002', 'e5200000-0000-0000-0000-000000000002', 'qualification');
+  insert into registrations (category_id, climber_id, bib) values
+    ('e5200000-0000-0000-0000-000000000001', 'e5000000-0000-0000-0000-000000000001', 1),
+    ('e5200000-0000-0000-0000-000000000002', 'e5000000-0000-0000-0000-000000000002', 2),
+    ('e5200000-0000-0000-0000-000000000002', 'e5000000-0000-0000-0000-000000000003', 3),
+    ('e5200000-0000-0000-0000-000000000003', 'e5000000-0000-0000-0000-000000000004', 1);`]);
+await p.goto(`${base}/admin/competition/e5100000-0000-0000-0000-000000000001`);
+const mergePanel = p.locator('.merge-categories');
+await mergePanel.getByLabel('Category to keep').selectOption({ label: 'U17 Girls (Women)' });
+await mergePanel.getByLabel(/Category to merge into it/).selectOption({ label: 'U13 Girls (Women)' });
+await mergePanel.getByText('Bib 1 is used in both categories (Gali Ron, Shir Paz). Change one of them first.').waitFor();
+if (await mergePanel.getByRole('button', { name: 'Merge' }).isEnabled()) problems.push('merge categories: Merge enabled despite a bib clash');
+await mergePanel.getByLabel(/Category to merge into it/).selectOption({ label: 'U15 Girls (Women)' });
+await mergePanel.getByText('2 climbers will move to U17 Girls:').waitFor();
+await mergePanel.getByText('Dana Bar').waitFor();
+await mergePanel.getByText('Climbers without an age class get "בנות U15"', { exact: false }).waitFor();
+await p.screenshot({ path: `${out}/admin-merge-categories-en.png`, fullPage: true });
+await mergePanel.getByRole('button', { name: 'Merge' }).click();
+await p.getByRole('dialog', { name: 'Merge the categories?' }).getByRole('button', { name: 'Cancel' }).click();
+if (await p.locator('.panel h2', { hasText: 'U15 Girls' }).count() !== 1) problems.push('merge categories: cancel still merged');
+await mergePanel.getByRole('button', { name: 'Merge' }).click();
+await p.getByRole('dialog', { name: 'Merge the categories?' }).getByRole('button', { name: 'Merge' }).click();
+await mergePanel.getByText('Merged: 2 climbers moved to U17 Girls').waitFor();
+await p.locator('.panel h2', { hasText: 'U15 Girls' }).waitFor({ state: 'detached' });
+const keptPanel = p.locator('.panel', { has: p.locator('h2', { hasText: 'U17 Girls' }) }).first();
+await keptPanel.getByText('Registrations (3)').waitFor();
+if (!(await keptPanel.locator('.admin-row', { hasText: 'Qualification' }).innerText()).includes('Starters: 3')) {
+  problems.push('merge categories: the moved climbers are not on the kept category\'s first round');
+}
+if ((await keptPanel.getByLabel('Age class').evaluateAll((els) => els.map((e) => e.value))).join(',') !== ',בנות U15,בנות U15') {
+  problems.push('merge categories: the moved climbers did not get the dropped category\'s name as their age class');
+}
+await p.screenshot({ path: `${out}/admin-merge-categories-done-en.png`, fullPage: true });
+{
+  const hm = await page('he', { width: 360, height: 800 });
+  await hm.goto(`${base}/admin/competition/e5100000-0000-0000-0000-000000000001`);
+  const mp = hm.locator('.merge-categories');
+  await mp.getByLabel('הקטגוריה שנשארת').selectOption({ label: 'בנות U17 (נשים)' });
+  await mp.getByLabel(/הקטגוריה שמצטרפת אליה/).selectOption({ label: 'בנות U13 (נשים)' });
+  await mp.getByText('מספר גב 1 תפוס בשתי הקטגוריות (גלי רון, שיר פז). קודם משנים אחד מהם.').waitFor();
+  if (await hm.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)) problems.push('merge categories: sideways scroll at 360 px');
+  await mp.screenshot({ path: `${out}/admin-merge-categories-he-360.png` });
+  await hm.close();
+}
+
 step('Hebrew + 390px screenshots');
 const he = await page('he', { width: 390, height: 844 });
 await he.goto(compUrl);

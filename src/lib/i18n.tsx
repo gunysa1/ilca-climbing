@@ -591,6 +591,47 @@ const dict = {
   logDelete: { he: 'נמחק', en: 'deleted' },
   logSystem: { he: 'המערכת', en: 'system' },
   logTimeTiebreak: { he: 'שובר שוויון לפי זמן בגמר', en: 'Time tie-break in finals' },
+  // Merging two categories (merge_categories, migration 051)
+  mergeCats: { he: 'איחוד קטגוריות', en: 'Merge categories' },
+  mergeCatsIntro: {
+    he: 'כשבקטגוריה יש מעט מטפסים, אפשר לאחד אותה עם קטגוריה אחרת לפני התחרות. המטפסים עוברים לקטגוריה שנשארת (לסבב הראשון שלה), והקטגוריה השנייה נמחקת יחד עם הסבבים שלה.',
+    en: 'When a category has few climbers, merge it into another one before the event. Its climbers move to the kept category (onto its first round), and the other category is deleted with its rounds.',
+  },
+  mergeCatsKeep: { he: 'הקטגוריה שנשארת', en: 'Category to keep' },
+  mergeCatsDrop: { he: 'הקטגוריה שמצטרפת אליה (תימחק)', en: 'Category to merge into it (will be deleted)' },
+  mergeCatsChoose: { he: 'בחירה…', en: 'Choose…' },
+  mergeCatsMoving: { he: '{n} מטפסים יעברו אל {keep}:', en: '{n} climbers will move to {keep}:' },
+  mergeCatsNobody: { he: 'אין מטפסים להעביר', en: 'No climbers to move' },
+  mergeCatsAgeClass: {
+    he: 'מי שאין לו גיל ברישום יקבל "{name}", כדי שאפשר יהיה לסנן אותם בתוצאות.',
+    en: 'Climbers without an age class get "{name}", so they can still be filtered in the results.',
+  },
+  mergeCatsRounds: { he: 'הסבבים של {drop} ({n}) יימחקו.', en: 'The rounds of {drop} ({n}) will be deleted.' },
+  mergeCatsGender: {
+    he: 'לקטגוריות מגדר שונה. אחרי האיחוד כולם יהיו בקטגוריה של {keep} ({gender}), וכך גם במדרג.',
+    en: 'The categories have different genders. After merging everyone is in {keep} ({gender}), also for the rankings.',
+  },
+  mergeCatsConflictSame: { he: 'בחרו שתי קטגוריות שונות', en: 'Pick two different categories' },
+  mergeCatsConflictUnknown: { he: 'הקטגוריה לא נמצאה (אולי כבר נמחקה). רעננו את הדף.', en: 'The category was not found (maybe it was deleted). Reload the page.' },
+  mergeCatsConflictOther: { he: 'הקטגוריות שייכות לתחרויות שונות', en: 'The categories belong to different competitions' },
+  mergeCatsConflictResults: {
+    he: 'ב{category} כבר יש תוצאות. מאחדים קטגוריות רק לפני שמתחילים לטפס.',
+    en: '{category} already has results. Merge categories only before the climbing starts.',
+  },
+  mergeCatsConflictBoth: {
+    he: '{name} רשום/ה בשתי הקטגוריות. קודם מסירים אותו/ה מאחת מהן.',
+    en: '{name} is registered in both categories. Remove them from one of them first.',
+  },
+  mergeCatsConflictBib: {
+    he: 'מספר גב {bib} תפוס בשתי הקטגוריות ({keep}, {drop}). קודם משנים אחד מהם.',
+    en: 'Bib {bib} is used in both categories ({keep}, {drop}). Change one of them first.',
+  },
+  mergeCatsConfirmTitle: { he: 'לאחד את הקטגוריות?', en: 'Merge the categories?' },
+  mergeCatsConfirmText: {
+    he: 'כל המטפסים של "{drop}" יעברו אל "{keep}", ו"{drop}" תימחק יחד עם הסבבים שלה. אי אפשר לבטל.',
+    en: 'All climbers of "{drop}" move to "{keep}", and "{drop}" is deleted with its rounds. This cannot be undone.',
+  },
+  mergeCatsDone: { he: 'האיחוד הצליח: {n} מטפסים עברו אל {keep}', en: 'Merged: {n} climbers moved to {keep}' },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type MsgKey = keyof typeof dict;
