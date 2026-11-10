@@ -312,7 +312,6 @@ function CorrectionRow({ starter, boulders, results, onSave, onCancel }: {
     <tr className="editing">
       <td>{starter.bib}</td>
       <td>{localized(lang, starter.profile.full_name, starter.profile.full_name_he)}{invalid && <span className="error small"> ✗ {invalid}</span>}</td>
-      <td />
       {boulders.map((b) => (
         <td key={b.id} className="cell-edit">
           <input aria-label={`${t('attempts')} ${b.number}`} type="number" min={0} value={cells[b.id].attempts} onChange={set(b.id, 'attempts')} />
@@ -375,7 +374,6 @@ function LeadCorrectionRow({ starter, routes, results, timed, onSave, onCancel }
     <tr className="editing">
       <td>{starter.bib}</td>
       <td>{localized(lang, starter.profile.full_name, starter.profile.full_name_he)}{invalid && <span className="error small"> ✗ {invalid}</span>}</td>
-      <td />
       {routes.map((b) => (
         <td key={b.id} className="cell-edit">
           <input aria-label={`${t('hold')} ${b.number}`} type="number" min={0} value={cells[b.id].hold}

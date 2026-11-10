@@ -180,6 +180,13 @@ await p.locator('.admin-row', { hasText: 'Judge Yossi' }).getByText('Whole round
 
 step('correct a result, check audit');
 await p.locator('tr', { hasText: 'נועה לוי' }).getByRole('button', { name: '✎' }).click();
+// The correction inputs sit under their boulder's header (same column index).
+const colOk = await p.getByLabel('Attempts 1').evaluate((el) => {
+  const td = el.closest('td');
+  const th = td.closest('table').querySelector('thead tr').children[td.cellIndex];
+  return th?.textContent?.trim() === '1';
+});
+if (!colOk) problems.push('corrections: Attempts 1 is not under the boulder 1 header');
 await p.getByLabel('Attempts 1').fill('2');
 await p.getByLabel('Zone 1').fill('1');
 await p.getByLabel('Top 1').fill('2');
