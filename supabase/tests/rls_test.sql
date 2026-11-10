@@ -2819,4 +2819,164 @@ select pg_temp.assert(not exists (select 1 from round_starters s join order_befo
       and (s.start_order, s.group_label) is distinct from (b.start_order, b.group_label)),
   'the refused calls changed nothing');
 
+-- ---------------------------------------------------------------- merging two categories (migration 051)
+-- merge_categories(keep, drop, apply): admin only; preview changes nothing; conflicts refuse; apply moves drop's
+-- registrations to keep (the starters trigger puts them on keep's first round) and deletes drop (rounds cascade).
+reset role;
+insert into profiles (id, full_name, full_name_he)
+  select ('f5000000-0000-0000-0000-00000000000' || i)::uuid, 'Merge ' || i, 'איחוד ' || i from generate_series(1, 9) i;
+insert into competitions (id, name, starts_on, ends_on, status) values
+  ('15000000-0000-0000-0000-000000000001', 'Merge cup', '2026-12-22', '2026-12-22', 'published'),
+  ('15000000-0000-0000-0000-000000000002', 'Other cup', '2026-12-23', '2026-12-23', 'published');
+insert into categories (id, competition_id, name, name_he, gender) values
+  ('25000000-0000-0000-0000-000000000001', '15000000-0000-0000-0000-000000000001', 'U17 Boys', 'בנים U17', 'male'),
+  ('25000000-0000-0000-0000-000000000002', '15000000-0000-0000-0000-000000000001', 'U15 Boys', 'בנים U15', 'male'),
+  ('25000000-0000-0000-0000-000000000003', '15000000-0000-0000-0000-000000000001', 'Scored boulder', null, 'male'),
+  ('25000000-0000-0000-0000-000000000004', '15000000-0000-0000-0000-000000000001', 'Scored lead', null, 'male'),
+  ('25000000-0000-0000-0000-000000000005', '15000000-0000-0000-0000-000000000001', 'Totals only', null, 'male'),
+  ('25000000-0000-0000-0000-000000000006', '15000000-0000-0000-0000-000000000001', 'Same climber', null, 'male'),
+  ('25000000-0000-0000-0000-000000000007', '15000000-0000-0000-0000-000000000001', 'Same bib', null, 'female'),
+  ('25000000-0000-0000-0000-000000000008', '15000000-0000-0000-0000-000000000002', 'Elsewhere', null, 'male');
+insert into rounds (id, category_id, kind, status, scoring) values
+  ('35000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000001', 'qualification', 'planned', 'ifsc2025'),
+  ('35000000-0000-0000-0000-000000000002', '25000000-0000-0000-0000-000000000001', 'final', 'planned', 'ifsc2025'),
+  ('35000000-0000-0000-0000-000000000003', '25000000-0000-0000-0000-000000000002', 'qualification', 'planned', 'ifsc2025'),
+  ('35000000-0000-0000-0000-000000000004', '25000000-0000-0000-0000-000000000002', 'final', 'planned', 'ifsc2025'),
+  ('35000000-0000-0000-0000-000000000005', '25000000-0000-0000-0000-000000000003', 'qualification', 'live', 'ifsc2025'),
+  ('35000000-0000-0000-0000-000000000006', '25000000-0000-0000-0000-000000000004', 'qualification', 'live', 'lead'),
+  ('35000000-0000-0000-0000-000000000007', '25000000-0000-0000-0000-000000000005', 'qualification', 'closed', 'ifsc2025');
+insert into boulders (id, round_id, number) values
+  ('45000000-0000-0000-0000-000000000003', '35000000-0000-0000-0000-000000000003', 1),
+  ('45000000-0000-0000-0000-000000000005', '35000000-0000-0000-0000-000000000005', 1),
+  ('45000000-0000-0000-0000-000000000006', '35000000-0000-0000-0000-000000000006', 1);
+insert into registrations (category_id, climber_id, bib, age_class) values
+  ('25000000-0000-0000-0000-000000000001', 'f5000000-0000-0000-0000-000000000001', 1, null),
+  ('25000000-0000-0000-0000-000000000001', 'f5000000-0000-0000-0000-000000000002', 2, 'U17'),
+  ('25000000-0000-0000-0000-000000000002', 'f5000000-0000-0000-0000-000000000003', 3, null),
+  ('25000000-0000-0000-0000-000000000002', 'f5000000-0000-0000-0000-000000000004', null, 'U14'),
+  ('25000000-0000-0000-0000-000000000002', 'f5000000-0000-0000-0000-000000000005', 5, null),
+  ('25000000-0000-0000-0000-000000000003', 'f5000000-0000-0000-0000-000000000006', 6, null),
+  ('25000000-0000-0000-0000-000000000004', 'f5000000-0000-0000-0000-000000000007', 7, null),
+  ('25000000-0000-0000-0000-000000000005', 'f5000000-0000-0000-0000-000000000008', 8, null),
+  ('25000000-0000-0000-0000-000000000006', 'f5000000-0000-0000-0000-000000000001', 11, null),
+  ('25000000-0000-0000-0000-000000000007', 'f5000000-0000-0000-0000-000000000009', 1, null),
+  ('25000000-0000-0000-0000-000000000008', 'f5000000-0000-0000-0000-000000000009', 9, null);
+insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt)
+  values ('45000000-0000-0000-0000-000000000005', 'f5000000-0000-0000-0000-000000000006', '35000000-0000-0000-0000-000000000005', 1, 1, 1);
+insert into lead_results (boulder_id, climber_id, round_id, hold, plus, top)
+  values ('45000000-0000-0000-0000-000000000006', 'f5000000-0000-0000-0000-000000000007', '35000000-0000-0000-0000-000000000006', 12, false, false);
+insert into round_totals (round_id, climber_id, tops, zones, top_attempts, zone_attempts)
+  values ('35000000-0000-0000-0000-000000000007', 'f5000000-0000-0000-0000-000000000008', 1, 2, 3, 4);
+-- drop's later round has a start list of its own (generated; no results): it goes with the category
+insert into round_starters (round_id, climber_id, start_order)
+  values ('35000000-0000-0000-0000-000000000004', 'f5000000-0000-0000-0000-000000000003', 1);
+
+create temp table cat_regs_before as select category_id, climber_id, bib, age_class from registrations
+  where category_id::text like '25000000-%';
+grant select on cat_regs_before to public;
+create function pg_temp.cat_regs_unchanged() returns boolean language sql as $$
+  select not exists (select category_id, climber_id, bib, age_class from registrations where category_id::text like '25000000-%'
+                     except select * from cat_regs_before)
+     and not exists (select * from cat_regs_before except
+                     select category_id, climber_id, bib, age_class from registrations where category_id::text like '25000000-%')
+$$;
+create function pg_temp.cat_kinds(r jsonb) returns text language sql as $$
+  select coalesce(string_agg(c ->> 'kind', ',' order by c ->> 'kind'), '') from jsonb_array_elements(r -> 'conflicts') c
+$$;
+
+-- non-admins: refused (preview and apply)
+select pg_temp.login('00000000-0000-0000-0000-00000000000c');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000002')$$, 'a coach previews a category merge');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000002', true)$$, 'a coach merges categories');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000002', true)$$, 'a judge merges categories');
+select pg_temp.login(null);
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000002')$$, 'anon previews a category merge');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000002', true)$$, 'anon merges categories');
+reset role;
+select pg_temp.assert(not has_function_privilege('anon', 'public.merge_categories(uuid, uuid, boolean)', 'execute')
+  and not has_function_privilege('public', 'public.merge_categories(uuid, uuid, boolean)', 'execute')
+  and has_function_privilege('authenticated', 'public.merge_categories(uuid, uuid, boolean)', 'execute'),
+  'merge_categories: authenticated only (admins inside)');
+select pg_temp.assert((select prosecdef and proconfig @> array['search_path=public'] from pg_proc
+    where oid = 'public.merge_categories(uuid, uuid, boolean)'::regprocedure), 'merge_categories: security definer, search_path = public');
+select pg_temp.assert(pg_temp.cat_regs_unchanged(), 'the refused category merges changed nothing');
+
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+-- preview: who moves (names, bibs, the age class they get), no conflicts, nothing changes
+create temp table cat_preview as select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000002') as r;
+select pg_temp.assert((select r -> 'conflicts' = '[]'::jsonb and not (r ->> 'applied')::boolean from cat_preview), 'category merge preview: no conflicts, not applied');
+select pg_temp.assert((select jsonb_array_length(r -> 'moving') = 3 from cat_preview), 'category merge preview: three climbers move');
+select pg_temp.assert((select r -> 'moving' @> '[{"full_name": "Merge 3", "full_name_he": "איחוד 3", "bib": 3, "age_class": "בנים U15"},
+    {"full_name": "Merge 4", "bib": null, "age_class": "U14"}]' from cat_preview), 'category merge preview: names, bibs, the age class each gets');
+select pg_temp.assert((select r -> 'keep' ->> 'name' = 'U17 Boys' and r -> 'drop' ->> 'name_he' = 'בנים U15' and (r -> 'drop' ->> 'rounds')::int = 2
+    from cat_preview), 'category merge preview: both categories named, drop''s round count');
+select pg_temp.assert(pg_temp.cat_regs_unchanged() and exists (select 1 from categories where id = '25000000-0000-0000-0000-000000000002'),
+  'category merge preview changes nothing');
+
+-- conflicts: each refuses, in preview (listed) and apply (raises, nothing changes)
+select pg_temp.assert(pg_temp.cat_kinds(merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000001')) = 'same',
+  'category merge conflict: the same category twice');
+select pg_temp.assert(pg_temp.cat_kinds(merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-0000000000ff')) = 'unknown',
+  'category merge conflict: an unknown category');
+select pg_temp.assert(pg_temp.cat_kinds(merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000008')) = 'other_competition',
+  'category merge conflict: different competitions');
+select pg_temp.assert(pg_temp.cat_kinds(merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000003')) = 'results',
+  'category merge conflict: boulder results in drop');
+select pg_temp.assert(pg_temp.cat_kinds(merge_categories('25000000-0000-0000-0000-000000000003', '25000000-0000-0000-0000-000000000001')) = 'results',
+  'category merge conflict: boulder results in keep');
+select pg_temp.assert(pg_temp.cat_kinds(merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000004')) = 'results',
+  'category merge conflict: lead results');
+select pg_temp.assert(pg_temp.cat_kinds(merge_categories('25000000-0000-0000-0000-000000000005', '25000000-0000-0000-0000-000000000001')) = 'results',
+  'category merge conflict: round totals');
+select pg_temp.assert(merge_categories('25000000-0000-0000-0000-000000000003', '25000000-0000-0000-0000-000000000004') -> 'conflicts'
+    @> '[{"kind": "results", "category": "Scored boulder"}, {"kind": "results", "category": "Scored lead"}]',
+  'category merge conflict: results in both are both named');
+select pg_temp.assert(merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000006') -> 'conflicts'
+    = '[{"kind": "both_registered", "name": "Merge 1", "name_he": "איחוד 1", "text": "Merge 1 is registered in both categories"}]',
+  'category merge conflict: a climber registered in both');
+select pg_temp.assert(merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000007') -> 'conflicts'
+    @> '[{"kind": "same_bib", "bib": 1, "keep_name": "Merge 1", "drop_name": "Merge 9"}]',
+  'category merge conflict: a bib used in both');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000001', true)$$, 'apply: the same category');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-0000000000ff', true)$$, 'apply: an unknown category');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000008', true)$$, 'apply: different competitions');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000003', true)$$, 'apply: boulder results');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000004', true)$$, 'apply: lead results');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000005', '25000000-0000-0000-0000-000000000001', true)$$, 'apply: round totals');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000006', true)$$, 'apply: a climber in both');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000007', true)$$, 'apply: a bib in both');
+do $$ begin
+  perform merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000007', true);
+  raise exception 'FAIL: merged with a bib conflict';
+exception when raise_exception then
+  if sqlerrm not like 'cannot merge: bib 1 is used in both categories%' then raise exception 'FAIL: message %', sqlerrm; end if;
+end $$;
+select pg_temp.assert(true, 'apply with conflicts raises with the list');
+select pg_temp.assert(pg_temp.cat_regs_unchanged() and (select count(*) from categories where id::text like '25000000-%') = 8,
+  'the refused category merges changed nothing');
+
+-- apply: drop's climbers are registered in keep with every column, on keep's first round; drop is gone
+select pg_temp.assert((merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000002', true) ->> 'applied')::boolean,
+  'category merge applied');
+reset role;
+select pg_temp.assert((select string_agg(right(climber_id::text, 1) || '/' || coalesce(bib::text, '-') || '/' || coalesce(age_class, '-'), ' ' order by climber_id)
+    from registrations where category_id = '25000000-0000-0000-0000-000000000001') = '1/1/- 2/2/U17 3/3/בנים U15 4/-/U14 5/5/בנים U15',
+  'category merge: registrations moved with bibs; an empty age class filled with drop''s name, a set one kept');
+select pg_temp.assert((select string_agg(right(climber_id::text, 1) || ':' || start_order, ' ' order by climber_id)
+    from round_starters where round_id = '35000000-0000-0000-0000-000000000001') = '1:1 2:2 3:3 4:4 5:5',
+  'category merge: the moved climbers start in keep''s first round (by bib, else after the last)');
+select pg_temp.assert(not exists (select 1 from round_starters where round_id = '35000000-0000-0000-0000-000000000002'),
+  'category merge: keep''s later round is untouched');
+select pg_temp.assert(not exists (select 1 from categories where id = '25000000-0000-0000-0000-000000000002')
+  and not exists (select 1 from rounds where category_id = '25000000-0000-0000-0000-000000000002')
+  and not exists (select 1 from round_starters where round_id in ('35000000-0000-0000-0000-000000000003', '35000000-0000-0000-0000-000000000004'))
+  and not exists (select 1 from boulders where id = '45000000-0000-0000-0000-000000000003'),
+  'category merge: drop and its rounds, boulders and start lists are gone');
+select pg_temp.assert((select count(*) from admin_log where row_id = '25000000-0000-0000-0000-000000000002' and action = 'delete') = 1
+  and exists (select 1 from admin_log where table_name = 'categories' and action = 'delete' and row_id = '25000000-0000-0000-0000-000000000002'
+              and actor_id = '00000000-0000-0000-0000-00000000000a' and competition_id = '15000000-0000-0000-0000-000000000001')
+  and not exists (select 1 from admin_log where table_name = 'rounds' and action = 'delete' and row_id in ('35000000-0000-0000-0000-000000000003', '35000000-0000-0000-0000-000000000004')),
+  'admin_log: one row for the merged-away category (by the admin), none for its cascaded rounds');
+
 \echo ALL RLS TESTS PASSED
