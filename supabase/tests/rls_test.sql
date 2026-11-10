@@ -2979,4 +2979,31 @@ select pg_temp.assert((select count(*) from admin_log where row_id = '25000000-0
   and not exists (select 1 from admin_log where table_name = 'rounds' and action = 'delete' and row_id in ('35000000-0000-0000-0000-000000000003', '35000000-0000-0000-0000-000000000004')),
   'admin_log: one row for the merged-away category (by the admin), none for its cascaded rounds');
 
+-- ---------------------------------------------------------------- realtime publication (migration 052)
+-- Plain Postgres has no supabase_realtime publication, so 052 was a no-op above. Create it the way Supabase
+-- has it, re-run 052 twice (the second time the table is already a member and must not fail) and check.
+reset role;
+set client_min_messages = error; -- quiet "wal_level is insufficient" (no logical replication here)
+do $$ begin
+  if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    create publication supabase_realtime;
+  end if;
+end $$;
+\ir ../migrations/20261110000052_starters_realtime.sql
+\ir ../migrations/20261110000052_starters_realtime.sql
+set client_min_messages = notice;
+select pg_temp.assert(exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime'
+    and schemaname = 'public' and tablename = 'round_starters'),
+  'round_starters is in the supabase_realtime publication (052, re-runnable)');
+create temp table starters_visible_all as select count(*) n from round_starters
+  where round_id in (select r.id from rounds r join categories c on c.id = r.category_id
+                     join competitions co on co.id = c.competition_id where co.status <> 'draft');
+grant select on starters_visible_all to anon;
+select pg_temp.login(null);
+select pg_temp.assert((select n from starters_visible_all) > 0
+  and (select count(*) from round_starters) = (select n from starters_visible_all),
+  'anon reads round_starters of every non-draft round (what the realtime subscription delivers)');
+reset role;
+drop publication supabase_realtime;
+
 \echo ALL RLS TESTS PASSED
