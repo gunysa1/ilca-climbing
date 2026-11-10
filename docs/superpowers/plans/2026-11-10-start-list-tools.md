@@ -128,3 +128,26 @@ subagent driven design").
 
 Final whole-branch review, then ask the user before merging to main (pushing publishes both sites) and
 before `db push` of 049–051 to the live project (049 queues full cache rebuilds).
+
+## Task 8 — half holds in lead (migration 053) — added 2026-11-10
+
+Why: the temporary app records holds with up to two decimals (24.5 for an intermediate hold) and ranks
+TOP, then higher hold, then + on the same hold, with + counted as 0.1 for ranking only (24+ = 24.1; "24.5
+before 24+, before 24"). Our `lead_results.hold` is `int`, and `tools/tempapp/mirror.py` truncates with
+`int(...)`, so mirrored lead places can differ from the temporary app.
+
+- Migration 053: `lead_results.hold` (and every other column that stores a lead hold, e.g. in
+  `score_events` / audit rows — find them all) becomes `numeric(5,2)`, `check (hold >= 0)`, at most two
+  decimals. Height value everywhere (`lead_scores_for`, latest in 049, and any other `hold * 2` use):
+  `hold + 0.1 * plus` (TOP stays above everything). Keep the rest of each redefined body identical. Queue
+  full rankings and climber cache rebuilds (as 049 does).
+- TS: `src/lib/lead.ts` `heightValue` the same rule; `formatHeight` shows "24.5", "24+", "24.5+", whole
+  numbers without ".0"; vitest cases mirror the SQL ones (24.5 > 24+ > 24; 24.5+ > 24.5; 24.1 hold ties
+  24+ by design, as in the temporary app).
+- Lead judge pad (`src/pages/judge/LeadPad.tsx`): the +/− stepper keeps whole steps, plus a way to enter
+  a decimal hold (e.g. a text field accepting up to two decimals, comma or dot); admin correction
+  (`AdminRound.tsx` LeadCorrectionRow) accepts decimals too.
+- `tools/tempapp/mirror.py`: send the hold as a number with up to two decimals (no `int()`), SQL record
+  type `numeric`; check against a local throwaway DB as in Task 2's fix round.
+- Tests: SQL (rls_test or the scoring tests) and vitest with the same cases; e2e enters 24.5 on the lead
+  pad. Docs: scoring-and-rankings.md, guide-he.md (judges: entering a half hold).
