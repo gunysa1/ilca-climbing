@@ -2723,4 +2723,97 @@ select pg_temp.assert((select updated_by from boulder_results where climber_id =
   and (select status from round_starters where climber_id = 'f0000000-0000-0000-0000-000000000005') = 'dsq',
   'merge: the duplicate judge''s updated_by moved to the kept profile and the mark stayed');
 
+-- ---------------------------------------------------------------- start order and groups (migration 050)
+-- move_starter / split_groups: admin-only (RLS starters_admin plus an explicit check), logged per row by the 049 trigger.
+reset role;
+insert into profiles (id, full_name) select ('f1000000-0000-0000-0000-00000000000' || i)::uuid, 'Order ' || i from generate_series(1, 5) i;
+insert into competitions (id, name, starts_on, ends_on, status) values
+  ('1f000000-0000-0000-0000-000000000001', 'Order cup', '2026-12-21', '2026-12-21', 'published');
+insert into categories (id, competition_id, name, gender) values
+  ('2f000000-0000-0000-0000-000000000001', '1f000000-0000-0000-0000-000000000001', 'Order cat', 'mixed');
+insert into rounds (id, category_id, kind, status, scoring) values
+  ('3f000000-0000-0000-0000-000000000001', '2f000000-0000-0000-0000-000000000001', 'qualification', 'live', 'ifsc2025');
+-- 1..5 in climber order, with gaps in the start order
+insert into round_starters (round_id, climber_id, start_order)
+  select '3f000000-0000-0000-0000-000000000001', ('f1000000-0000-0000-0000-00000000000' || i)::uuid, i * 10 from generate_series(1, 5) i;
+
+create function pg_temp.order_of(r uuid) returns text language sql as $$
+  select string_agg(right(climber_id::text, 1), '' order by start_order) || ':' || string_agg(start_order::text, '' order by start_order)
+  from round_starters where round_id = r
+$$;
+
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000003', 1);
+select pg_temp.assert(pg_temp.order_of('3f000000-0000-0000-0000-000000000001') = '31245:12345',
+  'move_starter: to the first place; gapped orders become 1..n');
+select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000003', 5);
+select pg_temp.assert(pg_temp.order_of('3f000000-0000-0000-0000-000000000001') = '12453:12345', 'move_starter: to the last place');
+select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000005', 2);
+select pg_temp.assert(pg_temp.order_of('3f000000-0000-0000-0000-000000000001') = '15243:12345', 'move_starter: to a middle place');
+select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000001', 99);
+select pg_temp.assert(pg_temp.order_of('3f000000-0000-0000-0000-000000000001') = '52431:12345', 'move_starter: a place past the end is the last');
+select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000004', -3);
+select pg_temp.assert(pg_temp.order_of('3f000000-0000-0000-0000-000000000001') = '45231:12345', 'move_starter: a place below 1 is the first');
+select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000004', 1);
+select pg_temp.assert(pg_temp.order_of('3f000000-0000-0000-0000-000000000001') = '45231:12345', 'move_starter: to the place it holds changes nothing');
+select pg_temp.denied($$select move_starter('3f000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000a', 1)$$,
+  'move_starter: a climber who is not a starter of the round');
+
+-- split_groups: by start order, odd counts, other labels, clearing
+select pg_temp.assert(split_groups('3f000000-0000-0000-0000-000000000001') = 5, 'split_groups: returns the rows updated');
+select pg_temp.assert((select string_agg(group_label, '' order by start_order) from round_starters
+    where round_id = '3f000000-0000-0000-0000-000000000001') = 'ABABA', 'split_groups: A / B by start order, the odd one in A');
+select split_groups('3f000000-0000-0000-0000-000000000001', array['X', 'Y', 'Z']);
+select pg_temp.assert((select string_agg(group_label, '' order by start_order) from round_starters
+    where round_id = '3f000000-0000-0000-0000-000000000001') = 'XYZXY', 'split_groups: three labels');
+select split_groups('3f000000-0000-0000-0000-000000000001', array['Q']);
+select pg_temp.assert((select count(*) from round_starters where round_id = '3f000000-0000-0000-0000-000000000001' and group_label = 'Q') = 5,
+  'split_groups: one label gives everyone that group');
+select pg_temp.assert(split_groups('3f000000-0000-0000-0000-000000000001', '{}') = 5, 'split_groups: clearing returns the rows updated');
+select pg_temp.assert((select count(*) from round_starters where round_id = '3f000000-0000-0000-0000-000000000001' and group_label is not null) = 0,
+  'split_groups: an empty array clears the groups');
+select split_groups('3f000000-0000-0000-0000-000000000001');
+-- a DNS climber keeps place and group
+reset role;
+update round_starters set status = 'dns' where round_id = '3f000000-0000-0000-0000-000000000001' and climber_id = 'f1000000-0000-0000-0000-000000000002';
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select split_groups('3f000000-0000-0000-0000-000000000001');
+select pg_temp.assert((select group_label from round_starters where round_id = '3f000000-0000-0000-0000-000000000001'
+    and climber_id = 'f1000000-0000-0000-0000-000000000002') = 'A', 'split_groups: a DNS starter gets a label like the others');
+
+-- admin_log: one row per changed starter, by the admin
+reset role;
+select pg_temp.assert(exists (select 1 from admin_log where table_name = 'round_starters' and action = 'update'
+    and row_id = '3f000000-0000-0000-0000-000000000001:f1000000-0000-0000-0000-000000000003' and changes = '{"start_order": [1, 5]}'::jsonb
+    and actor_id = '00000000-0000-0000-0000-00000000000a' and round_id = '3f000000-0000-0000-0000-000000000001'
+    and competition_id = '1f000000-0000-0000-0000-000000000001'),
+  'admin_log: a moved starter (who, which round and competition)');
+select pg_temp.assert(exists (select 1 from admin_log where table_name = 'round_starters' and action = 'update'
+    and row_id = '3f000000-0000-0000-0000-000000000001:f1000000-0000-0000-0000-000000000001' and changes = '{"group_label": [null, "A"]}'::jsonb
+    and actor_id = '00000000-0000-0000-0000-00000000000a'),
+  'admin_log: a group label set by split_groups');
+
+-- non-admins: refused loudly, nothing changes
+create temp table order_before as select climber_id, start_order, group_label from round_starters where round_id = '3f000000-0000-0000-0000-000000000001';
+grant select on order_before to public;
+select pg_temp.login('00000000-0000-0000-0000-00000000000c');
+select pg_temp.denied($$select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000003', 1)$$, 'a coach moves a starter');
+select pg_temp.denied($$select split_groups('3f000000-0000-0000-0000-000000000001')$$, 'a coach splits the groups');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select pg_temp.denied($$select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000003', 1)$$, 'a judge moves a starter');
+select pg_temp.denied($$select split_groups('3f000000-0000-0000-0000-000000000001', '{}')$$, 'a judge clears the groups');
+select pg_temp.login(null);
+select pg_temp.denied($$select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000003', 1)$$, 'anon moves a starter');
+select pg_temp.denied($$select split_groups('3f000000-0000-0000-0000-000000000001')$$, 'anon splits the groups');
+reset role;
+select pg_temp.assert(not has_function_privilege('anon', 'public.move_starter(uuid, uuid, int)', 'execute')
+  and not has_function_privilege('anon', 'public.split_groups(uuid, text[])', 'execute')
+  and has_function_privilege('authenticated', 'public.move_starter(uuid, uuid, int)', 'execute')
+  and has_function_privilege('authenticated', 'public.split_groups(uuid, text[])', 'execute'),
+  'start order functions: authenticated only');
+select pg_temp.assert(not exists (select 1 from round_starters s join order_before b using (climber_id)
+    where s.round_id = '3f000000-0000-0000-0000-000000000001'
+      and (s.start_order, s.group_label) is distinct from (b.start_order, b.group_label)),
+  'the refused calls changed nothing');
+
 \echo ALL RLS TESTS PASSED
