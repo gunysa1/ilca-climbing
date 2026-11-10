@@ -99,7 +99,7 @@ already have published it: fix or revert at once, and not on an event day.
 3. **Rounds**: qualification with its number of boulders (lead: routes), set in the add-round form
    or on the round row. Later rounds: set
    "advance from previous round" and generate the start list (ties at the cutoff advance; seeds are
-   kept for countback). On the round page, "start order": place number (the others shift), group
+   kept for countback). On the round page, "start order": "place in the start order" (the others shift), group
    (none / A / B; each group is ranked separately), "split into A / B by start order" and "clear groups".
    Changing groups after results exist asks first. Edits are logged under "רשימת עלייה" (migration 050).
    **DNS / DSQ**: set per climber on the same page (DSQ asks to confirm). Marked climbers are unranked, don't
@@ -111,11 +111,11 @@ already have published it: fix or revert at once, and not on an event day.
 6. **During the round**: corrections and unlocks on the round page (every change is in the audit
    log; status, quota, judge and appeal changes are under "Admin changes" on the round and competition pages); appeals are opened and resolved there and show as "ערעור" on the public results.
 7. **Close** the round, generate the next start list, repeat; mark the competition finished.
-8. **CSV**: a CSV button next to PDF on each round's results (viewer and staff), and "all rounds" on the
-   competition page. UTF-8 with BOM (opens in Excel), the whole round's official places (not the age-class
+8. **CSV**: a CSV button next to PDF on each round's results (viewer and staff), and "כל הסבבים בקובץ CSV" on the
+   competition page (shown once a round is no longer planned). UTF-8 with BOM (opens in Excel), the whole round's official places (not the age-class
    filter); text starting with `= + - @` gets a leading `'`.
 
-**Merging two categories** (competition admin page; migration 051): preview first, then apply. Refused if either
+**Merging two categories** (competition admin page, shown only when the competition has 2 or more categories; migration 051): pick both and the preview appears by itself, then apply. Refused if either
 category has results or stored totals, a climber or a bib is in both, or they belong to different competitions.
 Registrations move (an empty age class gets the dropped category's name), the dropped category is deleted with its
 rounds; its DNS marks and groups are not carried over. No undo.
