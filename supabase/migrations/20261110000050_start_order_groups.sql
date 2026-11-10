@@ -9,8 +9,11 @@ begin
   if not public.has_role('admin') then
     raise exception 'only an admin changes the start order' using errcode = 'insufficient_privilege';
   end if;
+  -- serialize concurrent admins on the round: later statements take a fresh snapshot after the lock
+  perform 1 from round_starters where round_id = p_round order by climber_id for update;
   if not exists (select 1 from round_starters where round_id = p_round and climber_id = p_climber) then
-    raise exception 'climber % is not a starter of round %', p_climber, p_round;
+    raise exception 'climber % is not a starter of round %', p_climber, p_round
+      using errcode = 'no_data_found';
   end if;
   select count(*) into n from round_starters where round_id = p_round;
   pos := greatest(1, least(coalesce(p_position, 1), n));
@@ -36,6 +39,8 @@ begin
   if not public.has_role('admin') then
     raise exception 'only an admin changes the groups' using errcode = 'insufficient_privilege';
   end if;
+  -- serialize concurrent admins on the round: later statements take a fresh snapshot after the lock
+  perform 1 from round_starters where round_id = p_round order by climber_id for update;
   update round_starters s set group_label = case when n = 0 then null else p_labels[(x.k - 1) % n + 1] end
   from (select climber_id, row_number() over (order by start_order, climber_id) as k
         from round_starters where round_id = p_round) x
