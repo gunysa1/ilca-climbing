@@ -12,7 +12,7 @@ import { supabase } from '../../lib/supabase';
 import { LEAD_COLUMNS, RESULT_COLUMNS, type AdminAccount, type Boulder, type Round } from '../../lib/types';
 import { AdminNav, ErrorLine } from './AdminHome';
 import { AdminLog } from './AdminLog';
-import { StarterStatus } from './StarterStatus';
+import { StartList } from './StartList';
 
 interface RoundInfo extends Round {
   category: { name: string; name_he: string | null; competition_id: string; competition: { discipline: Discipline | null } | null };
@@ -142,12 +142,16 @@ export function AdminRound() {
         <p className="muted small">{t('addJudgeHint')}</p>
       </div>
 
+      <StartList roundId={round.id} starters={starters} onOptimistic={setStarters}
+        hasResults={(lead ? leadResults : results).size > 0}
+        onDone={(e) => { void reload().then(() => { if (e) setError(e); }); }} />
+
       <div className="panel">
         <h2>{t('corrections')}</h2>
         <div className="table-wrap">
           <table className="admin-table">
             <thead>
-              <tr><th>{t('bib')}</th><th>{t('athlete')}</th><th>{t('starterStatus')}</th>{boulders.map((b) => <th key={b.id}>{b.number}</th>)}<th /></tr>
+              <tr><th>{t('bib')}</th><th>{t('athlete')}</th>{boulders.map((b) => <th key={b.id}>{b.number}</th>)}<th /></tr>
             </thead>
             <tbody>
               {starters.map((s) => editing === s.climber_id ? (lead
@@ -159,7 +163,6 @@ export function AdminRound() {
                 <tr key={s.climber_id}>
                   <td>{s.bib}</td>
                   <td>{localized(lang, s.profile.full_name, s.profile.full_name_he)}</td>
-                  <td><StarterStatus roundId={round.id} starter={s} onDone={(e) => { setError(e); if (!e) void reload(); }} /></td>
                   {boulders.map((b) => {
                     if (lead) {
                       const l = leadResults.get(resultKey(b.id, s.climber_id));

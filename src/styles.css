@@ -147,6 +147,8 @@ label.inline { display: inline-flex; gap: .35rem; align-items: center; font-weig
 .panel-head h2 { margin: 0; }
 .admin-rows { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .4rem; }
 .admin-row { display: flex; flex-wrap: wrap; gap: .5rem .9rem; align-items: center; padding: .5rem 0; border-bottom: 1px solid var(--border); }
+.start-row .start-pos { width: 4.2rem; flex: 0 0 auto; }
+.start-row .start-name { flex: 1 1 8rem; min-width: 0; }
 .admin-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .admin-table th, .admin-table td { padding: .4rem .5rem; border-bottom: 1px solid var(--border); text-align: start; vertical-align: middle; }
 .admin-table th { font-size: .8rem; color: var(--ink); }
