@@ -2999,10 +2999,18 @@ create temp table starters_visible_all as select count(*) n from round_starters
   where round_id in (select r.id from rounds r join categories c on c.id = r.category_id
                      join competitions co on co.id = c.competition_id where co.status <> 'draft');
 grant select on starters_visible_all to anon;
+-- Draft rounds with starters exist here, so "none of them" below is a real check.
+create temp table draft_starter_rounds as select distinct rs.round_id from round_starters rs
+  join rounds r on r.id = rs.round_id join categories c on c.id = r.category_id
+  join competitions co on co.id = c.competition_id where co.status = 'draft';
+grant select on draft_starter_rounds to anon;
+select pg_temp.assert((select count(*) from draft_starter_rounds) > 0, 'test data: some draft rounds have starters');
 select pg_temp.login(null);
 select pg_temp.assert((select n from starters_visible_all) > 0
   and (select count(*) from round_starters) = (select n from starters_visible_all),
   'anon reads round_starters of every non-draft round (what the realtime subscription delivers)');
+select pg_temp.assert(not exists (select 1 from round_starters where round_id in (select round_id from draft_starter_rounds)),
+  'anon reads no round_starters of a draft competition (realtime INSERT / UPDATE apply the same RLS)');
 reset role;
 drop publication supabase_realtime;
 
