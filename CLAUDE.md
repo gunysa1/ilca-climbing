@@ -72,7 +72,7 @@ event-day checklist and error reports (admin), `home_page` one-request home.
 Safety net: security headers + CSP in both `_headers` (a new external origin must be added there), `.github/workflows/ci.yml`
 (the five checks on every push), `tools/backup/dump.sh` (data-only dump outside the repo; see docs/operations.md, Backups),
 viewer and staff service workers cache the shell per build (`/sw.js?v=`), Supabase errors shown via `src/lib/errors.ts`, dates via `src/lib/dates.ts`.
-Start-list tools (migrations 049-051, not yet on the live project): DNS / DSQ per starter (`round_starters.status`;
+Start-list tools (migrations 049-052, not yet on the live project): DNS / DSQ per starter (`round_starters.status`;
 unranked in that round and don't advance (a climber marked in a later round keeps the place from their previous round in
 the national ranking), new results refused, shown in results / big screen / PDF, mirrored from the temporary app),
 start order and groups on the admin round page (`move_starter`, `split_groups`), `merge_categories` (admin, preview then

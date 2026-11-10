@@ -101,7 +101,8 @@ already have published it: fix or revert at once, and not on an event day.
    "advance from previous round" and generate the start list (ties at the cutoff advance; seeds are
    kept for countback). On the round page, "start order": "place in the start order" (the others shift), group
    (none / A / B; each group is ranked separately), "split into A / B by start order" and "clear groups".
-   Changing groups after results exist asks first. Edits are logged under "רשימת עלייה" (migration 050).
+   Changing groups after results exist asks first. Starters left without a group in a round with groups rank on
+   their own and show as "No group" (results, big screen, CSV); the admin round page warns to split again. Edits are logged under "רשימת עלייה" (migration 050).
    **DNS / DSQ**: set per climber on the same page (DSQ asks to confirm). Marked climbers are unranked in that round, don't
    advance, can't get new results (the judge is told) and are skipped on the pads;
    results show DNS (no scores) or DSQ (greyed). In the national ranking a climber marked in a later round keeps
@@ -252,10 +253,16 @@ first sign-in gets none; the old People page shows an error). So:
 3. Apply `supabase/cron/cron_cleanup.sql` in the SQL editor.
 4. Ask judges and admins to reload the staff app once (or sign out and in) before 28.10.
 
-### Release of migrations 049-051 (start-list tools)
+### Release of migrations 049-052 (start-list tools)
 
-`db push` applies them. 049 queues full rankings and climber cache rebuilds by itself (picked up within a
-minute); no manual rebuild needed. Push main for the apps (not on an event day).
+Not on an event day. The order matters: the new staff app selects `round_starters.status` (049) and the new
+temporary-app mirror writes it, so neither works against the database before the migrations.
+
+1. `db push` (049-052), then `db advisors --linked`. 049 queues full rankings and climber cache rebuilds by itself
+   (picked up within a minute); no manual rebuild needed. 052 adds `round_starters` to Realtime (live start lists).
+2. Push main (Cloudflare deploys both apps) and wait for the deploy.
+3. At the same time, update `tools/tempapp/mirror.py` on the host that runs the mirror (it sends DNS as
+   `round_starters.status` and skips results of marked climbers); the old copy keeps working but does not mirror DNS.
 
 ### Rankings cache (pg_cron `rankings-cache`)
 
