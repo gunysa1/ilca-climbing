@@ -11,8 +11,9 @@ view only, no sign-in; `src/apps/viewer`) and the **staff** app (sign-in; judge,
   Any change to tables/policies must keep `npm run test:db` green and add assertions to
   `supabase/tests/rls_test.sql` for new access paths.
 - Scoring logic exists twice: `src/lib/scoring.ts` / `src/lib/lead.ts` and SQL `boulder_points` /
-  `round_scores` / `lead_scores` (latest definitions: `20261015000014_classic_final_countback.sql`,
-  `20261015000012_lead_time_final_only.sql`; countback reads the stored seed `round_starters.prev_place`).
+  `round_scores` / `lead_scores_for` (latest definitions: `20261110000049_starter_status.sql`, which also
+  makes DNS / DSQ starters unranked, and `20261110000053_half_holds.sql` for `lead_scores_for`: half holds,
+  + = 0.1; before them `20261015000014_classic_final_countback.sql`, `20261015000012_lead_time_final_only.sql`; countback reads the stored seed `round_starters.prev_place`).
   Change both together; tests on both sides use the same cases (top on 3rd attempt = 24.8; tie-breaks:
   points, previous-round rank, top attempts, zone attempts; classic: T, Z, attempts, countback in finals;
   lead: time only in finals). Totals-only rounds (older LogLig history) read `round_totals`.
@@ -40,7 +41,7 @@ view only, no sign-in; `src/apps/viewer`) and the **staff** app (sign-in; judge,
 - Before claiming done: `npm run typecheck && npm test && npm run build && npm run test:db`; for UI/admin
   changes also `npm run test:e2e` (Docker + Playwright Chromium; screenshots in `$E2E_OUT`).
 
-## Status (2026-10-15)
+## Status (2026-11-10)
 Docs: README.md, docs/architecture.md, docs/scoring-and-rankings.md, docs/operations.md,
 docs/guide-he.md (judges/admins, Hebrew), docs/reference-analysis.md.
 
@@ -71,8 +72,12 @@ event-day checklist and error reports (admin), `home_page` one-request home.
 Safety net: security headers + CSP in both `_headers` (a new external origin must be added there), `.github/workflows/ci.yml`
 (the five checks on every push), `tools/backup/dump.sh` (data-only dump outside the repo; see docs/operations.md, Backups),
 viewer and staff service workers cache the shell per build (`/sw.js?v=`), Supabase errors shown via `src/lib/errors.ts`, dates via `src/lib/dates.ts`.
-Open work: first event fully on these apps (dry run: docs/dry-run-2026-10.md); admin
-screen for qualification groups; speed discipline; push notifications while the app is closed (would need
+Start-list tools (migrations 049-053, not yet on the live project): DNS / DSQ per starter (`round_starters.status`;
+unranked in that round and don't advance (a climber marked in a later round keeps the place from their previous round in
+the national ranking), new results refused, shown in results / big screen / PDF, mirrored from the temporary app),
+start order and groups on the admin round page (`move_starter`, `split_groups`), `merge_categories` (admin, preview then
+apply, no undo), CSV export of round results (viewer and staff), half holds in lead (24.5; + counts 0.1 for ranking).
+Open work: first event fully on these apps (dry run: docs/dry-run-2026-10.md); speed discipline; push notifications while the app is closed (would need
 a viewer write path: not built).
 
 Decisions: results are public like IFSC; climbers have no sign-in page (view-only app); international

@@ -1,14 +1,25 @@
 // The ranked rows of a round (rank and score text), shared by the round page and the big screen.
 import { formatClimbTime, isTimedRound } from './climbTime';
 import { leadStandings } from './lead';
-import { resultKey, toLeadResult, type LeadRow, type ResultRow, type Starter, type TotalsRow } from './roundData';
+import { resultKey, toLeadResult, type LeadRow, type ResultRow, type Starter, type StarterStatus, type TotalsRow } from './roundData';
 import { EMPTY_RESULT, standings, totals, type ScoringFormat } from './scoring';
 import type { Boulder, Round } from './types';
 
-export interface Row { climber_id: string; rank: number | null; score: string }
+export interface Row { climber_id: string; rank: number | null; score: string; status: StarterStatus }
+
+/** Ranks of `shown` with the score text. A climber marked DNS / DSQ is unranked and the others rank as if
+ *  they were absent (SQL: round_scores / lead_scores); they come after the unranked, DNS before DSQ. */
+export function roundRows(
+  round: Round, shown: Starter[], boulders: Boulder[], results: Map<string, ResultRow>, leadResults: Map<string, LeadRow>,
+  storedTotals: Map<string, TotalsRow>,
+): Row[] {
+  const marked = (status: StarterStatus) => shown.filter((s) => (s.status ?? null) === status)
+    .map((s): Row => ({ climber_id: s.climber_id, rank: null, score: '–', status }));
+  return [...rankedRows(round, shown.filter((s) => !s.status), boulders, results, leadResults, storedTotals), ...marked('dns'), ...marked('dsq')];
+}
 
 /** Ranks of `shown` (the starters being ranked together: one group / age class) with the score text. */
-export function roundRows(
+function rankedRows(
   round: Round, shown: Starter[], boulders: Boulder[], results: Map<string, ResultRow>, leadResults: Map<string, LeadRow>,
   storedTotals: Map<string, TotalsRow>,
 ): Row[] {
@@ -21,7 +32,7 @@ export function roundRows(
       // single route: the height is on the route chip (a final: the climbing time here); several routes:
       // the geometric mean of rank points
       .map((s) => ({ climber_id: s.climber_id, rank: s.rank, score: s.rank === null ? '–' : multi ? s.points.toFixed(2)
-        : timed ? formatClimbTime(s.results.get(boulders[0].id)?.time_ms) : '' }));
+        : timed ? formatClimbTime(s.results.get(boulders[0].id)?.time_ms) : '', status: null }));
   }
   const format = round.scoring as ScoringFormat;
   // Totals-only rounds (older LogLig history) carry stored totals instead of per-boulder results.
@@ -35,8 +46,34 @@ export function roundRows(
   const climbed = new Set(shown.filter((s) => storedTotals.has(s.climber_id)
     || boulders.some((b) => (results.get(resultKey(b.id, s.climber_id))?.attempts ?? 0) > 0)).map((s) => s.climber_id));
   return standings(totalsRows, format, climbed, round.kind === 'final').map((r) => ({
-    climber_id: r.climber_id, rank: r.rank,
+    climber_id: r.climber_id, rank: r.rank, status: null,
     score: r.rank === null ? '–' : format === 'ifsc2025'
       ? r.points.toFixed(1) : `${r.tops}T${r.zones}z ${r.top_attempts} ${r.zone_attempts}`,
   }));
+}
+
+/** The "group" of starters without one once the round has groups (never a stored label: the admin saves "" as null). */
+export const NO_GROUP = '';
+
+/** Qualification groups of a round, each ranked on its own (SQL partitions by group_label, so starters without
+ *  a group form their own partition): the named groups sorted, then NO_GROUP when some starters have none.
+ *  Empty when nobody has a group (one list). */
+export function roundGroups(starters: Starter[]): string[] {
+  const named = [...new Set(starters.map((s) => s.group_label).filter((g): g is string => !!g))].sort();
+  return named.length && starters.some((s) => !s.group_label) ? [...named, NO_GROUP] : named;
+}
+
+/** Whether `s` belongs to group `key` of roundGroups (NO_GROUP: no label). */
+export const inGroup = (s: Starter, key: string) => (s.group_label || NO_GROUP) === key;
+
+/** Tab / block heading of a group key: "Group A", or "No group". */
+export const groupName = (key: string, t: (k: 'group' | 'noGroup') => string) => key === NO_GROUP ? t('noGroup') : `${t('group')} ${key}`;
+
+/** Starters in groups and others without one: the groups need splitting again (admin warning). */
+export const mixedGroups = (starters: Starter[]) => starters.some((s) => s.group_label) && starters.some((s) => !s.group_label);
+
+/** Heading of the score column: rank points / climbing time (lead), points (IFSC 2025), tops / zones (classic). */
+export function scoreHeader(round: Round, routes: number, t: (k: 'rankPoints' | 'climbTime' | 'points' | 'tops' | 'zones') => string): string {
+  return round.scoring === 'lead' ? (routes > 1 ? t('rankPoints') : isTimedRound(round, routes) ? t('climbTime') : '')
+    : round.scoring === 'ifsc2025' ? t('points') : `${t('tops')}/${t('zones')}`;
 }

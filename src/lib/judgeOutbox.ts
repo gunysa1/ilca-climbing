@@ -5,7 +5,7 @@
 import { isAuthRetryableFetchError } from '@supabase/supabase-js';
 import { useEffect, useSyncExternalStore } from 'react';
 import { useAuth } from './auth';
-import { conflict, landed, outboxStorageKey, SaveQueue, type AuthRefresh, type OutboxEntry, type OutboxSnapshot, type SendResult } from './saveQueue';
+import { conflict, isMarkedRefusal, landed, outboxStorageKey, SaveQueue, type AuthRefresh, type OutboxEntry, type OutboxSnapshot, type SendResult } from './saveQueue';
 import { reportClientError } from './errorReport';
 import { supabase } from './supabase';
 import { LEAD_COLUMNS, RESULT_COLUMNS } from './types';
@@ -15,7 +15,7 @@ const SEND_TIMEOUT_MS = 15_000;
 const timeout = () => AbortSignal.timeout(SEND_TIMEOUT_MS);
 const columns = (e: OutboxEntry) => (e.table === 'boulder_results' ? RESULT_COLUMNS : LEAD_COLUMNS);
 type Failure = { message: string; code?: string } | null;
-const failed = (error: NonNullable<Failure>, status: number): SendResult => ({ ok: false, status, message: error.message, code: error.code });
+const failed = (error: NonNullable<Failure>, status: number): SendResult => ({ ok: false, status, message: error.message, code: isMarkedRefusal(error.code, error.message) ? 'marked' : error.code });
 
 /** Climbers open on a pad in this tab (boulder:climber -> pads open): the pad holds their claim. */
 const openPads = new Map<string, number>();

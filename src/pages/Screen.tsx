@@ -4,7 +4,7 @@ import { dwellMs, nextRoundId, screenRounds, SCREEN_SCROLL_PAUSE_MS, SCREEN_SCRO
 import { localized, useI18n } from '../lib/i18n';
 import { onWallByClimber, onWallList, useOnWall } from '../lib/onWall';
 import { prefetchRound, resultKey, useRoundData, type CategoryRounds } from '../lib/roundData';
-import { roundRows } from '../lib/roundRows';
+import { groupName, inGroup, roundGroups, roundRows } from '../lib/roundRows';
 import { supabase } from '../lib/supabase';
 import { Cell, RouteChip } from './RoundResults';
 
@@ -133,13 +133,13 @@ function ScreenRound({ roundId, live, onOverflow }: { roundId: string; live: boo
   const wallBy = useMemo(() => onWallByClimber(wall), [wall]);
   const byId = useMemo(() => new Map(starters.map((s) => [s.climber_id, s])), [starters]);
 
-  // Qualification groups are ranked separately: one block per group.
+  // Qualification groups are ranked separately: one block per group (starters without one: a block of their own).
   const blocks = useMemo(() => {
     if (!round) return [];
-    const groups = [...new Set(starters.map((s) => s.group_label).filter((g): g is string => !!g))].sort();
+    const groups = roundGroups(starters);
     return (groups.length ? groups : [null]).map((g) => ({
       group: g,
-      rows: roundRows(round, starters.filter((s) => g === null || s.group_label === g), boulders, results, leadResults, totals),
+      rows: roundRows(round, starters.filter((s) => g === null || inGroup(s, g)), boulders, results, leadResults, totals),
     }));
   }, [round, starters, boulders, results, leadResults, totals]);
 
@@ -191,24 +191,24 @@ function ScreenRound({ roundId, live, onOverflow }: { roundId: string; live: boo
         <table className="results">
           <tbody>
             {blocks.map((b) => [
-              b.group !== null && <tr key={`g${b.group}`} className="screen-group"><td colSpan={4}>{t('group')} {b.group}</td></tr>,
+              b.group !== null && <tr key={`g${b.group}`} className="screen-group"><td colSpan={4}>{groupName(b.group, t)}</td></tr>,
               ...b.rows.map((row) => {
                 const s = byId.get(row.climber_id);
                 if (!s) return null;
                 const climbing = wallBy.get(row.climber_id);
                 return (
-                  <tr key={`${b.group}-${row.climber_id}`} className={climbing ? 'on-wall-row' : undefined}>
-                    <td className="rank">{row.rank ?? '–'}</td>
+                  <tr key={`${b.group}-${row.climber_id}`} className={[climbing && 'on-wall-row', row.status && `status-${row.status}`].filter(Boolean).join(' ') || undefined}>
+                    <td className="rank">{row.status ? t(row.status) : row.rank ?? '–'}</td>
                     <td className="name">
                       <span className="athlete">{localized(lang, s.profile.full_name, s.profile.full_name_he)}</span>
                       <span className="athlete-meta">{[s.age_class, s.profile.club].filter(Boolean).join(' • ')}</span>
                     </td>
                     <td className="asc-col">
-                      <span className="ascents">
+                      {row.status !== 'dns' && <span className="ascents">
                         {boulders.map((bo) => isLead
                           ? <RouteChip key={bo.id} number={bo.number} r={leadResults.get(resultKey(bo.id, row.climber_id))} climbing={!!climbing?.includes(bo.id)} />
                           : <Cell key={bo.id} number={bo.number} r={results.get(resultKey(bo.id, row.climber_id))} climbing={!!climbing?.includes(bo.id)} />)}
-                      </span>
+                      </span>}
                     </td>
                     <td className="score">{row.score}</td>
                   </tr>

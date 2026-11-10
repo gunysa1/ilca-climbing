@@ -31,4 +31,13 @@ describe('admin log', () => {
       entry({ actor_id: 'admin', changes: { status: ['planned', 'live'] } }),
     ]).sort()).toEqual(['admin', 'j1', 'j2', 'k1']);
   });
+
+  it('a start-list update names its climber (from row_id) and the climber is looked up', () => {
+    const e = entry({ table_name: 'round_starters', row_id: 'r1:k9', changes: { status: [null, 'dsq'] } });
+    expect(logFields(e)).toEqual([
+      { field: 'climber_id', after: 'k9' },
+      { field: 'status', before: null, after: 'dsq' },
+    ]);
+    expect(logProfileIds([e]).sort()).toEqual(['admin', 'k9']);
+  });
 });

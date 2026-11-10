@@ -7,13 +7,14 @@ import { ErrorLine } from './AdminHome';
 
 const TABLE_KEY: Record<AdminLogTable, MsgKey> = {
   competitions: 'logTableCompetitions', categories: 'logTableCategories', rounds: 'logTableRounds', judge_assignments: 'logTableJudges',
-  user_roles: 'logTableRoles', appeals: 'logTableAppeals',
+  user_roles: 'logTableRoles', appeals: 'logTableAppeals', round_starters: 'logTableStarters',
 };
 const ACTION_KEY = { insert: 'logInsert', update: 'logUpdate', delete: 'logDelete' } as const;
 const FIELD_KEY: Record<string, MsgKey> = {
   status: 'status', kind: 'round', scoring: 'scoring', advance_quota: 'advanceQuota', judge_id: 'judge', climber_id: 'athlete',
   boulder_id: 'boulder', role: 'roles', name: 'nameEn', name_he: 'nameHe', venue: 'venue', starts_on: 'startsOn',
   ends_on: 'endsOn', season: 'season', series: 'series', discipline: 'discipline', time_tiebreak: 'logTimeTiebreak', gender: 'gender',
+  start_order: 'startOrder', group_label: 'group', prev_place: 'seed',
 };
 const VALUE_KEY: Record<string, MsgKey> = {
   planned: 'planned', live: 'liveNow', closed: 'closed', draft: 'draft', published: 'published', finished: 'finished',
@@ -21,7 +22,7 @@ const VALUE_KEY: Record<string, MsgKey> = {
   rejected: 'appealRejected', female: 'female', male: 'male', mixed: 'mixed', judge: 'judge', coach: 'coach', admin: 'admin',
   ifsc2025: 'ifsc2025', classic: 'classic', lead: 'lead', premier_league: 'seriesPremier', premier_league_u17: 'seriesPremierU17',
   israeli_championship: 'seriesChamp', youth_championship: 'seriesYouthChamp', other: 'seriesOther',
-  boulder: 'discBoulder', speed: 'discSpeed',
+  boulder: 'discBoulder', speed: 'discSpeed', dns: 'dns', dsq: 'dsq',
 };
 const LIMIT = 100;
 

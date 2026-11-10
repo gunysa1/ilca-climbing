@@ -7,11 +7,11 @@ import { onWallByClimber, onWallList, useOnWall } from '../lib/onWall';
 import { switchTarget } from '../lib/categorySwitch';
 import { saveLastViewed } from '../lib/lastViewed';
 import { localized, useI18n, type Lang } from '../lib/i18n';
-import { formatClimbTime, isTimedRound } from '../lib/climbTime';
 import { formatHeight } from '../lib/lead';
 import { prefetchRound, resultKey, useRoundData, type LeadRow, type ResultRow, type Starter } from '../lib/roundData';
-import { roundRows, type Row } from '../lib/roundRows';
-import { boulderCellText, usePrinting } from '../lib/printing';
+import { groupName, inGroup, roundGroups, roundRows, scoreHeader, type Row } from '../lib/roundRows';
+import { ascentCellText, usePrinting } from '../lib/printing';
+import { csvFileName, csvLabels, downloadCsv, resultsCsvText, roundTable } from '../lib/resultsCsv';
 import { boulderPoints } from '../lib/scoring';
 import type { Boulder } from '../lib/types';
 
@@ -77,14 +77,15 @@ export function RoundResults() {
   const wall = useMemo(() => onWallList(wallRows, boulders), [wallRows, boulders]);
   const wallByClimber = useMemo(() => onWallByClimber(wall), [wall]);
   const ageClasses = useMemo(() => [...new Set(starters.map((s) => s.age_class).filter((a): a is string => !!a))].sort(), [starters]);
-  // Qualification groups are ranked separately: always show one group at a time.
-  const groups = useMemo(() => [...new Set(starters.map((s) => s.group_label).filter((g): g is string => !!g))].sort(), [starters]);
+  // Qualification groups are ranked separately: always show one group at a time (starters without a group
+  // as a group of their own, like SQL ranks them).
+  const groups = useMemo(() => roundGroups(starters), [starters]);
   const [groupPick, setGroup] = useState<string | null>(null);
-  const group = groups.length ? (groupPick && groups.includes(groupPick) ? groupPick : groups[0]) : null;
+  const group = groups.length ? (groupPick !== null && groups.includes(groupPick) ? groupPick : groups[0]) : null;
 
   // Within an age-class filter the ranking is recomputed among those climbers (like the
   // temporary app's per-category results inside a combined group).
-  const shown = useMemo(() => starters.filter((s) => (!group || s.group_label === group) && (!ageClass || s.age_class === ageClass)),
+  const shown = useMemo(() => starters.filter((s) => (group === null || inGroup(s, group)) && (!ageClass || s.age_class === ageClass)),
     [starters, group, ageClass]);
   const rows = useMemo(() => (round ? roundRows(round, shown, boulders, results, leadResults, storedTotals) : []),
     [round, shown, boulders, results, leadResults, storedTotals]);
@@ -107,8 +108,7 @@ export function RoundResults() {
   if (loading) return <p className="muted">{t('loading')}</p>;
   if (!round) return <p className="muted">{t('empty')}</p>;
   const lead = round.scoring === 'lead';
-  const scoreHeader = lead ? (boulders.length > 1 ? t('rankPoints') : isTimedRound(round, boulders.length) ? t('climbTime') : '')
-    : round.scoring === 'ifsc2025' ? t('points') : `${t('tops')}/${t('zones')}`;
+  const scoreHead = scoreHeader(round, boulders.length, t);
 
   return (
     <section>
@@ -134,6 +134,11 @@ export function RoundResults() {
         {lastUpdate && <span className="muted small">{t('updatedAt')} {lastUpdate.toLocaleTimeString(lang === 'he' ? 'he-IL' : 'en-GB')}</span>}
         {openAppeals.size > 0 && <span className="appeal-badge">{t('appealOpen')}</span>}
         <button className="chip no-print" onClick={print} title={t('printPdf')}>PDF ⤓</button>
+        <button className="chip no-print" title={t('exportCsv')} onClick={() => {
+          downloadCsv(csvFileName([category ? localized(lang, category.competition.name, category.competition.name_he) : '',
+            category ? localized(lang, category.name, category.name_he) : '', t(round.kind)]),
+          resultsCsvText([roundTable({ round, boulders, starters, results, leadResults, totals: storedTotals, lang, labels: csvLabels(t, scoreHead) })]));
+        }}>CSV ⤓</button>
       </div>
       {wall.length > 0 && (
         <div className="on-wall no-print" aria-live="polite">
@@ -162,20 +167,20 @@ export function RoundResults() {
       </div>
       {printing && (
         <p className="print-meta">
-          {[group && `${t('group')} ${group}`, ageClass, `${t('printedAt')} ${new Date().toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB', { dateStyle: 'short', timeStyle: 'short' })}`]
+          {[group !== null && groupName(group, t), ageClass, `${t('printedAt')} ${new Date().toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB', { dateStyle: 'short', timeStyle: 'short' })}`]
             .filter(Boolean).join(' · ')}
         </p>
       )}
       {printing ? (tab === 'startlist'
-        ? <PrintStartList starters={groups.length ? starters.filter((s) => s.group_label === group) : starters} />
-        : <PrintResults rows={visible} byId={byId} boulders={boulders} lead={lead} results={results} leadResults={leadResults} scoreHeader={scoreHeader}
+        ? <PrintStartList starters={group !== null ? starters.filter((s) => inGroup(s, group)) : starters} />
+        : <PrintResults rows={visible} byId={byId} boulders={boulders} lead={lead} results={results} leadResults={leadResults} scoreHeader={scoreHead}
             showTime={lead && round.kind === 'final' && round.time_tiebreak !== false} />)
-      : tab === 'startlist' ? <StartList starters={groups.length ? starters.filter((s) => s.group_label === group) : starters} groups={groups} group={group} onGroup={setGroup} climbing={wallByClimber} /> : <>
+      : tab === 'startlist' ? <StartList starters={group !== null ? starters.filter((s) => inGroup(s, group)) : starters} groups={groups} group={group} onGroup={setGroup} climbing={wallByClimber} /> : <>
       {groups.length > 0 && (
         <div className="chips" role="tablist">
           {groups.map((g) => (
             <button key={g} role="tab" aria-selected={g === group} className={`chip ${g === group ? 'selected' : ''}`}
-              onClick={() => setGroup(g)}>{t('group')} {g}</button>
+              onClick={() => setGroup(g)}>{groupName(g, t)}</button>
           ))}
         </div>
       )}
@@ -197,7 +202,7 @@ export function RoundResults() {
             <tr>
               <th className="rank">{t('rank')}</th>
               <th className="name">{t('athlete')}</th>
-              <th className="score">{scoreHeader}</th>
+              <th className="score">{scoreHead}</th>
             </tr>
           </thead>
           <tbody>
@@ -228,7 +233,7 @@ function StartList({ starters, groups, group, onGroup, climbing }: {
         <div className="chips" role="tablist">
           {groups.map((g) => (
             <button key={g} role="tab" aria-selected={g === group} className={`chip ${g === group ? 'selected' : ''}`}
-              onClick={() => onGroup(g)}>{t('group')} {g}</button>
+              onClick={() => onGroup(g)}>{groupName(g, t)}</button>
           ))}
         </div>
       )}
@@ -264,20 +269,20 @@ function ResultRowView({ row, starter: s, lang, boulders, lead, results, leadRes
 }) {
   const { t } = useI18n();
   return (
-    <tr className={[favorite && 'favorite', climbing && 'on-wall-row'].filter(Boolean).join(' ') || undefined}>
-      <td className="rank">{row.rank ?? '–'}</td>
+    <tr className={[favorite && 'favorite', climbing && 'on-wall-row', row.status && `status-${row.status}`].filter(Boolean).join(' ') || undefined}>
+      <td className="rank">{row.status ? t(row.status) : row.rank ?? '–'}</td>
       <td className="name">
         <FavoriteStar climberId={s.climber_id} name={s.profile.full_name} />
         <Link className="athlete" to={`/climber/${s.climber_id}?d=${lead ? 'lead' : 'boulder'}`}>{localized(lang, s.profile.full_name, s.profile.full_name_he)}</Link>
         {appeal && <span className="appeal-badge" title={t('appealOpen')}>{t('appeal')}</span>}
         {climbing && <span className="climbing-badge">{t('climbingNow')}</span>}
         <span className="athlete-meta">{[s.bib, s.age_class, s.profile.club].filter(Boolean).join(' • ')}</span>
-        <span className="ascents">
+        {row.status !== 'dns' && <span className="ascents">
           {boulders.map((b) => lead
             ? <RouteChip key={b.id} number={b.number} r={leadResults.get(resultKey(b.id, row.climber_id))} climbing={!!climbing?.includes(b.id)} />
             : <Cell key={b.id} number={b.number} r={results.get(resultKey(b.id, row.climber_id))} appeal={!!appeal?.includes(b.id)}
                 climbing={!!climbing?.includes(b.id)} />)}
-        </span>
+        </span>}
       </td>
       <td className="score">{row.score}</td>
     </tr>
@@ -313,17 +318,15 @@ function PrintResults({ rows, byId, boulders, lead, results, leadResults, scoreH
         {rows.map((row) => {
           const s = byId.get(row.climber_id)!;
           return (
-            <tr key={row.climber_id}>
-              <td className="num strong">{row.rank ?? '–'}</td>
+            <tr key={row.climber_id} className={row.status ? `status-${row.status}` : undefined}>
+              <td className="num strong">{row.status ? t(row.status) : row.rank ?? '–'}</td>
               <td className="strong">{localized(lang, s.profile.full_name, s.profile.full_name_he)}{s.age_class ? <span className="muted"> · {s.age_class}</span> : null}</td>
               {bibs && <td className="num">{s.bib ?? ''}</td>}
               {clubs && <td>{s.profile.club ?? ''}</td>}
               {boulders.map((b) => {
                 const key = resultKey(b.id, row.climber_id);
-                const l = lead ? leadResults.get(key) : undefined;
-                return <td key={b.id} className="num" dir="ltr">
-                  {lead ? (l ? formatHeight(l) + (showTime && l.time_ms ? ` · ${formatClimbTime(l.time_ms)}` : '') : '') : boulderCellText(results.get(key))}
-                </td>;
+                const text = ascentCellText({ lead, status: row.status, showTime, boulder: results.get(key), route: leadResults.get(key) });
+                return <td key={b.id} className="num" dir="ltr">{text}</td>;
               })}
               <td className="num strong" dir="ltr">{row.score}</td>
             </tr>

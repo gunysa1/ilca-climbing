@@ -1,5 +1,6 @@
 // Drives the admin UI end to end as a signed-in admin (see e2e/run.sh).
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import { chromium } from 'playwright';
 import { parseSeason, RANKING_CODE_VERSION, rankingTable } from '../src/lib/rankingTables.ts';
@@ -179,6 +180,13 @@ await p.locator('.admin-row', { hasText: 'Judge Yossi' }).getByText('Whole round
 
 step('correct a result, check audit');
 await p.locator('tr', { hasText: 'נועה לוי' }).getByRole('button', { name: '✎' }).click();
+// The correction inputs sit under their boulder's header (same column index).
+const colOk = await p.getByLabel('Attempts 1').evaluate((el) => {
+  const td = el.closest('td');
+  const th = td.closest('table').querySelector('thead tr').children[td.cellIndex];
+  return th?.textContent?.trim() === '1';
+});
+if (!colOk) problems.push('corrections: Attempts 1 is not under the boulder 1 header');
 await p.getByLabel('Attempts 1').fill('2');
 await p.getByLabel('Zone 1').fill('1');
 await p.getByLabel('Top 1').fill('2');
@@ -408,6 +416,99 @@ if (!(await p.locator('table.print-table th', { hasText: 'Boulder 2' }).count())
 await p.evaluate(() => window.dispatchEvent(new Event('afterprint')));
 await p.locator('table.print-table').waitFor({ state: 'detached' });
 await p.screenshot({ path: `${out}/results-appeal-en.png`, fullPage: true });
+
+step('CSV export: the round page and the competition page download a file with the BOM, the header row and the climbers');
+{
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.getByRole('button', { name: /CSV/ }).click()]);
+  const text = readFileSync(await dl.path(), 'utf8');
+  if (!text.startsWith('\uFEFFRank,Bib,Athlete,Club,Age class,Boulder 1,Boulder 2,Boulder 3,Boulder 4,Points\r\n')) problems.push(`CSV: no BOM + header row: ${JSON.stringify(text.slice(0, 120))}`);
+  if (!text.includes('מאיה גל')) problems.push('CSV: the climber is missing');
+  if (!dl.suggestedFilename().endsWith('.csv') || /[\\/:*?"<>|]/.test(dl.suggestedFilename())) problems.push(`CSV: file name "${dl.suggestedFilename()}"`);
+  console.log(`  round file ${dl.suggestedFilename()}: ${JSON.stringify(text.split('\r\n').slice(0, 3))}`);
+  await p.goto(`${view}/competition/${compUrl.split('/').pop()}`);
+  const [dl2] = await Promise.all([p.waitForEvent('download'), p.getByRole('button', { name: /CSV/ }).click()]);
+  const all = readFileSync(await dl2.path(), 'utf8');
+  if (!all.startsWith('\uFEFF') || !all.includes('Rank,Bib,Athlete') || !all.includes('מאיה גל')) problems.push(`CSV (competition): ${JSON.stringify(all.slice(0, 120))}`);
+  console.log(`  competition file ${dl2.suggestedFilename()}: ${JSON.stringify(all.split('\r\n').slice(0, 2))}`);
+  // The chips fit a 360 px phone (Hebrew): no sideways scroll on the competition and round pages
+  const he360 = await page('he', { width: 360, height: 800 }, null);
+  for (const [name, url] of [['competition', `${view}/competition/${compUrl.split('/').pop()}`], ['round', `${view}/round/${roundId}`]]) {
+    await he360.goto(url);
+    await he360.getByRole('button', { name: /CSV/ }).first().waitFor();
+    await he360.waitForLoadState('networkidle');
+    if (await he360.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) problems.push(`${name} page (he, 360px) scrolls sideways`);
+    if (name === 'competition') await he360.screenshot({ path: `${out}/competition-csv-he-360.png`, fullPage: true });
+  }
+  await he360.close();
+  await p.goto(`${view}/round/${roundId}`);
+}
+
+step('DNS / DSQ: the admin marks a starter DNS (DSQ asks first); the public results say DNS, the climber is unranked');
+await p.goto(`${base}/admin/round/${roundId}`);
+const statusRow = p.locator('.start-row', { hasText: 'תמר כהן' });
+await statusRow.getByRole('combobox', { name: /Status/ }).selectOption('dsq');
+await p.getByRole('dialog').getByText('Disqualify this climber?').waitFor();
+await p.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+if ((await statusRow.getByRole('combobox', { name: /Status/ }).inputValue()) !== '') problems.push('DSQ was applied without confirmation');
+await statusRow.getByRole('combobox', { name: /Status/ }).selectOption('dns');
+await p.waitForFunction(() => [...document.querySelectorAll('.start-row')].some((r) => r.textContent.includes('תמר כהן') && r.querySelector('select[aria-label^="Status"]')?.value === 'dns'));
+await p.goto(`${view}/round/${roundId}`);
+await p.locator('tr.status-dns', { hasText: 'תמר' }).waitFor();
+const dnsRow = (await p.locator('tr.status-dns', { hasText: 'תמר' }).innerText()).replace(/\s+/g, ' ');
+if (!dnsRow.startsWith('DNS')) problems.push(`DNS row should show DNS as the place: "${dnsRow}"`);
+if (await p.locator('tr.status-dns .asc').count()) problems.push('a DNS row shows score chips');
+await p.screenshot({ path: `${out}/results-dns-en.png`, fullPage: true });
+await p.goto(`${base}/admin/round/${roundId}`);
+await p.locator('.start-row', { hasText: 'תמר כהן' }).getByRole('combobox', { name: /Status/ }).selectOption('');
+await p.waitForTimeout(500);
+await p.goto(`${view}/round/${roundId}`);
+await p.locator('tr', { hasText: 'תמר' }).waitFor();
+if (await p.locator('tr.status-dns').count()) problems.push('DNS stayed after the admin put the climber back to climbing');
+
+step('start order and groups: move a climber to place 1, split A / B (warned: the round has results), public results show the groups');
+await p.goto(`${base}/admin/round/${roundId}`);
+const startRows = p.locator('.start-row');
+const firstName = async () => (await startRows.first().locator('.start-name').innerText()).trim();
+if ((await firstName()).includes('מאיה גל')) problems.push('start order: the test climber is already first');
+await startRows.filter({ hasText: 'מאיה גל' }).getByLabel(/Place in the start order/).fill('1');
+await startRows.filter({ hasText: 'מאיה גל' }).getByLabel(/Place in the start order/).press('Enter');
+await p.waitForFunction(() => document.querySelector('.start-row .start-name')?.textContent?.includes('מאיה גל'));
+if ((await startRows.first().getByLabel(/Place in the start order/).inputValue()) !== '1') problems.push('start order: first row is not place 1');
+await p.locator('.panel', { hasText: 'Admin changes' }).getByText('Start list').first().waitFor();
+await p.getByRole('button', { name: /Split into A \/ B/ }).click();
+await p.getByRole('dialog').getByText(/ranking of the round will change/).waitFor();
+await p.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+if (await startRows.first().getByLabel(/^Group/).inputValue() !== '') problems.push('groups were set without confirmation');
+await p.getByRole('button', { name: /Split into A \/ B/ }).click();
+await p.getByRole('dialog').getByRole('button', { name: 'Change' }).click();
+await p.waitForFunction(() => document.querySelector('.start-row select[aria-label^="Group"]')?.value === 'A');
+if ((await startRows.nth(1).getByLabel(/^Group/).inputValue()) !== 'B') problems.push('split: the second starter should be in B');
+await p.screenshot({ path: `${out}/admin-start-list-en.png`, fullPage: true });
+await p.goto(`${view}/round/${roundId}`);
+await p.getByRole('tab', { name: 'Group A' }).waitFor();
+await p.getByRole('tab', { name: 'Group B' }).waitFor();
+await p.screenshot({ path: `${out}/results-groups-en.png`, fullPage: true });
+// one starter taken out of the groups: the admin is told to split again; the public page lists them as "No group"
+await p.goto(`${base}/admin/round/${roundId}`);
+await startRows.nth(1).getByLabel(/^Group/).selectOption('');
+await p.getByRole('dialog').getByRole('button', { name: 'Change' }).click();
+await p.getByText(/Consider splitting into groups again/).waitFor();
+await p.goto(`${view}/round/${roundId}`);
+await p.getByRole('tab', { name: 'No group' }).click();
+await p.locator('table.results tbody tr').first().waitFor();
+if ((await p.locator('table.results tbody tr').count()) !== 1) problems.push(`"No group" tab should list the one starter without a group, has ${await p.locator('table.results tbody tr').count()}`);
+if (!(await p.locator('table.results tbody tr').first().innerText()).trim().startsWith('1')) problems.push('the starter without a group should rank 1 among themselves');
+await p.screenshot({ path: `${out}/results-no-group-en.png`, fullPage: true });
+// phone width: the row stays usable (no sideways scroll)
+await p.setViewportSize({ width: 360, height: 800 });
+await p.goto(`${base}/admin/round/${roundId}`);
+await startRows.first().waitFor();
+if (await p.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)) problems.push('start list: sideways scroll at 360 px');
+await p.locator('.panel', { hasText: 'Start order' }).first().screenshot({ path: `${out}/admin-start-list-360.png` });
+await p.setViewportSize({ width: 1280, height: 900 });
+await p.getByRole('button', { name: 'Clear groups' }).click();
+await p.getByRole('dialog').getByRole('button', { name: 'Change' }).click();
+await p.waitForFunction(() => [...document.querySelectorAll('.start-row select[aria-label^="Group"]')].every((x) => x.value === ''));
 
 step('final: quota 1, generated start list has only the leader');
 await p.goto(compUrl);
@@ -840,6 +941,10 @@ if (!(await jp.getByRole('button', { name: '+1 Hold' }).isDisabled())) problems.
   await hj.getByText('הסבב עוד לא פתוח').waitFor();
   if (await hj.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) problems.push('planned lead pad (he, 390px) scrolls sideways');
   await hj.screenshot({ path: `${out}/judge-lead-planned-he-390.png`, fullPage: true });
+  await hj.setViewportSize({ width: 360, height: 800 });                  // the typed-hold field fits a 360 px phone
+  await hj.getByLabel('מספר האחיזה').waitFor();
+  if (await hj.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) problems.push('lead pad (he, 360px) scrolls sideways');
+  await hj.screenshot({ path: `${out}/judge-lead-pad-he-360.png`, fullPage: true });
   await hj.close();
 }
 step('lead: the signal goes while waiting for "live": the pad scores from the copy, with a note; back online it waits again');
@@ -860,14 +965,19 @@ await jp.waitForFunction(() => !document.querySelector('button[aria-label="+1 Ho
 await jp.getByText('This round is not live yet').waitFor({ state: 'detached' });
 await jp.getByRole('button', { name: /On the wall/ }).waitFor();     // claimed
 
-step('lead: the judge scores route 1 (TOP, TOP, 12+ saved offline), route 2 (20, 20, 5)');
-const leadClimb = async (hold, { plus = false, top = false, time = null } = {}) => {
+step('lead: the judge scores route 1 (TOP, TOP, 12+ saved offline), route 2 (20, 20, 24.5 typed: a half hold)');
+const leadClimb = async (hold, { plus = false, top = false, time = null, typed = null } = {}) => {
   await jp.getByRole('button', { name: /On the wall|Off the wall/ }).waitFor();
   if (top) await jp.getByRole('button', { name: 'TOP', exact: true }).click();
   for (let i = 0; i < hold; i++) await jp.getByRole('button', { name: '+1 Hold' }).click();
+  if (typed) {
+    await jp.getByLabel('Hold number').fill(typed);
+    await jp.locator('.stepper-value', { hasText: new RegExp(`^${typed.replace(',', '\\.')}$`) }).waitFor();
+  }
   if (plus) await jp.getByRole('button', { name: '+ (move)' }).click();
   if (time) await jp.locator('.pad-time input').fill(time);
   await jp.getByRole('button', { name: /Next · lock/ }).click();
+  if (typed) await jp.getByRole('dialog').getByText(`· ${typed.replace(',', '.')}`).waitFor();
   await jp.getByRole('dialog').getByRole('button', { name: 'Yes, lock' }).click();
 };
 await leadClimb(0, { top: true });                                  // נועה
@@ -888,18 +998,24 @@ await leadClimb(20);
 await jp.locator('.pad-head').getByText('תמר כהן').waitFor();
 await leadClimb(20);
 await jp.locator('.pad-head').getByText('מאיה גל').waitFor();
-await leadClimb(5);
+await jp.getByLabel('Hold number').fill('24.555');               // three decimals: refused, nothing to save
+if (!(await jp.getByRole('button', { name: /Next · lock/ }).isDisabled())) problems.push('lead pad: a hold with three decimals can be locked');
+await jp.getByText('Not a valid hold').waitFor();
+await jp.screenshot({ path: `${out}/judge-lead-hold-invalid-en.png` });
+await leadClimb(0, { typed: '24,5' });                              // a half hold, typed with a comma
 await jp.locator('.toast').getByText(/end of the list/).waitFor();
 await jp.locator('.outbox-badge').waitFor({ state: 'detached', timeout: 15000 });
 
 step('lead: the admin corrects a height; reopening a closed round makes it live again');
 await p.goto(`${base}/admin/round/${leadQualId}`);
 await p.locator('tr', { hasText: 'מאיה גל' }).getByText('🔒12+').waitFor();
+await p.locator('tr', { hasText: 'מאיה גל' }).getByText('🔒24.5', { exact: true }).waitFor();
 await p.locator('tr', { hasText: 'מאיה גל' }).getByRole('button', { name: '✎' }).click();
 if (await p.getByLabel('Climbing time 1').count()) problems.push('qualification correction form has a time field');
-await p.getByLabel('Hold 2').fill('7');
+if ((await p.getByLabel('Hold 2').inputValue()) !== '24.5') problems.push(`correction form shows ${await p.getByLabel('Hold 2').inputValue()} for 24.5`);
+await p.getByLabel('Hold 2').fill('7,5');                          // the admin corrects to a half hold too (comma)
 await p.getByRole('button', { name: 'Save' }).click();
-await p.locator('tr', { hasText: 'מאיה גל' }).getByText('🔒7').waitFor();
+await p.locator('tr', { hasText: 'מאיה גל' }).getByText('🔒7.5', { exact: true }).waitFor();
 await p.locator('.panel', { hasText: 'Audit log' }).getByText('By Admin ILCA').first().waitFor();
 await p.goto(leadCompUrl);
 await leadQualRow.getByRole('button', { name: 'Close round' }).click();
@@ -912,7 +1028,7 @@ step('lead: public results show 12+ / TOP and the geometric mean (a tie for firs
   const lv = await page('en');
   await lv.goto(`${view}/round/${leadQualId}`);
   await lv.locator('tr', { hasText: 'מאיה גל' }).locator('.route-chip', { hasText: '12+' }).waitFor();
-  await lv.locator('tr', { hasText: 'מאיה גל' }).locator('.route-chip', { hasText: /^7$/ }).waitFor();
+  await lv.locator('tr', { hasText: 'מאיה גל' }).locator('.route-chip', { hasText: /^7\.5$/ }).waitFor();
   await lv.locator('tr', { hasText: 'נועה לוי' }).locator('.route-chip', { hasText: 'TOP' }).waitFor();
   const ranks = (await lv.locator('tbody tr').allInnerTexts()).map((r) => r.replace(/\s+/g, ' ').trim());
   if (!/^1 .*נועה לוי.* 1\.50$/.test(ranks[0]) || !/^1 .*תמר כהן.* 1\.50$/.test(ranks[1]) || !/^3 .*מאיה גל.* 3\.00$/.test(ranks[2])) problems.push(`lead qualification ranks: ${JSON.stringify(ranks)}`);
@@ -1007,6 +1123,66 @@ await p.locator('tr', { hasText: 'נועה לוי' }).getByText('🔒30+ · 1:50
 }
 await p.goto(`${base}/admin/round/${leadFinalId}/sheets`);
 await p.locator('.score-sheet th', { hasText: 'Climbing time' }).waitFor();
+
+step('merge two categories: a bib clash is refused in plain words; merging moves the climbers to the kept category\'s first round');
+execFileSync('psql', ['-h', '127.0.0.1', '-p', process.env.E2E_PGPORT, '-U', 'postgres', '-d', 'app', '-v', 'ON_ERROR_STOP=1', '-qc', `
+  insert into profiles (id, full_name, full_name_he, gender) values
+    ('e5000000-0000-0000-0000-000000000001', 'Gali Ron', 'גלי רון', 'female'),
+    ('e5000000-0000-0000-0000-000000000002', 'Dana Bar', 'דנה בר', 'female'),
+    ('e5000000-0000-0000-0000-000000000003', 'Yael Tal', 'יעל טל', 'female'),
+    ('e5000000-0000-0000-0000-000000000004', 'Shir Paz', 'שיר פז', 'female');
+  insert into competitions (id, name, name_he, starts_on, ends_on, status, discipline) values
+    ('e5100000-0000-0000-0000-000000000001', 'Merge Cup', 'גביע איחוד', '2026-12-30', '2026-12-30', 'draft', 'boulder');
+  insert into categories (id, competition_id, name, name_he, gender) values
+    ('e5200000-0000-0000-0000-000000000001', 'e5100000-0000-0000-0000-000000000001', 'U17 Girls', 'בנות U17', 'female'),
+    ('e5200000-0000-0000-0000-000000000002', 'e5100000-0000-0000-0000-000000000001', 'U15 Girls', 'בנות U15', 'female'),
+    ('e5200000-0000-0000-0000-000000000003', 'e5100000-0000-0000-0000-000000000001', 'U13 Girls', 'בנות U13', 'female');
+  insert into rounds (id, category_id, kind) values
+    ('e5300000-0000-0000-0000-000000000001', 'e5200000-0000-0000-0000-000000000001', 'qualification'),
+    ('e5300000-0000-0000-0000-000000000002', 'e5200000-0000-0000-0000-000000000002', 'qualification');
+  insert into registrations (category_id, climber_id, bib) values
+    ('e5200000-0000-0000-0000-000000000001', 'e5000000-0000-0000-0000-000000000001', 1),
+    ('e5200000-0000-0000-0000-000000000002', 'e5000000-0000-0000-0000-000000000002', 2),
+    ('e5200000-0000-0000-0000-000000000002', 'e5000000-0000-0000-0000-000000000003', 3),
+    ('e5200000-0000-0000-0000-000000000003', 'e5000000-0000-0000-0000-000000000004', 1);`]);
+await p.goto(`${base}/admin/competition/e5100000-0000-0000-0000-000000000001`);
+const mergePanel = p.locator('.merge-categories');
+await mergePanel.getByLabel('Category to keep').selectOption({ label: 'U17 Girls (Women)' });
+await mergePanel.getByLabel(/Category to merge into it/).selectOption({ label: 'U13 Girls (Women)' });
+await mergePanel.getByText('Bib 1 is used in both categories (Gali Ron, Shir Paz). Change one of them first.').waitFor();
+if (await mergePanel.getByRole('button', { name: 'Merge' }).isEnabled()) problems.push('merge categories: Merge enabled despite a bib clash');
+await mergePanel.getByLabel(/Category to merge into it/).selectOption({ label: 'U15 Girls (Women)' });
+await mergePanel.getByText('2 climbers will move to U17 Girls:').waitFor();
+await mergePanel.getByText('Dana Bar').waitFor();
+await mergePanel.getByText('Climbers without an age class get "בנות U15"', { exact: false }).waitFor();
+await p.screenshot({ path: `${out}/admin-merge-categories-en.png`, fullPage: true });
+await mergePanel.getByRole('button', { name: 'Merge' }).click();
+await p.getByRole('dialog', { name: 'Merge the categories?' }).getByRole('button', { name: 'Cancel' }).click();
+if (await p.locator('.panel h2', { hasText: 'U15 Girls' }).count() !== 1) problems.push('merge categories: cancel still merged');
+await mergePanel.getByRole('button', { name: 'Merge' }).click();
+await p.getByRole('dialog', { name: 'Merge the categories?' }).getByRole('button', { name: 'Merge' }).click();
+await mergePanel.getByText('Merged: 2 climbers moved to U17 Girls').waitFor();
+await p.locator('.panel h2', { hasText: 'U15 Girls' }).waitFor({ state: 'detached' });
+const keptPanel = p.locator('.panel', { has: p.locator('h2', { hasText: 'U17 Girls' }) }).first();
+await keptPanel.getByText('Registrations (3)').waitFor();
+if (!(await keptPanel.locator('.admin-row', { hasText: 'Qualification' }).innerText()).includes('Starters: 3')) {
+  problems.push('merge categories: the moved climbers are not on the kept category\'s first round');
+}
+if ((await keptPanel.getByLabel('Age class').evaluateAll((els) => els.map((e) => e.value))).join(',') !== ',בנות U15,בנות U15') {
+  problems.push('merge categories: the moved climbers did not get the dropped category\'s name as their age class');
+}
+await p.screenshot({ path: `${out}/admin-merge-categories-done-en.png`, fullPage: true });
+{
+  const hm = await page('he', { width: 360, height: 800 });
+  await hm.goto(`${base}/admin/competition/e5100000-0000-0000-0000-000000000001`);
+  const mp = hm.locator('.merge-categories');
+  await mp.getByLabel('הקטגוריה שנשארת').selectOption({ label: 'בנות U17 (נשים)' });
+  await mp.getByLabel(/הקטגוריה שמצטרפת אליה/).selectOption({ label: 'בנות U13 (נשים)' });
+  await mp.getByText('מספר גב 1 תפוס בשתי הקטגוריות (גלי רון, שיר פז). קודם משנים אחד מהם.').waitFor();
+  if (await hm.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)) problems.push('merge categories: sideways scroll at 360 px');
+  await mp.screenshot({ path: `${out}/admin-merge-categories-he-360.png` });
+  await hm.close();
+}
 
 step('Hebrew + 390px screenshots');
 const he = await page('he', { width: 390, height: 844 });

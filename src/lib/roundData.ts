@@ -6,6 +6,9 @@ import { type Boulder, type Profile, type Round } from './types';
 import type { LeadResult } from './lead';
 import type { BoulderResult } from './scoring';
 
+/** Set by an admin: the climber did not start / was disqualified. Unranked; takes no results. */
+export type StarterStatus = 'dns' | 'dsq' | null;
+
 /** A climber on a round's start list (round_starters + their registration). */
 export interface Starter {
   climber_id: string;
@@ -16,6 +19,8 @@ export interface Starter {
   prev_place: number | null;
   /** Qualification group (A, B, ...): groups are ranked separately. */
   group_label: string | null;
+  /** DNS / DSQ (null: climbs). Missing in pages kept on a device before the status existed. */
+  status?: StarterStatus;
   profile: Profile;
 }
 export interface ResultRow extends BoulderResult { boulder_id: string; climber_id: string; locked?: boolean; updated_at?: string }
@@ -60,7 +65,7 @@ export interface RoundData {
 export async function loadStarters(round: Pick<Round, 'id' | 'category_id'>): Promise<{ starters: Starter[]; error: string | null }> {
   const [{ data: rows, error: e1 }, { data: regs, error: e2 }] = await Promise.all([
     supabase.from('round_starters')
-      .select('climber_id, start_order, prev_place, group_label, profile:profiles(id, full_name, full_name_he, club, country)')
+      .select('climber_id, start_order, prev_place, group_label, status, profile:profiles(id, full_name, full_name_he, club, country)')
       .eq('round_id', round.id),
     supabase.from('registrations').select('climber_id, bib, age_class').eq('category_id', round.category_id),
   ]);
@@ -91,6 +96,8 @@ const pageCache = new Map<string, RoundPage>();
 /** When each cached page was fetched (ms). */
 const pageAt = new Map<string, number>();
 const inFlight = new Map<string, Promise<RoundPage | null>>();
+/** How long start-list changes are left to settle before the round page is loaded again (ms). */
+export const STARTERS_SETTLE_MS = 400;
 
 function fetchRoundPage(roundId: string): Promise<RoundPage | null> {
   let p = inFlight.get(roundId);
@@ -103,6 +110,12 @@ function fetchRoundPage(roundId: string): Promise<RoundPage | null> {
     inFlight.set(roundId, p);
   }
   return p;
+}
+
+/** One round loaded now, fresh, in one request (round_page), without the live subscription: for exports. */
+export async function loadRoundData(roundId: string): Promise<RoundData | null> {
+  const page = await fetchRoundPage(roundId);
+  return page ? toState(page) : null;
 }
 
 /** Judge pad: the last round pages it opened or prefetched (JudgeHome), kept on the device (per profile,
@@ -216,6 +229,23 @@ export function useRoundData(roundId: string | undefined, { offlineKey, reuseMs 
       return reachable;
     };
 
+    // Start-list changes (DNS / DSQ, groups, order, starters added or removed: migration 052): load the page
+    // again. One admin action changes many rows, so wait for them to settle; a load already under way may
+    // predate the change, so let it finish and fetch once more.
+    let startersTimer: ReturnType<typeof setTimeout> | undefined;
+    const startersChanged = () => {
+      clearTimeout(startersTimer);
+      startersTimer = setTimeout(() => {
+        void Promise.resolve(inFlight.get(roundId)).then(() => {
+          if (cancelled) return;
+          pageCache.delete(roundId);
+          return fetchRoundPage(roundId).then((page) => {
+            if (!cancelled && page) { if (offlineKey) keepOffline(offlineKey, roundId, page); setState(toState(page)); }
+          });
+        });
+      }, STARTERS_SETTLE_MS);
+    };
+
     const channel = supabase.channel(`round:${roundId}`)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'boulder_results', filter: `round_id=eq.${roundId}` },
@@ -248,9 +278,19 @@ export function useRoundData(roundId: string | undefined, { offlineKey, reuseMs 
             ? s.appeals.filter((a) => a.id !== row.id)
             : [...s.appeals.filter((a) => a.id !== row.id), payload.new as Appeal] }));
         })
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'round_starters', filter: `round_id=eq.${roundId}` },
+        startersChanged)
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'round_starters', filter: `round_id=eq.${roundId}` },
+        startersChanged)
+      // Realtime can't filter deletes; the old row carries its primary key (round_id, climber_id).
+      .on('postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'round_starters' },
+        (payload) => { if ((payload.old as { round_id?: string } | null)?.round_id === roundId) startersChanged(); })
       .subscribe();
 
-    return () => { cancelled = true; window.removeEventListener('online', reload); supabase.removeChannel(channel); reloadRef.current = async () => false; };
+    return () => { cancelled = true; clearTimeout(startersTimer); window.removeEventListener('online', reload); supabase.removeChannel(channel); reloadRef.current = async () => false; };
   }, [roundId, offlineKey]);
 
   return { ...state, reload };

@@ -177,7 +177,10 @@ matching (`profiles.ifsc_id`, else `ifsc_pending`), the season's `world_rankings
 
 The results page subscribes to `boulder_results`, `lead_results` and `appeals` of its round, and
 polls `on_wall(round)` every 5 s in live rounds (claims aren't public, so no Realtime for them); the
-judge pad subscribes to `judge_claims` of its boulder. Everything else loads on navigation.
+judge pad subscribes to `judge_claims` of its boulder. The round page, big screen and judge pad (all `useRoundData`)
+also subscribe to `round_starters` of the round (migration 052) and load the round page again shortly after a change
+(DNS / DSQ, groups, order): the pad stops offering a marked climber. Realtime can't filter deletes, so deletes are
+matched by the old row's `round_id`. Everything else loads on navigation.
 
 ## Judge pad without signal
 
@@ -257,3 +260,8 @@ rows wait, keeps them for that judge's next sign-in, and removes the other copie
 | 20261018000044 | `link_account()`: "the account's own profile has data" from `private.profile_refs()` (every table referencing profiles; the staff app's error reports move to the linked profile) |
 | 20261018000045 | `system_status()` (admins: pg_cron jobs, caches, ranking tables due, IFSC runs) and `admin_log` (triggers on competitions, categories, rounds, judge_assignments, user_roles, appeals; admins read) |
 | 20261018000047 | `competitions.discipline` (boulder / lead / speed; null on old rows the backfill from rounds, then name, cannot place): names boulders / routes in the staff app, defaults new rounds' scoring, lists the competition in the viewer |
+| 20261110000049 | `round_starters.status` (`dns` / `dsq`): marked starters are unranked in `round_scores` / `lead_scores_for`, don't advance (in the national ranking a climber marked in a later round keeps the place from the previous round); new or changed results for them are refused (lock / unlock still allowed); `merge_profiles` keeps the mark; `round_starters` changes join `admin_log`; queues full rankings and climber cache rebuilds |
+| 20261110000050 | `move_starter(round, climber, position)` and `split_groups(round, labels)` (admin only, row-locked): start order and A / B groups |
+| 20261110000051 | `merge_categories(keep, drop, apply)` (admin; preview, then apply): moves registrations, deletes the dropped category and its rounds; refused when results, a shared climber or bib, or different competitions are involved |
+| 20261110000052 | `round_starters` joins the `supabase_realtime` publication (re-runnable; skipped without it): live start lists |
+| 20261110000053 | half holds in lead: `lead_results.hold` / `lead_events.hold` become `numeric(5,2)` (24.5); `lead_scores_for` height = hold + 0.1 for + (24.5 > 24+ > 24, a 24.1 hold ties 24+, as in the temporary app); `favorites_live` writes "24.5+" without trailing zeros; queues full rankings and climber cache rebuilds |

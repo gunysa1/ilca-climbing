@@ -560,6 +560,84 @@ select pg_temp.assert(exists (select 1 from lead_events where round_id = '300000
   'the judge''s time is audited');
 delete from judge_assignments where round_id = '30000000-0000-0000-0000-000000000065';
 
+-- Lead half holds (migration 053), same cases as src/lib/lead.test.ts: holds with up to two decimals, + counts
+-- 0.1 for ranking only, as in the temporary app: 24.5 before 24+ (= 24.1, tied with a 24.1 hold), before 24.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into categories (id, competition_id, name, gender) values
+  ('20000000-0000-0000-0000-0000000000a1', '10000000-0000-0000-0000-000000000001', 'Lead Half Holds', 'mixed');
+insert into rounds (id, category_id, kind, status, scoring) values
+  ('30000000-0000-0000-0000-0000000000a1', '20000000-0000-0000-0000-0000000000a1', 'qualification', 'live', 'lead'),
+  ('30000000-0000-0000-0000-0000000000a2', '20000000-0000-0000-0000-0000000000a1', 'final', 'live', 'lead');
+insert into boulders (id, round_id, number) values
+  ('40000000-0000-0000-0000-0000000000a1', '30000000-0000-0000-0000-0000000000a2', 1),
+  ('40000000-0000-0000-0000-0000000000a2', '30000000-0000-0000-0000-0000000000a1', 1),
+  ('40000000-0000-0000-0000-0000000000a3', '30000000-0000-0000-0000-0000000000a1', 2);
+insert into round_starters (round_id, climber_id, start_order) values
+  ('30000000-0000-0000-0000-0000000000a2', '60000000-0000-0000-0000-00000000000a', 1),
+  ('30000000-0000-0000-0000-0000000000a2', '60000000-0000-0000-0000-00000000000b', 2),
+  ('30000000-0000-0000-0000-0000000000a2', '60000000-0000-0000-0000-00000000000c', 3),
+  ('30000000-0000-0000-0000-0000000000a2', '60000000-0000-0000-0000-00000000000d', 4),
+  ('30000000-0000-0000-0000-0000000000a1', '60000000-0000-0000-0000-00000000000a', 1),
+  ('30000000-0000-0000-0000-0000000000a1', '60000000-0000-0000-0000-00000000000b', 2),
+  ('30000000-0000-0000-0000-0000000000a1', '60000000-0000-0000-0000-00000000000c', 3);
+insert into lead_results (boulder_id, climber_id, round_id, hold, plus, top) values
+-- single route (a final without times): a 24.5, b 24+, c 24, d 24.1
+  ('40000000-0000-0000-0000-0000000000a1', '60000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000a2', 24.5, false, false),
+  ('40000000-0000-0000-0000-0000000000a1', '60000000-0000-0000-0000-00000000000b', '30000000-0000-0000-0000-0000000000a2', 24, true, false),
+  ('40000000-0000-0000-0000-0000000000a1', '60000000-0000-0000-0000-00000000000c', '30000000-0000-0000-0000-0000000000a2', 24, false, false),
+  ('40000000-0000-0000-0000-0000000000a1', '60000000-0000-0000-0000-00000000000d', '30000000-0000-0000-0000-0000000000a2', 24.1, false, false),
+-- two routes: route 1 a 24.5, b 24+, c 24 (ranks 1, 2, 3); route 2 all 10 (2 each)
+  ('40000000-0000-0000-0000-0000000000a2', '60000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000a1', 24.5, false, false),
+  ('40000000-0000-0000-0000-0000000000a2', '60000000-0000-0000-0000-00000000000b', '30000000-0000-0000-0000-0000000000a1', 24, true, false),
+  ('40000000-0000-0000-0000-0000000000a2', '60000000-0000-0000-0000-00000000000c', '30000000-0000-0000-0000-0000000000a1', 24, false, false),
+  ('40000000-0000-0000-0000-0000000000a3', '60000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000a1', 10, false, false),
+  ('40000000-0000-0000-0000-0000000000a3', '60000000-0000-0000-0000-00000000000b', '30000000-0000-0000-0000-0000000000a1', 10, false, false),
+  ('40000000-0000-0000-0000-0000000000a3', '60000000-0000-0000-0000-00000000000c', '30000000-0000-0000-0000-0000000000a1', 10, false, false);
+select set_config('request.jwt.claim.sub', '', false);
+select pg_temp.login(null);
+select pg_temp.assert(
+  (select array_agg(right(climber_id::text, 1) || rank || ':' || trim_scale(points) order by rank, climber_id) from lead_scores
+    where round_id = '30000000-0000-0000-0000-0000000000a2') = '{a1:24.5,b2:24.1,d2:24.1,c4:24}',
+  'lead half holds, single route: 24.5 > 24+ = 24.1 > 24');
+select pg_temp.assert(
+  (select array_agg(right(climber_id::text, 1) || rank || ':' || round(points, 2) order by rank, climber_id) from lead_scores
+    where round_id = '30000000-0000-0000-0000-0000000000a1') = '{a1:1.41,b2:2.00,c3:2.45}',
+  'lead half holds, two routes: 24.5 and 24+ rank apart on the route');
+select pg_temp.assert(
+  (select array_agg((x -> 'hold')::numeric order by x ->> 'climber_id')
+     from jsonb_array_elements(round_page('30000000-0000-0000-0000-0000000000a2') -> 'lead_results') x
+    where jsonb_typeof(x -> 'hold') = 'number') = '{24.5,24,24,24.1}',
+  'round page: lead holds are JSON numbers with their decimals (24.5)');
+select pg_temp.assert(
+  (select string_agg(f ->> 'own', ' ' order by f ->> 'climber_id')
+     from json_array_elements(favorites_live(array['60000000-0000-0000-0000-00000000000a', '60000000-0000-0000-0000-00000000000b']::uuid[])) f
+    where f ->> 'round_id' = '30000000-0000-0000-0000-0000000000a1') = '24.5,10 24+,10',
+  'favorites alerts: lead heights per route as written (24.5, 24+), no trailing zeros');
+reset role;
+select pg_temp.assert((select hold from lead_events where round_id = '30000000-0000-0000-0000-0000000000a2'
+    and climber_id = '60000000-0000-0000-0000-00000000000a') = 24.5,
+  'the audit keeps the half hold');
+select pg_temp.denied($$insert into lead_results (boulder_id, climber_id, round_id, hold)
+  values ('40000000-0000-0000-0000-0000000000a3', '60000000-0000-0000-0000-00000000000d', '30000000-0000-0000-0000-0000000000a1', -0.5)$$,
+  'a negative hold');
+do $$ begin
+  update lead_results set hold = 1000 where boulder_id = '40000000-0000-0000-0000-0000000000a1'
+    and climber_id = '60000000-0000-0000-0000-00000000000a';
+  raise exception 'FAIL: hold 1000 accepted';
+exception when numeric_value_out_of_range then raise notice 'ok - denied: hold 1000 (at most 999.99)';
+end $$;
+-- DNS / DSQ refusal (049) compares the numeric hold: a change from 24.5 to 24.75 is refused, an unchanged hold passes.
+update round_starters set status = 'dns' where round_id = '30000000-0000-0000-0000-0000000000a2'
+  and climber_id = '60000000-0000-0000-0000-00000000000a';
+select pg_temp.denied($$update lead_results set hold = 24.75 where boulder_id = '40000000-0000-0000-0000-0000000000a1'
+    and climber_id = '60000000-0000-0000-0000-00000000000a'$$,
+  'a half hold changed for a DNS climber');
+update lead_results set hold = 24.50 where boulder_id = '40000000-0000-0000-0000-0000000000a1'
+  and climber_id = '60000000-0000-0000-0000-00000000000a';
+select pg_temp.assert(true, 'an unchanged half hold (24.50 = 24.5) passes for a DNS climber');
+update round_starters set status = null where round_id = '30000000-0000-0000-0000-0000000000a2'
+  and climber_id = '60000000-0000-0000-0000-00000000000a';
+
 -- A judge opens a planned round the evening before (judge home): the round page (route, start list)
 -- loads, so the pad is kept on the phone; scoring waits until the admin sets the round live.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
@@ -2490,5 +2568,539 @@ select pg_temp.assert((select discipline from competitions where id = '10000000-
   'the discipline is unchanged after the refused writes');
 delete from competitions where id = '10000000-0000-0000-0000-0000000000d1';
 update competitions set discipline = null where id = '10000000-0000-0000-0000-000000000001';
+
+-- ---------------------------------------------------------------- DNS / DSQ (migration 049)
+-- round_starters.status: a climber marked dns / dsq is unranked (as if absent), is not advanced, takes no results.
+insert into profiles (id, full_name) values
+  ('e0000000-0000-0000-0000-00000000000a', 'Status A'), ('e0000000-0000-0000-0000-00000000000b', 'Status B'),
+  ('e0000000-0000-0000-0000-00000000000c', 'Status C'), ('e0000000-0000-0000-0000-00000000000d', 'Status D');
+insert into competitions (id, name, starts_on, ends_on, status) values
+  ('1e000000-0000-0000-0000-000000000001', 'Status cup', '2026-12-20', '2026-12-20', 'published');
+insert into categories (id, competition_id, name, gender) values
+  ('2e000000-0000-0000-0000-000000000001', '1e000000-0000-0000-0000-000000000001', 'Status IFSC', 'mixed'),
+  ('2e000000-0000-0000-0000-000000000002', '1e000000-0000-0000-0000-000000000001', 'Status Classic', 'mixed'),
+  ('2e000000-0000-0000-0000-000000000003', '1e000000-0000-0000-0000-000000000001', 'Status Lead', 'mixed');
+insert into rounds (id, category_id, kind, status, scoring) values
+  ('3e000000-0000-0000-0000-000000000001', '2e000000-0000-0000-0000-000000000001', 'qualification', 'live', 'ifsc2025'),
+  ('3e000000-0000-0000-0000-000000000002', '2e000000-0000-0000-0000-000000000002', 'qualification', 'live', 'classic'),
+  ('3e000000-0000-0000-0000-000000000003', '2e000000-0000-0000-0000-000000000003', 'qualification', 'live', 'lead'),
+  ('3e000000-0000-0000-0000-000000000004', '2e000000-0000-0000-0000-000000000003', 'final', 'live', 'lead');
+insert into boulders (id, round_id, number) values
+  ('4e000000-0000-0000-0000-000000000001', '3e000000-0000-0000-0000-000000000001', 1),
+  ('4e000000-0000-0000-0000-000000000002', '3e000000-0000-0000-0000-000000000002', 1),
+  ('4e000000-0000-0000-0000-000000000003', '3e000000-0000-0000-0000-000000000003', 1),
+  ('4e000000-0000-0000-0000-000000000004', '3e000000-0000-0000-0000-000000000003', 2),
+  ('4e000000-0000-0000-0000-000000000005', '3e000000-0000-0000-0000-000000000004', 1);
+insert into round_starters (round_id, climber_id, start_order, group_label) values
+  ('3e000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000a', 1, null),
+  ('3e000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000b', 2, null),
+  ('3e000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000c', 3, null),
+  ('3e000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000d', 4, null),
+  ('3e000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-00000000000a', 1, 'A'),
+  ('3e000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-00000000000b', 2, 'A'),
+  ('3e000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-00000000000c', 3, 'B'),
+  ('3e000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-00000000000d', 4, 'B'),
+  ('3e000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-00000000000a', 1, null),
+  ('3e000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-00000000000b', 2, null),
+  ('3e000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-00000000000c', 3, null),
+  ('3e000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-00000000000d', 4, null);
+insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt) values
+  -- ifsc: a top on 1st (25.0), c top on 2nd (24.9), b zone only (10.0), d a zone (10.0, lower than b by attempts)
+  ('4e000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000a', '3e000000-0000-0000-0000-000000000001', 1, 1, 1),
+  ('4e000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000c', '3e000000-0000-0000-0000-000000000001', 2, 1, 2),
+  ('4e000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000b', '3e000000-0000-0000-0000-000000000001', 2, 1, null),
+  ('4e000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000d', '3e000000-0000-0000-0000-000000000001', 3, 2, null),
+  -- classic, groups A (a, b) and B (c, d): a top, b zone, c top, d zone
+  ('4e000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-00000000000a', '3e000000-0000-0000-0000-000000000002', 1, 1, 1),
+  ('4e000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-00000000000b', '3e000000-0000-0000-0000-000000000002', 2, 1, null),
+  ('4e000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-00000000000c', '3e000000-0000-0000-0000-000000000002', 1, 1, 1),
+  ('4e000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-00000000000d', '3e000000-0000-0000-0000-000000000002', 2, 1, null);
+insert into lead_results (boulder_id, climber_id, round_id, hold, plus, top) values
+  -- two routes: a 40 / 30, b 30 / 20, c 20 / 10, d 45 / 45 (best on both routes, then DNS)
+  ('4e000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-00000000000a', '3e000000-0000-0000-0000-000000000003', 40, false, false),
+  ('4e000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-00000000000b', '3e000000-0000-0000-0000-000000000003', 30, false, false),
+  ('4e000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-00000000000c', '3e000000-0000-0000-0000-000000000003', 20, false, false),
+  ('4e000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-00000000000d', '3e000000-0000-0000-0000-000000000003', 45, false, false),
+  ('4e000000-0000-0000-0000-000000000004', 'e0000000-0000-0000-0000-00000000000a', '3e000000-0000-0000-0000-000000000003', 30, false, false),
+  ('4e000000-0000-0000-0000-000000000004', 'e0000000-0000-0000-0000-00000000000b', '3e000000-0000-0000-0000-000000000003', 20, false, false),
+  ('4e000000-0000-0000-0000-000000000004', 'e0000000-0000-0000-0000-00000000000c', '3e000000-0000-0000-0000-000000000003', 10, false, false),
+  ('4e000000-0000-0000-0000-000000000004', 'e0000000-0000-0000-0000-00000000000d', '3e000000-0000-0000-0000-000000000003', 45, false, false);
+
+-- before the status: everybody ranks
+select pg_temp.assert((select array_agg(right(climber_id::text, 1) || rank order by rank, climber_id) from round_scores
+    where round_id = '3e000000-0000-0000-0000-000000000001') = '{a1,c2,b3,d4}', 'status: the ifsc round without a status ranks all four');
+
+-- who may set it: the admin only (round_starters has no other write policy)
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select pg_temp.denied($$update round_starters set status = 'dns' where round_id = '3e000000-0000-0000-0000-000000000001'
+  and climber_id = 'e0000000-0000-0000-0000-00000000000d'$$, 'a judge marks a climber DNS');
+select pg_temp.login('00000000-0000-0000-0000-00000000000c');
+select pg_temp.denied($$update round_starters set status = 'dns' where round_id = '3e000000-0000-0000-0000-000000000001'
+  and climber_id = 'e0000000-0000-0000-0000-00000000000d'$$, 'a coach marks a climber DNS');
+select pg_temp.login(null);
+select pg_temp.denied($$update round_starters set status = 'dns' where round_id = '3e000000-0000-0000-0000-000000000001'
+  and climber_id = 'e0000000-0000-0000-0000-00000000000d'$$, 'anon marks a climber DNS');
+select pg_temp.assert((select count(*) from round_starters where status is not null) = 0, 'the refused status updates changed nothing');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.denied($$update round_starters set status = 'late' where round_id = '3e000000-0000-0000-0000-000000000001'
+  and climber_id = 'e0000000-0000-0000-0000-00000000000d'$$, 'a status other than dns / dsq');
+update round_starters set status = 'dns' where climber_id = 'e0000000-0000-0000-0000-00000000000d'
+  and round_id in ('3e000000-0000-0000-0000-000000000001', '3e000000-0000-0000-0000-000000000002', '3e000000-0000-0000-0000-000000000003');
+update round_starters set status = 'dsq' where round_id = '3e000000-0000-0000-0000-000000000001'
+  and climber_id = 'e0000000-0000-0000-0000-00000000000c';
+select pg_temp.assert((select count(*) from round_starters where status is not null) = 4, 'an admin marks climbers DNS / DSQ');
+reset role;
+select pg_temp.assert(exists (select 1 from admin_log where table_name = 'round_starters' and action = 'update'
+    and row_id = '3e000000-0000-0000-0000-000000000001:e0000000-0000-0000-0000-00000000000c' and changes = '{"status": [null, "dsq"]}'::jsonb and actor_id = '00000000-0000-0000-0000-00000000000a'
+    and round_id = '3e000000-0000-0000-0000-000000000001' and competition_id = '1e000000-0000-0000-0000-000000000001'),
+  'admin_log: a DNS / DSQ mark (who, which round and competition)');
+
+select pg_temp.login(null);
+select pg_temp.assert((select array_agg(right(climber_id::text, 1) || coalesce(rank::text, '-') order by rank nulls last, climber_id) from round_scores
+    where round_id = '3e000000-0000-0000-0000-000000000001') = '{a1,b2,c-,d-}',
+  'status ifsc2025: DNS and DSQ have rank null (even with results), the others rank as if they were absent');
+select pg_temp.assert((select array_agg(right(climber_id::text, 1) || coalesce(rank::text, '-') order by group_label, rank nulls last, climber_id) from round_scores
+    where round_id = '3e000000-0000-0000-0000-000000000002') = '{a1,b2,c1,d-}',
+  'status classic with groups: DNS unranked, the group ranks as if the climber were absent');
+-- A starter left without a group in a round with groups ranks in a partition of their own (the pages show it as
+-- "No group"; roundRows.test.ts has the same case): b out of A ranks 1 alone, a still 1 in A.
+reset role;
+update round_starters set group_label = null where round_id = '3e000000-0000-0000-0000-000000000002' and climber_id = 'e0000000-0000-0000-0000-00000000000b';
+select pg_temp.login(null);
+select pg_temp.assert((select array_agg(right(climber_id::text, 1) || coalesce(group_label, '_') || coalesce(rank::text, '-') order by group_label nulls last, rank nulls last, climber_id) from round_scores
+    where round_id = '3e000000-0000-0000-0000-000000000002') = '{aA1,cB1,dB-,b_1}',
+  'groups: a starter without a group ranks on their own (own partition), the named groups as before');
+reset role;
+update round_starters set group_label = 'A' where round_id = '3e000000-0000-0000-0000-000000000002' and climber_id = 'e0000000-0000-0000-0000-00000000000b';
+select pg_temp.login(null);
+select pg_temp.assert((select array_agg(right(climber_id::text, 1) || coalesce(rank::text, '-') || ':' || coalesce(round(points, 2)::text, '')
+    order by rank nulls last, climber_id) from lead_scores
+    where round_id = '3e000000-0000-0000-0000-000000000003') = '{a1:1.00,b2:2.00,c3:3.00,d-:}',
+  'status lead, two routes: DNS unranked, route points computed without the climber (d would have been first on both routes)');
+select pg_temp.assert((select array_agg(right(climber_id::text, 1) order by climber_id) from round_ranks
+    where round_id = '3e000000-0000-0000-0000-000000000001' and rank is not null) = '{a,b}', 'status: round_ranks follows');
+reset role;
+
+-- advancement: the final's start list is built from the ranking, DNS (unranked) does not advance
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+update rounds set advance_quota = 10 where id = '3e000000-0000-0000-0000-000000000004';
+select pg_temp.assert(generate_start_list('3e000000-0000-0000-0000-000000000004') = 3, 'status: generate_start_list does not advance a DNS climber');
+select pg_temp.assert(not exists (select 1 from round_starters where round_id = '3e000000-0000-0000-0000-000000000004'
+    and (climber_id = 'e0000000-0000-0000-0000-00000000000d' or status is not null)),
+  'status: the generated start list has no status and no DNS climber');
+insert into lead_results (boulder_id, climber_id, round_id, hold, plus, top) values
+  ('4e000000-0000-0000-0000-000000000005', 'e0000000-0000-0000-0000-00000000000a', '3e000000-0000-0000-0000-000000000004', 20, false, false),
+  ('4e000000-0000-0000-0000-000000000005', 'e0000000-0000-0000-0000-00000000000b', '3e000000-0000-0000-0000-000000000004', 25, false, false),
+  ('4e000000-0000-0000-0000-000000000005', 'e0000000-0000-0000-0000-00000000000c', '3e000000-0000-0000-0000-000000000004', 30, false, false);
+reset role;
+select pg_temp.login(null);
+select pg_temp.assert((select array_agg(right(climber_id::text, 1) || rank order by rank) from lead_scores
+    where round_id = '3e000000-0000-0000-0000-000000000004') = '{c1,b2,a3}', 'status lead one-route final: before the mark');
+reset role;
+update round_starters set status = 'dsq' where round_id = '3e000000-0000-0000-0000-000000000004' and climber_id = 'e0000000-0000-0000-0000-00000000000c';
+select pg_temp.login(null);
+select pg_temp.assert((select array_agg(right(climber_id::text, 1) || coalesce(rank::text, '-') order by rank nulls last, climber_id) from lead_scores
+    where round_id = '3e000000-0000-0000-0000-000000000004') = '{b1,a2,c-}',
+  'status lead one-route final: DSQ unranked, the others rank as if absent');
+reset role;
+
+-- results for a marked climber are refused (insert and update); deleting one stays allowed
+create function pg_temp.refused_status(stmt text, msg text) returns void language plpgsql as $$
+begin
+  begin
+    execute stmt;
+  exception when check_violation then
+    if sqlerrm <> 'climber is marked DNS/DSQ in this round' then raise exception 'FAIL (wrong message %): %', sqlerrm, msg; end if;
+    raise notice 'ok - %', msg;
+    return;
+  end;
+  raise exception 'FAIL (allowed): %', msg;
+end $$;
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+delete from boulder_results where climber_id = 'e0000000-0000-0000-0000-00000000000d' and round_id = '3e000000-0000-0000-0000-000000000001';
+select pg_temp.refused_status($$insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt) values
+  ('4e000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000d', '3e000000-0000-0000-0000-000000000001', 1, 1, 1)$$,
+  'a boulder result for a DNS climber is refused (check_violation, climber is marked DNS/DSQ in this round)');
+select pg_temp.refused_status($$update boulder_results set attempts = 5 where climber_id = 'e0000000-0000-0000-0000-00000000000c'
+  and round_id = '3e000000-0000-0000-0000-000000000001'$$, 'a boulder result of a DSQ climber is not updated');
+select pg_temp.refused_status($$update lead_results set hold = 10 where climber_id = 'e0000000-0000-0000-0000-00000000000c'
+  and round_id = '3e000000-0000-0000-0000-000000000004'$$, 'a lead result of a DSQ climber is not updated');
+delete from lead_results where climber_id = 'e0000000-0000-0000-0000-00000000000d' and round_id = '3e000000-0000-0000-0000-000000000003';
+select pg_temp.refused_status($$insert into lead_results (boulder_id, climber_id, round_id, hold) values
+  ('4e000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-00000000000d', '3e000000-0000-0000-0000-000000000003', 5)$$,
+  'a lead result for a DNS climber is refused');
+delete from boulder_results where climber_id = 'e0000000-0000-0000-0000-00000000000c' and round_id = '3e000000-0000-0000-0000-000000000001';
+select pg_temp.assert(not exists (select 1 from boulder_results where climber_id = 'e0000000-0000-0000-0000-00000000000c'
+    and round_id = '3e000000-0000-0000-0000-000000000001'), 'a marked climber''s result can still be deleted');
+-- the judge pad's judge hits the same refusal
+reset role;
+insert into judge_assignments (round_id, boulder_id, judge_id) values
+  ('3e000000-0000-0000-0000-000000000001', '4e000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000e');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select pg_temp.refused_status($$insert into boulder_results (boulder_id, climber_id, round_id, attempts) values
+  ('4e000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000d', '3e000000-0000-0000-0000-000000000001', 1)$$,
+  'a judge''s write for a DNS climber is refused with the same error');
+reset role;
+-- cleared: results are accepted again
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+update round_starters set status = null where climber_id = 'e0000000-0000-0000-0000-00000000000d'
+  and round_id = '3e000000-0000-0000-0000-000000000001';
+insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt) values
+  ('4e000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000d', '3e000000-0000-0000-0000-000000000001', 1, 1, 1);
+select pg_temp.assert(exists (select 1 from boulder_results where climber_id = 'e0000000-0000-0000-0000-00000000000d'
+    and round_id = '3e000000-0000-0000-0000-000000000001'), 'after clearing the status results are accepted again');
+reset role;
+
+-- bookkeeping updates of a marked climber's result pass (lock, updated_by, merges); a result-column update does not
+insert into profiles (id, full_name) values
+  ('f0000000-0000-0000-0000-000000000001', 'Merge keep judge'), ('f0000000-0000-0000-0000-000000000002', 'Merge dup judge'),
+  ('f0000000-0000-0000-0000-000000000003', 'Merge keep climber'), ('f0000000-0000-0000-0000-000000000004', 'Merge dup climber'),
+  ('f0000000-0000-0000-0000-000000000005', 'Marked by dup judge');
+insert into round_starters (round_id, climber_id, start_order, status) values
+  ('3e000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000004', 8, null),
+  ('3e000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000005', 9, null);
+insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt) values
+  ('4e000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000004', '3e000000-0000-0000-0000-000000000001', 2, 1, 2),
+  ('4e000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000005', '3e000000-0000-0000-0000-000000000001', 1, 1, 1);
+update round_starters set status = 'dsq' where round_id = '3e000000-0000-0000-0000-000000000001'
+  and climber_id in ('f0000000-0000-0000-0000-000000000004', 'f0000000-0000-0000-0000-000000000005');
+update rounds set status = 'closed' where id = '3e000000-0000-0000-0000-000000000001';  -- merges wait for live rounds
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+update boulder_results set locked = true where climber_id = 'f0000000-0000-0000-0000-000000000005';
+update boulder_results set locked = false where climber_id = 'f0000000-0000-0000-0000-000000000005';
+select pg_temp.assert(exists (select 1 from boulder_results where climber_id = 'f0000000-0000-0000-0000-000000000005' and not locked),
+  'an admin locks and unlocks a marked climber''s leftover result');
+select pg_temp.refused_status($$update boulder_results set top_attempt = null where climber_id = 'f0000000-0000-0000-0000-000000000005'$$,
+  'a result-column update of a marked climber is still refused');
+-- re-targeting a result onto a marked climber is refused, for the judge and the admin (a second result exists to move)
+reset role;
+insert into profiles (id, full_name) values ('f0000000-0000-0000-0000-000000000006', 'Unmarked mover');
+insert into round_starters (round_id, climber_id, start_order) values ('3e000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000006', 10);
+insert into boulders (id, round_id, number) values ('4e000000-0000-0000-0000-000000000006', '3e000000-0000-0000-0000-000000000001', 2);
+insert into judge_assignments (round_id, boulder_id, judge_id) values
+  ('3e000000-0000-0000-0000-000000000001', '4e000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-00000000000e');
+insert into boulder_results (boulder_id, climber_id, round_id, attempts) values
+  ('4e000000-0000-0000-0000-000000000006', 'f0000000-0000-0000-0000-000000000006', '3e000000-0000-0000-0000-000000000001', 1);
+update rounds set status = 'live' where id = '3e000000-0000-0000-0000-000000000001';
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select pg_temp.refused_status($$update boulder_results set climber_id = 'f0000000-0000-0000-0000-000000000005'
+  where climber_id = 'f0000000-0000-0000-0000-000000000006'$$, 'a judge moves a result onto a marked climber: refused');
+reset role;
+update rounds set status = 'closed' where id = '3e000000-0000-0000-0000-000000000001';
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.refused_status($$update boulder_results set climber_id = 'f0000000-0000-0000-0000-000000000005'
+  where climber_id = 'f0000000-0000-0000-0000-000000000006'$$, 'an admin moves a result onto a marked climber: refused');
+-- the stamp trigger always writes the caller: set the duplicate judge as the writer past it, as the judge's own write would
+reset role;
+set session_replication_role = replica;
+update boulder_results set updated_by = 'f0000000-0000-0000-0000-000000000002' where climber_id = 'f0000000-0000-0000-0000-000000000005';
+set session_replication_role = origin;
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+-- merging: the duplicate climber's mark moves to the kept profile; a duplicate judge's updated_by moves although
+-- the result belongs to a marked climber
+select pg_temp.assert((merge_profiles('f0000000-0000-0000-0000-000000000003', 'f0000000-0000-0000-0000-000000000004', true) ->> 'applied')::boolean,
+  'merge: a duplicate marked DSQ merges');
+select pg_temp.assert((select status from round_starters where round_id = '3e000000-0000-0000-0000-000000000001'
+    and climber_id = 'f0000000-0000-0000-0000-000000000003') = 'dsq'
+  and exists (select 1 from boulder_results where climber_id = 'f0000000-0000-0000-0000-000000000003'
+    and round_id = '3e000000-0000-0000-0000-000000000001'),
+  'merge: the kept profile keeps the duplicate''s DSQ mark (and its result)');
+select pg_temp.assert((merge_profiles('f0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', true) ->> 'applied')::boolean,
+  'merge: a duplicate judge whose result belongs to a marked climber merges');
+reset role;
+select pg_temp.assert((select updated_by from boulder_results where climber_id = 'f0000000-0000-0000-0000-000000000005') = 'f0000000-0000-0000-0000-000000000001'
+  and (select status from round_starters where climber_id = 'f0000000-0000-0000-0000-000000000005') = 'dsq',
+  'merge: the duplicate judge''s updated_by moved to the kept profile and the mark stayed');
+
+-- ---------------------------------------------------------------- start order and groups (migration 050)
+-- move_starter / split_groups: admin-only (RLS starters_admin plus an explicit check), logged per row by the 049 trigger.
+reset role;
+insert into profiles (id, full_name) select ('f1000000-0000-0000-0000-00000000000' || i)::uuid, 'Order ' || i from generate_series(1, 5) i;
+insert into competitions (id, name, starts_on, ends_on, status) values
+  ('1f000000-0000-0000-0000-000000000001', 'Order cup', '2026-12-21', '2026-12-21', 'published');
+insert into categories (id, competition_id, name, gender) values
+  ('2f000000-0000-0000-0000-000000000001', '1f000000-0000-0000-0000-000000000001', 'Order cat', 'mixed');
+insert into rounds (id, category_id, kind, status, scoring) values
+  ('3f000000-0000-0000-0000-000000000001', '2f000000-0000-0000-0000-000000000001', 'qualification', 'live', 'ifsc2025');
+-- 1..5 in climber order, with gaps in the start order
+insert into round_starters (round_id, climber_id, start_order)
+  select '3f000000-0000-0000-0000-000000000001', ('f1000000-0000-0000-0000-00000000000' || i)::uuid, i * 10 from generate_series(1, 5) i;
+
+create function pg_temp.order_of(r uuid) returns text language sql as $$
+  select string_agg(right(climber_id::text, 1), '' order by start_order) || ':' || string_agg(start_order::text, '' order by start_order)
+  from round_starters where round_id = r
+$$;
+
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000003', 1);
+select pg_temp.assert(pg_temp.order_of('3f000000-0000-0000-0000-000000000001') = '31245:12345',
+  'move_starter: to the first place; gapped orders become 1..n');
+select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000003', 5);
+select pg_temp.assert(pg_temp.order_of('3f000000-0000-0000-0000-000000000001') = '12453:12345', 'move_starter: to the last place');
+select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000005', 2);
+select pg_temp.assert(pg_temp.order_of('3f000000-0000-0000-0000-000000000001') = '15243:12345', 'move_starter: to a middle place');
+select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000001', 99);
+select pg_temp.assert(pg_temp.order_of('3f000000-0000-0000-0000-000000000001') = '52431:12345', 'move_starter: a place past the end is the last');
+select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000004', -3);
+select pg_temp.assert(pg_temp.order_of('3f000000-0000-0000-0000-000000000001') = '45231:12345', 'move_starter: a place below 1 is the first');
+select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000004', 1);
+select pg_temp.assert(pg_temp.order_of('3f000000-0000-0000-0000-000000000001') = '45231:12345', 'move_starter: to the place it holds changes nothing');
+do $$ begin
+  perform move_starter('3f000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000a', 1);
+  raise exception 'FAIL: move_starter accepted a climber who is not a starter';
+exception when no_data_found then null; end $$;
+select pg_temp.assert(true, 'move_starter: a climber who is not a starter of the round raises no_data_found');
+
+-- split_groups: by start order, odd counts, other labels, clearing
+select pg_temp.assert(split_groups('3f000000-0000-0000-0000-000000000001') = 5, 'split_groups: returns the rows updated');
+select pg_temp.assert((select string_agg(group_label, '' order by start_order) from round_starters
+    where round_id = '3f000000-0000-0000-0000-000000000001') = 'ABABA', 'split_groups: A / B by start order, the odd one in A');
+select split_groups('3f000000-0000-0000-0000-000000000001', array['X', 'Y', 'Z']);
+select pg_temp.assert((select string_agg(group_label, '' order by start_order) from round_starters
+    where round_id = '3f000000-0000-0000-0000-000000000001') = 'XYZXY', 'split_groups: three labels');
+select split_groups('3f000000-0000-0000-0000-000000000001', array['Q']);
+select pg_temp.assert((select count(*) from round_starters where round_id = '3f000000-0000-0000-0000-000000000001' and group_label = 'Q') = 5,
+  'split_groups: one label gives everyone that group');
+select pg_temp.assert(split_groups('3f000000-0000-0000-0000-000000000001', '{}') = 5, 'split_groups: clearing returns the rows updated');
+select pg_temp.assert((select count(*) from round_starters where round_id = '3f000000-0000-0000-0000-000000000001' and group_label is not null) = 0,
+  'split_groups: an empty array clears the groups');
+select split_groups('3f000000-0000-0000-0000-000000000001');
+-- a DNS climber keeps place and group
+reset role;
+update round_starters set status = 'dns' where round_id = '3f000000-0000-0000-0000-000000000001' and climber_id = 'f1000000-0000-0000-0000-000000000002';
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select split_groups('3f000000-0000-0000-0000-000000000001');
+select pg_temp.assert((select group_label from round_starters where round_id = '3f000000-0000-0000-0000-000000000001'
+    and climber_id = 'f1000000-0000-0000-0000-000000000002') = 'A', 'split_groups: a DNS starter gets a label like the others');
+
+-- admin_log: one row per changed starter, by the admin
+reset role;
+select pg_temp.assert(exists (select 1 from admin_log where table_name = 'round_starters' and action = 'update'
+    and row_id = '3f000000-0000-0000-0000-000000000001:f1000000-0000-0000-0000-000000000003' and changes = '{"start_order": [1, 5]}'::jsonb
+    and actor_id = '00000000-0000-0000-0000-00000000000a' and round_id = '3f000000-0000-0000-0000-000000000001'
+    and competition_id = '1f000000-0000-0000-0000-000000000001'),
+  'admin_log: a moved starter (who, which round and competition)');
+select pg_temp.assert(exists (select 1 from admin_log where table_name = 'round_starters' and action = 'update'
+    and row_id = '3f000000-0000-0000-0000-000000000001:f1000000-0000-0000-0000-000000000001' and changes = '{"group_label": [null, "A"]}'::jsonb
+    and actor_id = '00000000-0000-0000-0000-00000000000a'),
+  'admin_log: a group label set by split_groups');
+
+-- non-admins: refused loudly, nothing changes
+create temp table order_before as select climber_id, start_order, group_label from round_starters where round_id = '3f000000-0000-0000-0000-000000000001';
+grant select on order_before to public;
+select pg_temp.login('00000000-0000-0000-0000-00000000000c');
+select pg_temp.denied($$select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000003', 1)$$, 'a coach moves a starter');
+select pg_temp.denied($$select split_groups('3f000000-0000-0000-0000-000000000001')$$, 'a coach splits the groups');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select pg_temp.denied($$select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000003', 1)$$, 'a judge moves a starter');
+select pg_temp.denied($$select split_groups('3f000000-0000-0000-0000-000000000001', '{}')$$, 'a judge clears the groups');
+select pg_temp.login(null);
+select pg_temp.denied($$select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000003', 1)$$, 'anon moves a starter');
+select pg_temp.denied($$select split_groups('3f000000-0000-0000-0000-000000000001')$$, 'anon splits the groups');
+reset role;
+select pg_temp.assert(not has_function_privilege('anon', 'public.move_starter(uuid, uuid, int)', 'execute')
+  and not has_function_privilege('anon', 'public.split_groups(uuid, text[])', 'execute')
+  and has_function_privilege('authenticated', 'public.move_starter(uuid, uuid, int)', 'execute')
+  and has_function_privilege('authenticated', 'public.split_groups(uuid, text[])', 'execute'),
+  'start order functions: authenticated only');
+select pg_temp.assert(not exists (select 1 from round_starters s join order_before b using (climber_id)
+    where s.round_id = '3f000000-0000-0000-0000-000000000001'
+      and (s.start_order, s.group_label) is distinct from (b.start_order, b.group_label)),
+  'the refused calls changed nothing');
+
+-- ---------------------------------------------------------------- merging two categories (migration 051)
+-- merge_categories(keep, drop, apply): admin only; preview changes nothing; conflicts refuse; apply moves drop's
+-- registrations to keep (the starters trigger puts them on keep's first round) and deletes drop (rounds cascade).
+reset role;
+insert into profiles (id, full_name, full_name_he)
+  select ('f5000000-0000-0000-0000-00000000000' || i)::uuid, 'Merge ' || i, 'איחוד ' || i from generate_series(1, 9) i;
+insert into competitions (id, name, starts_on, ends_on, status) values
+  ('15000000-0000-0000-0000-000000000001', 'Merge cup', '2026-12-22', '2026-12-22', 'published'),
+  ('15000000-0000-0000-0000-000000000002', 'Other cup', '2026-12-23', '2026-12-23', 'published');
+insert into categories (id, competition_id, name, name_he, gender) values
+  ('25000000-0000-0000-0000-000000000001', '15000000-0000-0000-0000-000000000001', 'U17 Boys', 'בנים U17', 'male'),
+  ('25000000-0000-0000-0000-000000000002', '15000000-0000-0000-0000-000000000001', 'U15 Boys', 'בנים U15', 'male'),
+  ('25000000-0000-0000-0000-000000000003', '15000000-0000-0000-0000-000000000001', 'Scored boulder', null, 'male'),
+  ('25000000-0000-0000-0000-000000000004', '15000000-0000-0000-0000-000000000001', 'Scored lead', null, 'male'),
+  ('25000000-0000-0000-0000-000000000005', '15000000-0000-0000-0000-000000000001', 'Totals only', null, 'male'),
+  ('25000000-0000-0000-0000-000000000006', '15000000-0000-0000-0000-000000000001', 'Same climber', null, 'male'),
+  ('25000000-0000-0000-0000-000000000007', '15000000-0000-0000-0000-000000000001', 'Same bib', null, 'female'),
+  ('25000000-0000-0000-0000-000000000008', '15000000-0000-0000-0000-000000000002', 'Elsewhere', null, 'male');
+insert into rounds (id, category_id, kind, status, scoring) values
+  ('35000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000001', 'qualification', 'planned', 'ifsc2025'),
+  ('35000000-0000-0000-0000-000000000002', '25000000-0000-0000-0000-000000000001', 'final', 'planned', 'ifsc2025'),
+  ('35000000-0000-0000-0000-000000000003', '25000000-0000-0000-0000-000000000002', 'qualification', 'planned', 'ifsc2025'),
+  ('35000000-0000-0000-0000-000000000004', '25000000-0000-0000-0000-000000000002', 'final', 'planned', 'ifsc2025'),
+  ('35000000-0000-0000-0000-000000000005', '25000000-0000-0000-0000-000000000003', 'qualification', 'live', 'ifsc2025'),
+  ('35000000-0000-0000-0000-000000000006', '25000000-0000-0000-0000-000000000004', 'qualification', 'live', 'lead'),
+  ('35000000-0000-0000-0000-000000000007', '25000000-0000-0000-0000-000000000005', 'qualification', 'closed', 'ifsc2025');
+insert into boulders (id, round_id, number) values
+  ('45000000-0000-0000-0000-000000000003', '35000000-0000-0000-0000-000000000003', 1),
+  ('45000000-0000-0000-0000-000000000005', '35000000-0000-0000-0000-000000000005', 1),
+  ('45000000-0000-0000-0000-000000000006', '35000000-0000-0000-0000-000000000006', 1);
+insert into registrations (category_id, climber_id, bib, age_class) values
+  ('25000000-0000-0000-0000-000000000001', 'f5000000-0000-0000-0000-000000000001', 1, null),
+  ('25000000-0000-0000-0000-000000000001', 'f5000000-0000-0000-0000-000000000002', 2, 'U17'),
+  ('25000000-0000-0000-0000-000000000002', 'f5000000-0000-0000-0000-000000000003', 3, null),
+  ('25000000-0000-0000-0000-000000000002', 'f5000000-0000-0000-0000-000000000004', null, 'U14'),
+  ('25000000-0000-0000-0000-000000000002', 'f5000000-0000-0000-0000-000000000005', 5, null),
+  ('25000000-0000-0000-0000-000000000003', 'f5000000-0000-0000-0000-000000000006', 6, null),
+  ('25000000-0000-0000-0000-000000000004', 'f5000000-0000-0000-0000-000000000007', 7, null),
+  ('25000000-0000-0000-0000-000000000005', 'f5000000-0000-0000-0000-000000000008', 8, null),
+  ('25000000-0000-0000-0000-000000000006', 'f5000000-0000-0000-0000-000000000001', 11, null),
+  ('25000000-0000-0000-0000-000000000007', 'f5000000-0000-0000-0000-000000000009', 1, null),
+  ('25000000-0000-0000-0000-000000000008', 'f5000000-0000-0000-0000-000000000009', 9, null);
+insert into boulder_results (boulder_id, climber_id, round_id, attempts, zone_attempt, top_attempt)
+  values ('45000000-0000-0000-0000-000000000005', 'f5000000-0000-0000-0000-000000000006', '35000000-0000-0000-0000-000000000005', 1, 1, 1);
+insert into lead_results (boulder_id, climber_id, round_id, hold, plus, top)
+  values ('45000000-0000-0000-0000-000000000006', 'f5000000-0000-0000-0000-000000000007', '35000000-0000-0000-0000-000000000006', 12, false, false);
+insert into round_totals (round_id, climber_id, tops, zones, top_attempts, zone_attempts)
+  values ('35000000-0000-0000-0000-000000000007', 'f5000000-0000-0000-0000-000000000008', 1, 2, 3, 4);
+-- drop's later round has a start list of its own (generated; no results): it goes with the category
+insert into round_starters (round_id, climber_id, start_order)
+  values ('35000000-0000-0000-0000-000000000004', 'f5000000-0000-0000-0000-000000000003', 1);
+
+create temp table cat_regs_before as select category_id, climber_id, bib, age_class from registrations
+  where category_id::text like '25000000-%';
+grant select on cat_regs_before to public;
+create function pg_temp.cat_regs_unchanged() returns boolean language sql as $$
+  select not exists (select category_id, climber_id, bib, age_class from registrations where category_id::text like '25000000-%'
+                     except select * from cat_regs_before)
+     and not exists (select * from cat_regs_before except
+                     select category_id, climber_id, bib, age_class from registrations where category_id::text like '25000000-%')
+$$;
+create function pg_temp.cat_kinds(r jsonb) returns text language sql as $$
+  select coalesce(string_agg(c ->> 'kind', ',' order by c ->> 'kind'), '') from jsonb_array_elements(r -> 'conflicts') c
+$$;
+
+-- non-admins: refused (preview and apply)
+select pg_temp.login('00000000-0000-0000-0000-00000000000c');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000002')$$, 'a coach previews a category merge');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000002', true)$$, 'a coach merges categories');
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000002', true)$$, 'a judge merges categories');
+select pg_temp.login(null);
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000002')$$, 'anon previews a category merge');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000002', true)$$, 'anon merges categories');
+reset role;
+select pg_temp.assert(not has_function_privilege('anon', 'public.merge_categories(uuid, uuid, boolean)', 'execute')
+  and not has_function_privilege('public', 'public.merge_categories(uuid, uuid, boolean)', 'execute')
+  and has_function_privilege('authenticated', 'public.merge_categories(uuid, uuid, boolean)', 'execute'),
+  'merge_categories: authenticated only (admins inside)');
+select pg_temp.assert((select prosecdef and proconfig @> array['search_path=public'] from pg_proc
+    where oid = 'public.merge_categories(uuid, uuid, boolean)'::regprocedure), 'merge_categories: security definer, search_path = public');
+select pg_temp.assert(pg_temp.cat_regs_unchanged(), 'the refused category merges changed nothing');
+
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+-- preview: who moves (names, bibs, the age class they get), no conflicts, nothing changes
+create temp table cat_preview as select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000002') as r;
+select pg_temp.assert((select r -> 'conflicts' = '[]'::jsonb and not (r ->> 'applied')::boolean from cat_preview), 'category merge preview: no conflicts, not applied');
+select pg_temp.assert((select jsonb_array_length(r -> 'moving') = 3 from cat_preview), 'category merge preview: three climbers move');
+select pg_temp.assert((select r -> 'moving' @> '[{"full_name": "Merge 3", "full_name_he": "איחוד 3", "bib": 3, "age_class": "בנים U15"},
+    {"full_name": "Merge 4", "bib": null, "age_class": "U14"}]' from cat_preview), 'category merge preview: names, bibs, the age class each gets');
+select pg_temp.assert((select r -> 'keep' ->> 'name' = 'U17 Boys' and r -> 'drop' ->> 'name_he' = 'בנים U15' and (r -> 'drop' ->> 'rounds')::int = 2
+    from cat_preview), 'category merge preview: both categories named, drop''s round count');
+select pg_temp.assert(pg_temp.cat_regs_unchanged() and exists (select 1 from categories where id = '25000000-0000-0000-0000-000000000002'),
+  'category merge preview changes nothing');
+
+-- conflicts: each refuses, in preview (listed) and apply (raises, nothing changes)
+select pg_temp.assert(pg_temp.cat_kinds(merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000001')) = 'same',
+  'category merge conflict: the same category twice');
+select pg_temp.assert(pg_temp.cat_kinds(merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-0000000000ff')) = 'unknown',
+  'category merge conflict: an unknown category');
+select pg_temp.assert(pg_temp.cat_kinds(merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000008')) = 'other_competition',
+  'category merge conflict: different competitions');
+select pg_temp.assert(pg_temp.cat_kinds(merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000003')) = 'results',
+  'category merge conflict: boulder results in drop');
+select pg_temp.assert(pg_temp.cat_kinds(merge_categories('25000000-0000-0000-0000-000000000003', '25000000-0000-0000-0000-000000000001')) = 'results',
+  'category merge conflict: boulder results in keep');
+select pg_temp.assert(pg_temp.cat_kinds(merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000004')) = 'results',
+  'category merge conflict: lead results');
+select pg_temp.assert(pg_temp.cat_kinds(merge_categories('25000000-0000-0000-0000-000000000005', '25000000-0000-0000-0000-000000000001')) = 'results',
+  'category merge conflict: round totals');
+select pg_temp.assert(merge_categories('25000000-0000-0000-0000-000000000003', '25000000-0000-0000-0000-000000000004') -> 'conflicts'
+    @> '[{"kind": "results", "category": "Scored boulder"}, {"kind": "results", "category": "Scored lead"}]',
+  'category merge conflict: results in both are both named');
+select pg_temp.assert(merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000006') -> 'conflicts'
+    = '[{"kind": "both_registered", "name": "Merge 1", "name_he": "איחוד 1", "text": "Merge 1 is registered in both categories"}]',
+  'category merge conflict: a climber registered in both');
+select pg_temp.assert(merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000007') -> 'conflicts'
+    @> '[{"kind": "same_bib", "bib": 1, "keep_name": "Merge 1", "drop_name": "Merge 9"}]',
+  'category merge conflict: a bib used in both');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000001', true)$$, 'apply: the same category');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-0000000000ff', true)$$, 'apply: an unknown category');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000008', true)$$, 'apply: different competitions');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000003', true)$$, 'apply: boulder results');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000004', true)$$, 'apply: lead results');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000005', '25000000-0000-0000-0000-000000000001', true)$$, 'apply: round totals');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000006', true)$$, 'apply: a climber in both');
+select pg_temp.denied($$select merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000007', true)$$, 'apply: a bib in both');
+do $$ begin
+  perform merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000007', true);
+  raise exception 'FAIL: merged with a bib conflict';
+exception when raise_exception then
+  if sqlerrm not like 'cannot merge: bib 1 is used in both categories%' then raise exception 'FAIL: message %', sqlerrm; end if;
+end $$;
+select pg_temp.assert(true, 'apply with conflicts raises with the list');
+select pg_temp.assert(pg_temp.cat_regs_unchanged() and (select count(*) from categories where id::text like '25000000-%') = 8,
+  'the refused category merges changed nothing');
+
+-- apply: drop's climbers are registered in keep with every column, on keep's first round; drop is gone
+select pg_temp.assert((merge_categories('25000000-0000-0000-0000-000000000001', '25000000-0000-0000-0000-000000000002', true) ->> 'applied')::boolean,
+  'category merge applied');
+reset role;
+select pg_temp.assert((select string_agg(right(climber_id::text, 1) || '/' || coalesce(bib::text, '-') || '/' || coalesce(age_class, '-'), ' ' order by climber_id)
+    from registrations where category_id = '25000000-0000-0000-0000-000000000001') = '1/1/- 2/2/U17 3/3/בנים U15 4/-/U14 5/5/בנים U15',
+  'category merge: registrations moved with bibs; an empty age class filled with drop''s name, a set one kept');
+select pg_temp.assert((select string_agg(right(climber_id::text, 1) || ':' || start_order, ' ' order by climber_id)
+    from round_starters where round_id = '35000000-0000-0000-0000-000000000001') = '1:1 2:2 3:3 4:4 5:5',
+  'category merge: the moved climbers start in keep''s first round (by bib, else after the last)');
+select pg_temp.assert(not exists (select 1 from round_starters where round_id = '35000000-0000-0000-0000-000000000002'),
+  'category merge: keep''s later round is untouched');
+select pg_temp.assert(not exists (select 1 from categories where id = '25000000-0000-0000-0000-000000000002')
+  and not exists (select 1 from rounds where category_id = '25000000-0000-0000-0000-000000000002')
+  and not exists (select 1 from round_starters where round_id in ('35000000-0000-0000-0000-000000000003', '35000000-0000-0000-0000-000000000004'))
+  and not exists (select 1 from boulders where id = '45000000-0000-0000-0000-000000000003'),
+  'category merge: drop and its rounds, boulders and start lists are gone');
+select pg_temp.assert((select count(*) from admin_log where row_id = '25000000-0000-0000-0000-000000000002' and action = 'delete') = 1
+  and exists (select 1 from admin_log where table_name = 'categories' and action = 'delete' and row_id = '25000000-0000-0000-0000-000000000002'
+              and actor_id = '00000000-0000-0000-0000-00000000000a' and competition_id = '15000000-0000-0000-0000-000000000001')
+  and not exists (select 1 from admin_log where table_name = 'rounds' and action = 'delete' and row_id in ('35000000-0000-0000-0000-000000000003', '35000000-0000-0000-0000-000000000004')),
+  'admin_log: one row for the merged-away category (by the admin), none for its cascaded rounds');
+
+-- ---------------------------------------------------------------- realtime publication (migration 052)
+-- Plain Postgres has no supabase_realtime publication, so 052 was a no-op above. Create it the way Supabase
+-- has it, re-run 052 twice (the second time the table is already a member and must not fail) and check.
+reset role;
+set client_min_messages = error; -- quiet "wal_level is insufficient" (no logical replication here)
+do $$ begin
+  if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    create publication supabase_realtime;
+  end if;
+end $$;
+\ir ../migrations/20261110000052_starters_realtime.sql
+\ir ../migrations/20261110000052_starters_realtime.sql
+set client_min_messages = notice;
+select pg_temp.assert(exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime'
+    and schemaname = 'public' and tablename = 'round_starters'),
+  'round_starters is in the supabase_realtime publication (052, re-runnable)');
+create temp table starters_visible_all as select count(*) n from round_starters
+  where round_id in (select r.id from rounds r join categories c on c.id = r.category_id
+                     join competitions co on co.id = c.competition_id where co.status <> 'draft');
+grant select on starters_visible_all to anon;
+-- Draft rounds with starters exist here, so "none of them" below is a real check.
+create temp table draft_starter_rounds as select distinct rs.round_id from round_starters rs
+  join rounds r on r.id = rs.round_id join categories c on c.id = r.category_id
+  join competitions co on co.id = c.competition_id where co.status = 'draft';
+grant select on draft_starter_rounds to anon;
+select pg_temp.assert((select count(*) from draft_starter_rounds) > 0, 'test data: some draft rounds have starters');
+select pg_temp.login(null);
+select pg_temp.assert((select n from starters_visible_all) > 0
+  and (select count(*) from round_starters) = (select n from starters_visible_all),
+  'anon reads round_starters of every non-draft round (what the realtime subscription delivers)');
+select pg_temp.assert(not exists (select 1 from round_starters where round_id in (select round_id from draft_starter_rounds)),
+  'anon reads no round_starters of a draft competition (realtime INSERT / UPDATE apply the same RLS)');
+reset role;
+drop publication supabase_realtime;
 
 \echo ALL RLS TESTS PASSED

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  ackedSince, conflict, isAuthFailure, isTransient, keyState, landed, latestRow, outboxKey, parseOutbox, retryDelay, SaveQueue,
+  ackedSince, conflict, isAuthFailure, isMarkedRefusal, isTransient, keyState, landed, latestRow, outboxKey, parseOutbox, retryDelay, SaveQueue,
   type OutboxEntry, type SaveQueueOptions, type SendResult,
 } from './saveQueue';
 import { leadPadRow } from './climbTime';
@@ -125,6 +125,19 @@ describe('saveQueue', () => {
     expect(keyState(q.snapshot(), K1)).toBe('pending');
     await vi.advanceTimersByTimeAsync(1000);
     expect(keyState(q.snapshot(), K1)).toBe('saved');
+  });
+
+  it('a climber marked DNS / DSQ: refused for good with its own code, never retried or rechecked', async () => {
+    expect(isMarkedRefusal('23514', 'climber is marked DNS/DSQ in this round')).toBe(true);
+    expect(isMarkedRefusal('23514', 'new row violates check constraint')).toBe(false);
+    const send = sendMock().mockResolvedValue({ ok: false, status: 400, code: 'marked', message: 'climber is marked DNS/DSQ in this round' });
+    const q = queue({ send });
+    put(q, 'c1', 1);
+    await vi.advanceTimersByTimeAsync(0);
+    q.kick();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(q.snapshot()).toMatchObject({ pending: [], recheck: [], failed: [{ key: K1, code: 'marked' }] });
   });
 
   it('moves permanent failures (locked by an admin, not a starter) to failed, never retried; the rest go on', async () => {

@@ -12,6 +12,10 @@ the same cases.
 - Ties: countback to the previous-round place, then fewer attempts to tops, then fewer attempts to
   zones; remaining ties share the rank.
 - Climbers without any attempt are not ranked ("–") and don't advance.
+- Starters marked **DNS** or **DSQ** (`round_starters.status`, migration 049) are unranked ("–") in that round and don't advance;
+  their results are not counted, and new ones are refused. In the national ranking a climber marked in a later round
+  keeps the place from their previous round (`eventPlaces` places a climber by the deepest stage where they have a
+  rank); a climber marked in the first round has no place and earns no points for that event. Lead rounds follow the same rule.
 - Qualification groups are ranked separately; advancement takes the top of each group.
 
 Checked against official IFSC 2026 results and the temporary ILCA app's code
@@ -27,6 +31,11 @@ LogLig ranked them (10,775 of 10,828 imported ranks identical; countback in ever
 ## Lead (`lead`)
 
 - Height per route: TOP above every hold, "hold+" (a controlled move past the hold) above "hold".
+  Holds may have up to two decimals (24.5 for an intermediate hold, as the temporary app records them;
+  migration 053, `numeric(5,2)`). For ranking, + counts 0.1: the height value is `hold + 0.1` for "hold+",
+  so 24.5 ranks before 24+, which ranks before 24; 24.5+ before 24.5; and a 24.1 hold ties 24+ (as in the
+  temporary app). Shown as "24.5", "24+", "24.5+", whole holds without ".0". Same cases in
+  `src/lib/lead.test.ts` and `supabase/tests/rls_test.sql` ("lead half holds").
 - **One route**: higher is better; then countback; **in a final**, then the faster climbing time
   (IFSC rule). `rounds.time_tiebreak` turns the time rule off for the three imported 2022-23 LogLig
   finals that left such ties standing.

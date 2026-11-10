@@ -10,6 +10,7 @@ import type { Category, Competition, Profile, Round, RoundFormat } from '../../l
 import { AdminNav, ErrorLine } from './AdminHome';
 import { AdminLog } from './AdminLog';
 import { ClimberPicker } from './ClimberPicker';
+import { MergeCategories } from './MergeCategories';
 import { RosterImport } from './RosterImport';
 
 const KINDS: Round['kind'][] = ['qualification', 'semifinal', 'final'];
@@ -118,6 +119,7 @@ export function AdminCompetition() {
       {comp.discipline === 'speed' && <p className="notice">{t('speedScoringSoon')}</p>}
       <MixedWarning comp={comp} cats={cats} run={run} />
       {cats.map((c) => <CategoryPanel key={c.id} cat={c} discipline={comp.discipline} run={run} reload={reload} />)}
+      {cats.length >= 2 && <MergeCategories cats={cats} onDone={reload} />}
 
       <form className="panel form grid-form" onSubmit={addCategory}>
         <h2 className="span-all">{t('newCategory')}</h2>
@@ -188,6 +190,7 @@ function CategoryPanel({ cat, discipline, run, reload }: { cat: CategoryRow; dis
       {missing.length > 0 && <NewRoundForm key={discipline ?? ''} categoryId={cat.id} missing={missing} discipline={discipline} run={run} reload={reload} />}
 
       <h3>{t('registrations')} ({regs.length})</h3>
+      <div className="table-wrap">
       <table className="admin-table">
         <thead><tr><th>{t('bib')}</th><th>{t('athlete')}</th><th>{t('ageClass')}</th><th>{t('club')}</th><th /></tr></thead>
         <tbody>
@@ -216,6 +219,7 @@ function CategoryPanel({ cat, discipline, run, reload }: { cat: CategoryRow; dis
           ))}
         </tbody>
       </table>
+      </div>
       <ClimberPicker
         exclude={new Set(regs.map((g) => g.climber_id))}
         actionLabel={t('register')}

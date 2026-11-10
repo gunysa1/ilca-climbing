@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatHeight, heightValue, leadStandings, routeRankPoints, type LeadResult } from './lead';
+import { formatHeight, heightValue, leadStandings, parseHold, routeRankPoints, type LeadResult } from './lead';
 
 const r = (climber_id: string, route: string, hold: number, plus = false, top = false, time_ms: number | null = null): LeadResult =>
   ({ climber_id, route_id: route, hold, plus, top, time_ms });
@@ -14,6 +14,38 @@ describe('heightValue / formatHeight', () => {
     expect(formatHeight(r('a', 'r1', 30, true))).toBe('30+');
     expect(formatHeight(r('a', 'r1', 30))).toBe('30');
     expect(formatHeight(r('a', 'r1', 40, false, true))).toBe('TOP');
+  });
+  // Half holds, as in the temporary app: + counts as 0.1 for ranking only (24+ = 24.1).
+  // Same cases as supabase/tests/rls_test.sql ("lead half holds").
+  it('half holds: 24.5 before 24+, before 24; 24.5+ before 24.5; a 24.1 hold ties 24+', () => {
+    expect(heightValue(r('a', 'r1', 24.5))).toBeGreaterThan(heightValue(r('a', 'r1', 24, true)));
+    expect(heightValue(r('a', 'r1', 24, true))).toBeGreaterThan(heightValue(r('a', 'r1', 24)));
+    expect(heightValue(r('a', 'r1', 24.5, true))).toBeGreaterThan(heightValue(r('a', 'r1', 24.5)));
+    expect(heightValue(r('a', 'r1', 24.1))).toBe(heightValue(r('a', 'r1', 24, true)));
+    expect(heightValue(r('a', 'r1', 24, true))).toBe(24.1);
+    expect(heightValue(r('a', 'r1', 24.5, true))).toBe(24.6);
+    expect(heightValue(r('a', 'r1', 99.99, false, true))).toBeGreaterThan(heightValue(r('a', 'r1', 999.99, true)));
+  });
+  it('formats half holds without a trailing .0', () => {
+    expect(formatHeight(r('a', 'r1', 24.5))).toBe('24.5');
+    expect(formatHeight(r('a', 'r1', 24.5, true))).toBe('24.5+');
+    expect(formatHeight(r('a', 'r1', 24, true))).toBe('24+');
+    expect(formatHeight(r('a', 'r1', 24))).toBe('24');
+    expect(formatHeight(r('a', 'r1', 24.25))).toBe('24.25');
+  });
+});
+
+describe('parseHold', () => {
+  it('takes a hold with up to two decimals, dot or comma', () => {
+    expect(parseHold('24')).toBe(24);
+    expect(parseHold(' 24.5 ')).toBe(24.5);
+    expect(parseHold('24,5')).toBe(24.5);
+    expect(parseHold('24.25')).toBe(24.25);
+    expect(parseHold('0')).toBe(0);
+    expect(parseHold('999.99')).toBe(999.99);
+  });
+  it('refuses anything else', () => {
+    for (const bad of ['', ' ', '24.255', '-1', '1000', 'abc', '24.', '.5', '2 4', '1e2', '24+']) expect(parseHold(bad)).toBeUndefined();
   });
 });
 
@@ -60,6 +92,19 @@ describe('leadStandings', () => {
   it('a missing route result counts as the lowest height on that route', () => {
     const out = leadStandings(['a', 'b'], ['r1', 'r2'], [r('a', 'r1', 20), r('b', 'r1', 20), r('b', 'r2', 5)], new Map());
     expect(out.map((s) => s.climber_id)).toEqual(['b', 'a']);
+  });
+
+  it('half holds on a single route: 24.5 > 24+ = 24.1 > 24 (same case as the SQL test)', () => {
+    const out = leadStandings(['a', 'b', 'c', 'd'], ['r1'],
+      [r('a', 'r1', 24.5), r('b', 'r1', 24, true), r('c', 'r1', 24), r('d', 'r1', 24.1)], new Map());
+    expect(out.map((s) => [s.climber_id, s.rank, s.points])).toEqual([['a', 1, 24.5], ['b', 2, 24.1], ['d', 2, 24.1], ['c', 4, 24]]);
+  });
+
+  it('half holds on two routes: rank points per route', () => {
+    // route 1: a 24.5, b 24+, c 24 -> 1, 2, 3; route 2: all 10 -> 2 each
+    const out = leadStandings(['a', 'b', 'c'], ['r1', 'r2'],
+      [r('a', 'r1', 24.5), r('b', 'r1', 24, true), r('c', 'r1', 24), r('a', 'r2', 10), r('b', 'r2', 10), r('c', 'r2', 10)], new Map());
+    expect(out.map((s) => [s.climber_id, s.rank, Number(s.points.toFixed(2))])).toEqual([['a', 1, 1.41], ['b', 2, 2], ['c', 3, 2.45]]);
   });
 
   it('climbers without any result are not ranked', () => {

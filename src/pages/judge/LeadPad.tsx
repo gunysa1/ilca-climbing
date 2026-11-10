@@ -3,7 +3,7 @@ import { Sheet } from '../../components/Sheet';
 import { formatClimbTime, formatSeconds, leadPadRow, parseClimbTime } from '../../lib/climbTime';
 import { useI18n } from '../../lib/i18n';
 import { useOutbox } from '../../lib/judgeOutbox';
-import { formatHeight } from '../../lib/lead';
+import { formatHeight, parseHold } from '../../lib/lead';
 import { type LeadRow, type Starter } from '../../lib/roundData';
 import { outboxKey } from '../../lib/saveQueue';
 import { PadStatus, unsentNow } from './OutboxNotices';
@@ -20,9 +20,13 @@ export function LeadPad({ roundId, routeId, starter, label, baseRow, initial, lo
   const { holder, mine, onWall, markWall } = useClaim(roundId, routeId, starter.climber_id, !initiallyLocked && !notLive);
   const { queue } = useOutbox();
   const key = outboxKey('lead_results', routeId, starter.climber_id);
-  const [hold, setHold] = useState(initial?.hold ?? 0);
+  const [hold, setHold] = useState(() => Number(initial?.hold ?? 0));
+  // The hold as typed (half holds: 24.5 or 24,5); the stepper keeps whole steps and rewrites it.
+  const [holdText, setHoldText] = useState(() => String(hold));
+  const stepHold = (d: number) => { const h = Math.max(0, Math.round((hold + d) * 100) / 100); setHold(h); setHoldText(String(h)); changed(); };
   const [plus, setPlus] = useState(initial?.plus ?? false);
   const [top, setTop] = useState(initial?.top ?? false);
+  const badHold = !top && parseHold(holdText) === undefined;
   // Lead finals: the time as typed (seconds or m:ss), stored as ms.
   const [timeText, setTimeText] = useState(() => formatSeconds(initial?.time_ms));
   const timeMs = timed ? parseClimbTime(timeText) : null;
@@ -40,7 +44,7 @@ export function LeadPad({ roundId, routeId, starter, label, baseRow, initial, lo
 
   // Through the outbox, like the boulder pad; locking without signal moves on as well.
   function save(lock = false) {
-    if (badTime) return;
+    if (badTime || badHold) return;
     queue?.enqueue({ key, table: 'lead_results', lock, meta: label, baseRow: startBase,
       row: leadPadRow({ routeId, climberId: starter.climber_id, roundId, hold, plus, top, timed, timeMs: timeMs ?? null }) });
     setEdited(false);
@@ -56,10 +60,17 @@ export function LeadPad({ roundId, routeId, starter, label, baseRow, initial, lo
       <WallToggle onWall={onWall} markWall={markWall} disabled={blocked} />
       <div className="pad-section">{t('hold')}</div>
       <div className="stepper">
-        <button className="stepper-btn" onClick={() => { setHold((h) => h + 1); changed(); if (!onWall) void markWall(true); }} disabled={blocked || top} aria-label={`+1 ${t('hold')}`}>+</button>
+        <button className="stepper-btn" onClick={() => { stepHold(1); if (!onWall) void markWall(true); }} disabled={blocked || top} aria-label={`+1 ${t('hold')}`}>+</button>
         <strong className="stepper-value" dir="ltr">{formatHeight({ hold, plus, top })}</strong>
-        <button className="stepper-btn" onClick={() => { setHold((h) => Math.max(0, h - 1)); changed(); }} disabled={blocked || top || hold === 0} aria-label={`−1 ${t('hold')}`}>−</button>
+        <button className="stepper-btn" onClick={() => stepHold(-1)} disabled={blocked || top || hold === 0} aria-label={`−1 ${t('hold')}`}>−</button>
       </div>
+      <label className="pad-hold">
+        <span className="pad-section">{t('holdTyped')}</span>
+        <input type="text" inputMode="decimal" dir="ltr" autoComplete="off" placeholder="24.5" value={top ? '' : holdText}
+          disabled={blocked || top} aria-invalid={badHold}
+          onChange={(e) => { const v = e.target.value; setHoldText(v); const h = parseHold(v); if (h !== undefined) setHold(h); changed(); }} />
+        {!top && <span className={`small ${badHold ? 'error' : 'muted'}`}>{badHold ? t('holdInvalid') : t('holdTypedHint')}</span>}
+      </label>
       <div className="outcomes">
         <button className={`outcome top${top ? ' on' : ''}`} aria-pressed={top} onClick={() => { setTop((v) => !v); setPlus(false); changed(); }} disabled={blocked}>TOP</button>
         <button className={`outcome zone${plus ? ' on' : ''}`} aria-pressed={plus} onClick={() => { setPlus((p) => !p); changed(); }} disabled={blocked || top}>{t('plusMove')}</button>
@@ -76,8 +87,8 @@ export function LeadPad({ roundId, routeId, starter, label, baseRow, initial, lo
         ? <button className="primary pad-save" disabled={nav.nextFree < 0} onClick={() => nav.onGo(nav.nextFree)}>{t('nextClimber')}</button>
         : (
           <div className="pad-actions">
-            <button className="secondary" onClick={() => save()} disabled={blocked || badTime}>{t('save')}</button>
-            <button className="primary" onClick={() => setAsk(true)} disabled={blocked || badTime}>{t('lockAndNext')}</button>
+            <button className="secondary" onClick={() => save()} disabled={blocked || badTime || badHold}>{t('save')}</button>
+            <button className="primary" onClick={() => setAsk(true)} disabled={blocked || badTime || badHold}>{t('lockAndNext')}</button>
           </div>
         )}
       {edited ? <p className="pad-status" /> : <PadStatus outboxKey={key} since={since} />}
