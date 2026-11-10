@@ -2683,6 +2683,24 @@ select pg_temp.assert(exists (select 1 from boulder_results where climber_id = '
   'an admin locks and unlocks a marked climber''s leftover result');
 select pg_temp.refused_status($$update boulder_results set top_attempt = null where climber_id = 'f0000000-0000-0000-0000-000000000005'$$,
   'a result-column update of a marked climber is still refused');
+-- re-targeting a result onto a marked climber is refused, for the judge and the admin (a second result exists to move)
+reset role;
+insert into profiles (id, full_name) values ('f0000000-0000-0000-0000-000000000006', 'Unmarked mover');
+insert into round_starters (round_id, climber_id, start_order) values ('3e000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000006', 10);
+insert into boulders (id, round_id, number) values ('4e000000-0000-0000-0000-000000000006', '3e000000-0000-0000-0000-000000000001', 2);
+insert into judge_assignments (round_id, boulder_id, judge_id) values
+  ('3e000000-0000-0000-0000-000000000001', '4e000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-00000000000e');
+insert into boulder_results (boulder_id, climber_id, round_id, attempts) values
+  ('4e000000-0000-0000-0000-000000000006', 'f0000000-0000-0000-0000-000000000006', '3e000000-0000-0000-0000-000000000001', 1);
+update rounds set status = 'live' where id = '3e000000-0000-0000-0000-000000000001';
+select pg_temp.login('00000000-0000-0000-0000-00000000000e');
+select pg_temp.refused_status($$update boulder_results set climber_id = 'f0000000-0000-0000-0000-000000000005'
+  where climber_id = 'f0000000-0000-0000-0000-000000000006'$$, 'a judge moves a result onto a marked climber: refused');
+reset role;
+update rounds set status = 'closed' where id = '3e000000-0000-0000-0000-000000000001';
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.refused_status($$update boulder_results set climber_id = 'f0000000-0000-0000-0000-000000000005'
+  where climber_id = 'f0000000-0000-0000-0000-000000000006'$$, 'an admin moves a result onto a marked climber: refused');
 -- the stamp trigger always writes the caller: set the duplicate judge as the writer past it, as the judge's own write would
 reset role;
 set session_replication_role = replica;

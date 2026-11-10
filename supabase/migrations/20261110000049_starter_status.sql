@@ -10,7 +10,8 @@ alter table public.round_starters add column status text check (status in ('dns'
 -- Results only for climbers on the round's start list, and not for a marked one. The judge pad's offline outbox
 -- treats this refusal (check_violation, "climber is marked DNS/DSQ in this round") as final and drops the entry.
 -- A marked climber's row may still change in its bookkeeping (updated_by, locked, updated_at, climber_id when
--- profiles are merged): the refusal applies on insert and on an update of the result columns.
+-- profiles are merged): the refusal applies on insert, on an update of the result columns and on an update that
+-- changes climber_id, round_id or boulder_id (except inside merge_profiles).
 create or replace function public.boulder_results_check_registration() returns trigger
   language plpgsql security definer set search_path = public as $$
 declare st text; changed boolean;
@@ -21,6 +22,10 @@ begin
   end if;
   if st is not null then
     if tg_op = 'INSERT' then changed := true;
+    -- re-targeting a result (another climber, round or boulder) is a new result for the new row's climber;
+    -- only merge_profiles moves results between climbers
+    elsif (new.climber_id, new.round_id, new.boulder_id) is distinct from (old.climber_id, old.round_id, old.boulder_id)
+          and not private.merging() then changed := true;
     elsif tg_table_name = 'boulder_results' then
       changed := (new.attempts, new.zone_attempt, new.top_attempt) is distinct from (old.attempts, old.zone_attempt, old.top_attempt);
     else
