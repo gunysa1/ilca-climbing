@@ -12,8 +12,10 @@ the same cases.
 - Ties: countback to the previous-round place, then fewer attempts to tops, then fewer attempts to
   zones; remaining ties share the rank.
 - Climbers without any attempt are not ranked ("–") and don't advance.
-- Starters marked **DNS** or **DSQ** (`round_starters.status`, migration 049) are unranked ("–"), don't advance and
-  earn no ranking points; their results are not counted, and new ones are refused. Lead rounds follow the same rule.
+- Starters marked **DNS** or **DSQ** (`round_starters.status`, migration 049) are unranked ("–") in that round and don't advance;
+  their results are not counted, and new ones are refused. In the national ranking a climber marked in a later round
+  keeps the place from their previous round (`eventPlaces` places a climber by the deepest stage where they have a
+  rank); a climber marked in the first round has no place and earns no points for that event. Lead rounds follow the same rule.
 - Qualification groups are ranked separately; advancement takes the top of each group.
 
 Checked against official IFSC 2026 results and the temporary ILCA app's code

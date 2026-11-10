@@ -102,9 +102,10 @@ already have published it: fix or revert at once, and not on an event day.
    kept for countback). On the round page, "start order": "place in the start order" (the others shift), group
    (none / A / B; each group is ranked separately), "split into A / B by start order" and "clear groups".
    Changing groups after results exist asks first. Edits are logged under "רשימת עלייה" (migration 050).
-   **DNS / DSQ**: set per climber on the same page (DSQ asks to confirm). Marked climbers are unranked, don't
-   advance, get no ranking points, can't get new results (the judge is told) and are skipped on the pads;
-   results show DNS (no scores) or DSQ (greyed). Migration 049.
+   **DNS / DSQ**: set per climber on the same page (DSQ asks to confirm). Marked climbers are unranked in that round, don't
+   advance, can't get new results (the judge is told) and are skipped on the pads;
+   results show DNS (no scores) or DSQ (greyed). In the national ranking a climber marked in a later round keeps
+   the place from their previous round. Migration 049.
 4. **Judges**: assign each judge to the whole round or one boulder (route).
 5. **Publish** the competition and set the round **live**. Judges work in the staff app; the public
    follows in the viewer.

@@ -73,7 +73,8 @@ Safety net: security headers + CSP in both `_headers` (a new external origin mus
 (the five checks on every push), `tools/backup/dump.sh` (data-only dump outside the repo; see docs/operations.md, Backups),
 viewer and staff service workers cache the shell per build (`/sw.js?v=`), Supabase errors shown via `src/lib/errors.ts`, dates via `src/lib/dates.ts`.
 Start-list tools (migrations 049-051, not yet on the live project): DNS / DSQ per starter (`round_starters.status`;
-unranked, no ranking points, new results refused, shown in results / big screen / PDF, mirrored from the temporary app),
+unranked in that round and don't advance (a climber marked in a later round keeps the place from their previous round in
+the national ranking), new results refused, shown in results / big screen / PDF, mirrored from the temporary app),
 start order and groups on the admin round page (`move_starter`, `split_groups`), `merge_categories` (admin, preview then
 apply, no undo), CSV export of round results (viewer and staff).
 Open work: first event fully on these apps (dry run: docs/dry-run-2026-10.md); speed discipline; push notifications while the app is closed (would need
