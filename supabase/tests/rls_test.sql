@@ -560,6 +560,84 @@ select pg_temp.assert(exists (select 1 from lead_events where round_id = '300000
   'the judge''s time is audited');
 delete from judge_assignments where round_id = '30000000-0000-0000-0000-000000000065';
 
+-- Lead half holds (migration 053), same cases as src/lib/lead.test.ts: holds with up to two decimals, + counts
+-- 0.1 for ranking only, as in the temporary app: 24.5 before 24+ (= 24.1, tied with a 24.1 hold), before 24.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+insert into categories (id, competition_id, name, gender) values
+  ('20000000-0000-0000-0000-0000000000a1', '10000000-0000-0000-0000-000000000001', 'Lead Half Holds', 'mixed');
+insert into rounds (id, category_id, kind, status, scoring) values
+  ('30000000-0000-0000-0000-0000000000a1', '20000000-0000-0000-0000-0000000000a1', 'qualification', 'live', 'lead'),
+  ('30000000-0000-0000-0000-0000000000a2', '20000000-0000-0000-0000-0000000000a1', 'final', 'live', 'lead');
+insert into boulders (id, round_id, number) values
+  ('40000000-0000-0000-0000-0000000000a1', '30000000-0000-0000-0000-0000000000a2', 1),
+  ('40000000-0000-0000-0000-0000000000a2', '30000000-0000-0000-0000-0000000000a1', 1),
+  ('40000000-0000-0000-0000-0000000000a3', '30000000-0000-0000-0000-0000000000a1', 2);
+insert into round_starters (round_id, climber_id, start_order) values
+  ('30000000-0000-0000-0000-0000000000a2', '60000000-0000-0000-0000-00000000000a', 1),
+  ('30000000-0000-0000-0000-0000000000a2', '60000000-0000-0000-0000-00000000000b', 2),
+  ('30000000-0000-0000-0000-0000000000a2', '60000000-0000-0000-0000-00000000000c', 3),
+  ('30000000-0000-0000-0000-0000000000a2', '60000000-0000-0000-0000-00000000000d', 4),
+  ('30000000-0000-0000-0000-0000000000a1', '60000000-0000-0000-0000-00000000000a', 1),
+  ('30000000-0000-0000-0000-0000000000a1', '60000000-0000-0000-0000-00000000000b', 2),
+  ('30000000-0000-0000-0000-0000000000a1', '60000000-0000-0000-0000-00000000000c', 3);
+insert into lead_results (boulder_id, climber_id, round_id, hold, plus, top) values
+-- single route (a final without times): a 24.5, b 24+, c 24, d 24.1
+  ('40000000-0000-0000-0000-0000000000a1', '60000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000a2', 24.5, false, false),
+  ('40000000-0000-0000-0000-0000000000a1', '60000000-0000-0000-0000-00000000000b', '30000000-0000-0000-0000-0000000000a2', 24, true, false),
+  ('40000000-0000-0000-0000-0000000000a1', '60000000-0000-0000-0000-00000000000c', '30000000-0000-0000-0000-0000000000a2', 24, false, false),
+  ('40000000-0000-0000-0000-0000000000a1', '60000000-0000-0000-0000-00000000000d', '30000000-0000-0000-0000-0000000000a2', 24.1, false, false),
+-- two routes: route 1 a 24.5, b 24+, c 24 (ranks 1, 2, 3); route 2 all 10 (2 each)
+  ('40000000-0000-0000-0000-0000000000a2', '60000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000a1', 24.5, false, false),
+  ('40000000-0000-0000-0000-0000000000a2', '60000000-0000-0000-0000-00000000000b', '30000000-0000-0000-0000-0000000000a1', 24, true, false),
+  ('40000000-0000-0000-0000-0000000000a2', '60000000-0000-0000-0000-00000000000c', '30000000-0000-0000-0000-0000000000a1', 24, false, false),
+  ('40000000-0000-0000-0000-0000000000a3', '60000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000a1', 10, false, false),
+  ('40000000-0000-0000-0000-0000000000a3', '60000000-0000-0000-0000-00000000000b', '30000000-0000-0000-0000-0000000000a1', 10, false, false),
+  ('40000000-0000-0000-0000-0000000000a3', '60000000-0000-0000-0000-00000000000c', '30000000-0000-0000-0000-0000000000a1', 10, false, false);
+select set_config('request.jwt.claim.sub', '', false);
+select pg_temp.login(null);
+select pg_temp.assert(
+  (select array_agg(right(climber_id::text, 1) || rank || ':' || trim_scale(points) order by rank, climber_id) from lead_scores
+    where round_id = '30000000-0000-0000-0000-0000000000a2') = '{a1:24.5,b2:24.1,d2:24.1,c4:24}',
+  'lead half holds, single route: 24.5 > 24+ = 24.1 > 24');
+select pg_temp.assert(
+  (select array_agg(right(climber_id::text, 1) || rank || ':' || round(points, 2) order by rank, climber_id) from lead_scores
+    where round_id = '30000000-0000-0000-0000-0000000000a1') = '{a1:1.41,b2:2.00,c3:2.45}',
+  'lead half holds, two routes: 24.5 and 24+ rank apart on the route');
+select pg_temp.assert(
+  (select array_agg((x -> 'hold')::numeric order by x ->> 'climber_id')
+     from jsonb_array_elements(round_page('30000000-0000-0000-0000-0000000000a2') -> 'lead_results') x
+    where jsonb_typeof(x -> 'hold') = 'number') = '{24.5,24,24,24.1}',
+  'round page: lead holds are JSON numbers with their decimals (24.5)');
+select pg_temp.assert(
+  (select string_agg(f ->> 'own', ' ' order by f ->> 'climber_id')
+     from json_array_elements(favorites_live(array['60000000-0000-0000-0000-00000000000a', '60000000-0000-0000-0000-00000000000b']::uuid[])) f
+    where f ->> 'round_id' = '30000000-0000-0000-0000-0000000000a1') = '24.5,10 24+,10',
+  'favorites alerts: lead heights per route as written (24.5, 24+), no trailing zeros');
+reset role;
+select pg_temp.assert((select hold from lead_events where round_id = '30000000-0000-0000-0000-0000000000a2'
+    and climber_id = '60000000-0000-0000-0000-00000000000a') = 24.5,
+  'the audit keeps the half hold');
+select pg_temp.denied($$insert into lead_results (boulder_id, climber_id, round_id, hold)
+  values ('40000000-0000-0000-0000-0000000000a3', '60000000-0000-0000-0000-00000000000d', '30000000-0000-0000-0000-0000000000a1', -0.5)$$,
+  'a negative hold');
+do $$ begin
+  update lead_results set hold = 1000 where boulder_id = '40000000-0000-0000-0000-0000000000a1'
+    and climber_id = '60000000-0000-0000-0000-00000000000a';
+  raise exception 'FAIL: hold 1000 accepted';
+exception when numeric_value_out_of_range then raise notice 'ok - denied: hold 1000 (at most 999.99)';
+end $$;
+-- DNS / DSQ refusal (049) compares the numeric hold: a change from 24.5 to 24.75 is refused, an unchanged hold passes.
+update round_starters set status = 'dns' where round_id = '30000000-0000-0000-0000-0000000000a2'
+  and climber_id = '60000000-0000-0000-0000-00000000000a';
+select pg_temp.denied($$update lead_results set hold = 24.75 where boulder_id = '40000000-0000-0000-0000-0000000000a1'
+    and climber_id = '60000000-0000-0000-0000-00000000000a'$$,
+  'a half hold changed for a DNS climber');
+update lead_results set hold = 24.50 where boulder_id = '40000000-0000-0000-0000-0000000000a1'
+  and climber_id = '60000000-0000-0000-0000-00000000000a';
+select pg_temp.assert(true, 'an unchanged half hold (24.50 = 24.5) passes for a DNS climber');
+update round_starters set status = null where round_id = '30000000-0000-0000-0000-0000000000a2'
+  and climber_id = '60000000-0000-0000-0000-00000000000a';
+
 -- A judge opens a planned round the evening before (judge home): the round page (route, start list)
 -- loads, so the pad is kept on the phone; scoring waits until the admin sets the round live.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);

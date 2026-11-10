@@ -22,8 +22,9 @@ npm run build && npm run test:db && npm run test:e2e` stays green.
 - Ranking: a DNS or DSQ starter has no rank in that round. In `round_scores` the `climbed` flag
   becomes `… and s.status is null`; in `lead_scores_for` the `climbed` CTE skips starters with a
   status. Everyone else is ranked as if they were not there. Because they have no rank they don't
-  advance (`generate_start_list` takes ranked climbers only) and get no ranking points
-  (`ranking_rounds` reads the same ranks). The caches refresh by their existing `round_starters`
+  advance (`generate_start_list` takes ranked climbers only). In the national ranking they get no rank
+  and no points for that round; the national ranking keeps the previous-stage place (`ranking_rounds`
+  reads the same ranks). The caches refresh by their existing `round_starters`
   triggers.
 - Results stay: setting DSQ does not delete scores (it can be undone). New writes for a starter with a
   status are refused (`boulder_results` / `lead_results` insert or update → error), so a judge pad

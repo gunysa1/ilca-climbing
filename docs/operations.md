@@ -253,16 +253,18 @@ first sign-in gets none; the old People page shows an error). So:
 3. Apply `supabase/cron/cron_cleanup.sql` in the SQL editor.
 4. Ask judges and admins to reload the staff app once (or sign out and in) before 28.10.
 
-### Release of migrations 049-052 (start-list tools)
+### Release of migrations 049-053 (start-list tools)
 
 Not on an event day. The order matters: the new staff app selects `round_starters.status` (049) and the new
 temporary-app mirror writes it, so neither works against the database before the migrations.
 
-1. `db push` (049-052), then `db advisors --linked`. 049 queues full rankings and climber cache rebuilds by itself
-   (picked up within a minute); no manual rebuild needed. 052 adds `round_starters` to Realtime (live start lists).
+1. `db push` (049-053), then `db advisors --linked`. 049 and 053 queue full rankings and climber cache rebuilds by
+   themselves (picked up within a minute); no manual rebuild needed. 052 adds `round_starters` to Realtime (live start
+   lists). 053 makes lead holds `numeric(5,2)` (half holds, 24.5) and changes the lead height value (+ = 0.1).
 2. Push main (Cloudflare deploys both apps) and wait for the deploy.
 3. At the same time, update `tools/tempapp/mirror.py` on the host that runs the mirror (it sends DNS as
    `round_starters.status` and skips results of marked climbers); the old copy keeps working but does not mirror DNS.
+   After 053 the new mirror sends lead holds with their decimals (24.5); the old copy truncates them (24).
 
 ### Rankings cache (pg_cron `rankings-cache`)
 

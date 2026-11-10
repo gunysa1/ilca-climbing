@@ -17,13 +17,22 @@ export interface LeadResult {
   time_ms?: number | null;
 }
 
-/** Comparable height: TOP above any hold, hold+ above hold. */
+/** Comparable height: TOP above any hold; + counts 0.1 for ranking only (24+ = 24.1, so 24.5 > 24+ > 24, and a
+ *  24.1 hold ties 24+, as in the temporary app). Holds have up to two decimals; rounded to hundredths so 24 + 0.1
+ *  equals 24.1 exactly. Same as SQL lead_scores_for (migration 053). */
 export function heightValue(r: Pick<LeadResult, 'hold' | 'plus' | 'top'>): number {
-  return r.top ? 1_000_000 : r.hold * 2 + (r.plus ? 1 : 0);
+  return r.top ? 1_000_000 : Math.round((Number(r.hold) + (r.plus ? 0.1 : 0)) * 100) / 100;
 }
 
+/** "TOP", "24", "24+", "24.5", "24.5+" (no trailing zeros). */
 export function formatHeight(r: Pick<LeadResult, 'hold' | 'plus' | 'top'>): string {
-  return r.top ? 'TOP' : `${r.hold}${r.plus ? '+' : ''}`;
+  return r.top ? 'TOP' : `${Math.round(Number(r.hold) * 100) / 100}${r.plus ? '+' : ''}`;
+}
+
+/** A typed hold: 0 to 999.99 with up to two decimals, dot or comma ("24,5" = 24.5); undefined if not one. */
+export function parseHold(text: string): number | undefined {
+  const m = /^(\d{1,3})(?:[.,](\d{1,2}))?$/.exec(text.trim());
+  return m ? Number(`${m[1]}.${m[2] ?? '0'}`) : undefined;
 }
 
 /** Rank points on one route: position by height, ties share the average of their positions. */

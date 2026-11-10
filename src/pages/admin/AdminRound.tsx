@@ -6,7 +6,7 @@ import { errorText } from '../../lib/errors';
 import { localized, useI18n } from '../../lib/i18n';
 import { formatClimbTime, isTimedRound, parseClimbTime } from '../../lib/climbTime';
 import { climbsRoutes, problemWord, type Discipline } from '../../lib/discipline';
-import { formatHeight } from '../../lib/lead';
+import { formatHeight, parseHold } from '../../lib/lead';
 import { loadStarters, resultKey, type LeadRow, type ResultRow, type Starter } from '../../lib/roundData';
 import { supabase } from '../../lib/supabase';
 import { LEAD_COLUMNS, RESULT_COLUMNS, type AdminAccount, type Boulder, type Round } from '../../lib/types';
@@ -339,7 +339,7 @@ function LeadCorrectionRow({ starter, routes, results, timed, onSave, onCancel }
   type LeadCell = { hold: string; plus: boolean; top: boolean; time: string };
   const [cells, setCells] = useState<Record<string, LeadCell>>(() => Object.fromEntries(routes.map((b) => {
     const r = results.get(resultKey(b.id, starter.climber_id));
-    return [b.id, { hold: r ? String(r.hold) : '', plus: r?.plus ?? false, top: r?.top ?? false, time: formatClimbTime(r?.time_ms) }];
+    return [b.id, { hold: r ? String(Number(r.hold)) : '', plus: r?.plus ?? false, top: r?.top ?? false, time: formatClimbTime(r?.time_ms) }];
   })));
   const [invalid, setInvalid] = useState<string | null>(null);
   const set = (id: string, patch: Partial<LeadCell>) => setCells({ ...cells, [id]: { ...cells[id], ...patch } });
@@ -351,10 +351,13 @@ function LeadCorrectionRow({ starter, routes, results, timed, onSave, onCancel }
       const c = cells[b.id];
       const had = results.has(resultKey(b.id, starter.climber_id));
       if (c.hold.trim() === '' && !c.top) { if (had) deletes.push(b.id); continue; }
+      // half holds: up to two decimals, dot or comma (24.5, 24,5); with TOP the hold field is off (0 if empty)
+      const hold = c.top ? parseHold(c.hold) ?? 0 : parseHold(c.hold);
+      if (hold === undefined) { setInvalid(`${t('hold')} ${b.number}`); return; }
       const time = timed ? parseClimbTime(c.time) : null;
       if (time === undefined) { setInvalid(`${t('climbTime')} ${b.number}`); return; }
       upserts.push({ boulder_id: b.id, climber_id: starter.climber_id, round_id: b.round_id,
-        hold: Number(c.hold) || 0, plus: c.top ? false : c.plus, top: c.top, ...(timed ? { time_ms: time } : {}) });
+        hold, plus: c.top ? false : c.plus, top: c.top, ...(timed ? { time_ms: time } : {}) });
     }
     setInvalid(null);
     await onSave((async () => {
@@ -376,7 +379,7 @@ function LeadCorrectionRow({ starter, routes, results, timed, onSave, onCancel }
       <td>{localized(lang, starter.profile.full_name, starter.profile.full_name_he)}{invalid && <span className="error small"> ✗ {invalid}</span>}</td>
       {routes.map((b) => (
         <td key={b.id} className="cell-edit">
-          <input aria-label={`${t('hold')} ${b.number}`} type="number" min={0} value={cells[b.id].hold}
+          <input aria-label={`${t('hold')} ${b.number}`} type="text" inputMode="decimal" dir="ltr" autoComplete="off" placeholder="24.5" value={cells[b.id].hold}
             onChange={(e) => set(b.id, { hold: e.target.value })} disabled={cells[b.id].top} />
           <label className="inline small"><input type="checkbox" aria-label={`+ ${b.number}`} checked={cells[b.id].plus}
             disabled={cells[b.id].top} onChange={(e) => set(b.id, { plus: e.target.checked })} />+</label>

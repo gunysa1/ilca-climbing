@@ -941,6 +941,10 @@ if (!(await jp.getByRole('button', { name: '+1 Hold' }).isDisabled())) problems.
   await hj.getByText('הסבב עוד לא פתוח').waitFor();
   if (await hj.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) problems.push('planned lead pad (he, 390px) scrolls sideways');
   await hj.screenshot({ path: `${out}/judge-lead-planned-he-390.png`, fullPage: true });
+  await hj.setViewportSize({ width: 360, height: 800 });                  // the typed-hold field fits a 360 px phone
+  await hj.getByLabel('מספר האחיזה').waitFor();
+  if (await hj.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) problems.push('lead pad (he, 360px) scrolls sideways');
+  await hj.screenshot({ path: `${out}/judge-lead-pad-he-360.png`, fullPage: true });
   await hj.close();
 }
 step('lead: the signal goes while waiting for "live": the pad scores from the copy, with a note; back online it waits again');
@@ -961,14 +965,19 @@ await jp.waitForFunction(() => !document.querySelector('button[aria-label="+1 Ho
 await jp.getByText('This round is not live yet').waitFor({ state: 'detached' });
 await jp.getByRole('button', { name: /On the wall/ }).waitFor();     // claimed
 
-step('lead: the judge scores route 1 (TOP, TOP, 12+ saved offline), route 2 (20, 20, 5)');
-const leadClimb = async (hold, { plus = false, top = false, time = null } = {}) => {
+step('lead: the judge scores route 1 (TOP, TOP, 12+ saved offline), route 2 (20, 20, 24.5 typed: a half hold)');
+const leadClimb = async (hold, { plus = false, top = false, time = null, typed = null } = {}) => {
   await jp.getByRole('button', { name: /On the wall|Off the wall/ }).waitFor();
   if (top) await jp.getByRole('button', { name: 'TOP', exact: true }).click();
   for (let i = 0; i < hold; i++) await jp.getByRole('button', { name: '+1 Hold' }).click();
+  if (typed) {
+    await jp.getByLabel('Hold number').fill(typed);
+    await jp.locator('.stepper-value', { hasText: new RegExp(`^${typed.replace(',', '\\.')}$`) }).waitFor();
+  }
   if (plus) await jp.getByRole('button', { name: '+ (move)' }).click();
   if (time) await jp.locator('.pad-time input').fill(time);
   await jp.getByRole('button', { name: /Next · lock/ }).click();
+  if (typed) await jp.getByRole('dialog').getByText(`· ${typed.replace(',', '.')}`).waitFor();
   await jp.getByRole('dialog').getByRole('button', { name: 'Yes, lock' }).click();
 };
 await leadClimb(0, { top: true });                                  // נועה
@@ -989,18 +998,24 @@ await leadClimb(20);
 await jp.locator('.pad-head').getByText('תמר כהן').waitFor();
 await leadClimb(20);
 await jp.locator('.pad-head').getByText('מאיה גל').waitFor();
-await leadClimb(5);
+await jp.getByLabel('Hold number').fill('24.555');               // three decimals: refused, nothing to save
+if (!(await jp.getByRole('button', { name: /Next · lock/ }).isDisabled())) problems.push('lead pad: a hold with three decimals can be locked');
+await jp.getByText('Not a valid hold').waitFor();
+await jp.screenshot({ path: `${out}/judge-lead-hold-invalid-en.png` });
+await leadClimb(0, { typed: '24,5' });                              // a half hold, typed with a comma
 await jp.locator('.toast').getByText(/end of the list/).waitFor();
 await jp.locator('.outbox-badge').waitFor({ state: 'detached', timeout: 15000 });
 
 step('lead: the admin corrects a height; reopening a closed round makes it live again');
 await p.goto(`${base}/admin/round/${leadQualId}`);
 await p.locator('tr', { hasText: 'מאיה גל' }).getByText('🔒12+').waitFor();
+await p.locator('tr', { hasText: 'מאיה גל' }).getByText('🔒24.5', { exact: true }).waitFor();
 await p.locator('tr', { hasText: 'מאיה גל' }).getByRole('button', { name: '✎' }).click();
 if (await p.getByLabel('Climbing time 1').count()) problems.push('qualification correction form has a time field');
-await p.getByLabel('Hold 2').fill('7');
+if ((await p.getByLabel('Hold 2').inputValue()) !== '24.5') problems.push(`correction form shows ${await p.getByLabel('Hold 2').inputValue()} for 24.5`);
+await p.getByLabel('Hold 2').fill('7,5');                          // the admin corrects to a half hold too (comma)
 await p.getByRole('button', { name: 'Save' }).click();
-await p.locator('tr', { hasText: 'מאיה גל' }).getByText('🔒7').waitFor();
+await p.locator('tr', { hasText: 'מאיה גל' }).getByText('🔒7.5', { exact: true }).waitFor();
 await p.locator('.panel', { hasText: 'Audit log' }).getByText('By Admin ILCA').first().waitFor();
 await p.goto(leadCompUrl);
 await leadQualRow.getByRole('button', { name: 'Close round' }).click();
@@ -1013,7 +1028,7 @@ step('lead: public results show 12+ / TOP and the geometric mean (a tie for firs
   const lv = await page('en');
   await lv.goto(`${view}/round/${leadQualId}`);
   await lv.locator('tr', { hasText: 'מאיה גל' }).locator('.route-chip', { hasText: '12+' }).waitFor();
-  await lv.locator('tr', { hasText: 'מאיה גל' }).locator('.route-chip', { hasText: /^7$/ }).waitFor();
+  await lv.locator('tr', { hasText: 'מאיה גל' }).locator('.route-chip', { hasText: /^7\.5$/ }).waitFor();
   await lv.locator('tr', { hasText: 'נועה לוי' }).locator('.route-chip', { hasText: 'TOP' }).waitFor();
   const ranks = (await lv.locator('tbody tr').allInnerTexts()).map((r) => r.replace(/\s+/g, ' ').trim());
   if (!/^1 .*נועה לוי.* 1\.50$/.test(ranks[0]) || !/^1 .*תמר כהן.* 1\.50$/.test(ranks[1]) || !/^3 .*מאיה גל.* 3\.00$/.test(ranks[2])) problems.push(`lead qualification ranks: ${JSON.stringify(ranks)}`);

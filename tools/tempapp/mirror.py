@@ -9,7 +9,8 @@ transaction that upserts the competition, one category per group, the round (kin
 line), its start list with seeds, boulders and results. Results upsert only when changed, so the audit log
 records real changes only. Re-run it to sync; ids are uuid5, so nothing is duplicated.
 
-Lead events (config.discipline "lead") go to lead_results (hold, plus, top; time only in finals).
+Lead events (config.discipline "lead") go to lead_results (hold with up to two decimals, e.g. 24.5; plus, top; time
+only in finals).
 
 Usage: mirror.py EVENT_JSON --competition-key KEY --name NAME --starts YYYY-MM-DD --ends YYYY-MM-DD
                  --series SERIES --kind semifinal [--status live|closed] [--groups G1,G2] > sync.sql
@@ -22,6 +23,15 @@ import uuid
 from urllib.parse import unquote
 
 NS = uuid.UUID('6b7f4a52-2c1e-4f4e-9a3b-1c0de1ca0002')  # temporary-app mirror namespace
+
+
+def hold_of(v: object) -> float:
+    """The temporary app's hold: up to two decimals (24.5 for an intermediate hold), a number or a numeric string;
+    whole holds stay integers in the JSON. Stored as numeric(5,2) (migration 053)."""
+    if v is None or v == '':
+        return 0
+    h = round(float(str(v).replace(',', '.')), 2)
+    return int(h) if h == int(h) else h
 
 
 def uid(*parts: object) -> str:
@@ -107,7 +117,7 @@ def main() -> None:
             top = bool(rec.get('top'))
             # time breaks ties only in finals (and only if the temporary app uses it)
             time_ms = int(rec['timeMs']) if a.kind == 'final' and config.get('leadUseTimeTieBreak') and rec.get('timeMs') else None
-            results.append({'key': c['key'], 'grp': c['grp'], 'number': int(route), 'hold': int(rec.get('hold') or 0),
+            results.append({'key': c['key'], 'grp': c['grp'], 'number': int(route), 'hold': hold_of(rec.get('hold')),
                             'plus': bool(rec.get('plus')) and not top, 'top': top, 'time_ms': time_ms})
             continue
         attempts = int(rec.get('attempts') or 0)
@@ -133,7 +143,7 @@ end $$;"""
     if lead:
         upsert = """insert into public.lead_results (boulder_id, climber_id, round_id, hold, plus, top, time_ms)
 select b.id, c.climber_id, b.round_id, x.hold, x.plus, x.top, x.time_ms
-from _m, jsonb_to_recordset(d->'results') x(key text, grp text, number int, hold int, plus boolean, top boolean, time_ms int)
+from _m, jsonb_to_recordset(d->'results') x(key text, grp text, number int, hold numeric, plus boolean, top boolean, time_ms int)
 join _c c on c.key = x.key join _b b on b.grp = x.grp and b.number = x.number
 join public.round_starters rs on rs.round_id = b.round_id and rs.climber_id = c.climber_id
 where rs.status is null

@@ -31,6 +31,11 @@ LogLig ranked them (10,775 of 10,828 imported ranks identical; countback in ever
 ## Lead (`lead`)
 
 - Height per route: TOP above every hold, "hold+" (a controlled move past the hold) above "hold".
+  Holds may have up to two decimals (24.5 for an intermediate hold, as the temporary app records them;
+  migration 053, `numeric(5,2)`). For ranking, + counts 0.1: the height value is `hold + 0.1` for "hold+",
+  so 24.5 ranks before 24+, which ranks before 24; 24.5+ before 24.5; and a 24.1 hold ties 24+ (as in the
+  temporary app). Shown as "24.5", "24+", "24.5+", whole holds without ".0". Same cases in
+  `src/lib/lead.test.ts` and `supabase/tests/rls_test.sql` ("lead half holds").
 - **One route**: higher is better; then countback; **in a final**, then the faster climbing time
   (IFSC rule). `rounds.time_tiebreak` turns the time rule off for the three imported 2022-23 LogLig
   finals that left such ties standing.

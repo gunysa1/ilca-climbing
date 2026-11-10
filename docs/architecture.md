@@ -264,3 +264,4 @@ rows wait, keeps them for that judge's next sign-in, and removes the other copie
 | 20261110000050 | `move_starter(round, climber, position)` and `split_groups(round, labels)` (admin only, row-locked): start order and A / B groups |
 | 20261110000051 | `merge_categories(keep, drop, apply)` (admin; preview, then apply): moves registrations, deletes the dropped category and its rounds; refused when results, a shared climber or bib, or different competitions are involved |
 | 20261110000052 | `round_starters` joins the `supabase_realtime` publication (re-runnable; skipped without it): live start lists |
+| 20261110000053 | half holds in lead: `lead_results.hold` / `lead_events.hold` become `numeric(5,2)` (24.5); `lead_scores_for` height = hold + 0.1 for + (24.5 > 24+ > 24, a 24.1 hold ties 24+, as in the temporary app); `favorites_live` writes "24.5+" without trailing zeros; queues full rankings and climber cache rebuilds |
