@@ -369,7 +369,7 @@ const dict = {
   onWallHint: { he: 'כשהמטפס/ת עולה לקיר', en: 'When the climber starts' },
   printPdf: { he: 'הדפסה / שמירה כ-PDF', en: 'Print / save as PDF' },
   exportCsv: { he: 'שמירה כקובץ CSV (אקסל)', en: 'Save as CSV file (Excel)' },
-  exportAllCsv: { he: 'כל הסבבים בקובץ CSV', en: 'All rounds as one CSV file' },
+  exportAllCsv: { he: 'כל הסבבים בקובץ אחד', en: 'All rounds in one file' },
   printedAt: { he: 'הודפס', en: 'Printed' },
   youthRankingsFrom: { he: 'מדרגי הנוער מוצגים מעונת 2024-25 (לפני כן ליגות הנוער נוהלו במבנה אחר)', en: 'Youth rankings start with 2024-25 (youth leagues were organised differently before)' },
   series: { he: 'סדרה (למדרג)', en: 'Series (rankings)' },
@@ -604,6 +604,7 @@ const dict = {
   mergeCatsDrop: { he: 'הקטגוריה שמצטרפת אליה (תימחק)', en: 'Category to merge into it (will be deleted)' },
   mergeCatsChoose: { he: 'בחירה…', en: 'Choose…' },
   mergeCatsMoving: { he: '{n} מטפסים יעברו אל {keep}:', en: '{n} climbers will move to {keep}:' },
+  mergeCatsMovingOne: { he: 'מטפס/ת אחד/ת יעבור/תעבור אל {keep}:', en: 'One climber will move to {keep}:' },
   mergeCatsNobody: { he: 'אין מטפסים להעביר', en: 'No climbers to move' },
   mergeCatsAgeClass: {
     he: 'מי שאין לו גיל ברישום יקבל "{name}", כדי שאפשר יהיה לסנן אותם בתוצאות.',
@@ -635,6 +636,7 @@ const dict = {
     en: 'All climbers of "{drop}" move to "{keep}", and "{drop}" is deleted with its rounds. This cannot be undone.',
   },
   mergeCatsDone: { he: 'האיחוד הצליח: {n} מטפסים עברו אל {keep}', en: 'Merged: {n} climbers moved to {keep}' },
+  mergeCatsDoneOne: { he: 'האיחוד הצליח: מטפס/ת אחד/ת עבר/ה אל {keep}', en: 'Merged: one climber moved to {keep}' },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type MsgKey = keyof typeof dict;

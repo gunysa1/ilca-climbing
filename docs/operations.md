@@ -113,7 +113,7 @@ already have published it: fix or revert at once, and not on an event day.
 6. **During the round**: corrections and unlocks on the round page (every change is in the audit
    log; status, quota, judge and appeal changes are under "Admin changes" on the round and competition pages); appeals are opened and resolved there and show as "ערעור" on the public results.
 7. **Close** the round, generate the next start list, repeat; mark the competition finished.
-8. **CSV**: a CSV button next to PDF on each round's results (viewer and staff), and "כל הסבבים בקובץ CSV" on the
+8. **CSV**: a CSV button next to PDF on each round's results (viewer and staff), and "CSV ⤓ כל הסבבים בקובץ אחד" on the
    competition page (shown once a round is no longer planned). UTF-8 with BOM (opens in Excel), the whole round's official places (not the age-class
    filter); text starting with `= + - @` gets a leading `'`.
 

@@ -43,7 +43,7 @@ export function MergeCategories({ cats, onDone }: { cats: Category[]; onDone: ()
     const { error } = await supabase.rpc('merge_categories', { p_keep: report.keep.id, p_drop: report.drop.id, p_apply: true });
     setBusy(false);
     if (error) { setError(`${t('mergeRefused')} ${errorText(error, t)}`); setStamp((s) => s + 1); return; }
-    setDone(fill(t('mergeCatsDone'), { n: report.moving.length, keep: name(report.keep) }));
+    setDone(fill(t(report.moving.length === 1 ? 'mergeCatsDoneOne' : 'mergeCatsDone'), { n: report.moving.length, keep: name(report.keep) }));
     setKeepId(''); setDropId('');
     await onDone();
   }
@@ -74,7 +74,7 @@ export function MergeCategories({ cats, onDone }: { cats: Category[]; onDone: ()
         <>
           {report.moving.length === 0 ? <p className="muted">{t('mergeCatsNobody')}</p> : (
             <>
-              <p>{fill(t('mergeCatsMoving'), { n: report.moving.length, keep: name(keep) })}</p>
+              <p>{fill(t(report.moving.length === 1 ? 'mergeCatsMovingOne' : 'mergeCatsMoving'), { n: report.moving.length, keep: name(keep) })}</p>
               <ul className="admin-rows">
                 {report.moving.map((m) => (
                   <li key={m.climber_id} className="admin-row">
@@ -107,7 +107,7 @@ export function MergeCategories({ cats, onDone }: { cats: Category[]; onDone: ()
         <Sheet title={t('mergeCatsConfirmTitle')} confirm={t('mergeButton')} danger
           onConfirm={() => void merge()} onCancel={() => setConfirming(false)}>
           <p className="sheet-result">{fill(t('mergeCatsConfirmText'), { keep: name(keep), drop: name(drop) })}</p>
-          <p>{fill(t('mergeCatsMoving'), { n: report.moving.length, keep: name(keep) }).replace(/:$/, '')}</p>
+          <p>{fill(t(report.moving.length === 1 ? 'mergeCatsMovingOne' : 'mergeCatsMoving'), { n: report.moving.length, keep: name(keep) }).replace(/:$/, '')}</p>
         </Sheet>
       )}
     </div>
