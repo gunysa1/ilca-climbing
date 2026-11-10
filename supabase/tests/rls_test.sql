@@ -2756,8 +2756,11 @@ select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-
 select pg_temp.assert(pg_temp.order_of('3f000000-0000-0000-0000-000000000001') = '45231:12345', 'move_starter: a place below 1 is the first');
 select move_starter('3f000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000004', 1);
 select pg_temp.assert(pg_temp.order_of('3f000000-0000-0000-0000-000000000001') = '45231:12345', 'move_starter: to the place it holds changes nothing');
-select pg_temp.denied($$select move_starter('3f000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000a', 1)$$,
-  'move_starter: a climber who is not a starter of the round');
+do $$ begin
+  perform move_starter('3f000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000a', 1);
+  raise exception 'FAIL: move_starter accepted a climber who is not a starter';
+exception when no_data_found then null; end $$;
+select pg_temp.assert(true, 'move_starter: a climber who is not a starter of the round raises no_data_found');
 
 -- split_groups: by start order, odd counts, other labels, clearing
 select pg_temp.assert(split_groups('3f000000-0000-0000-0000-000000000001') = 5, 'split_groups: returns the rows updated');
