@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { csvEscape, csvFileName, resultsCsvText, roundTable, type CsvLabels } from './resultsCsv';
+import { csvEscape, csvText, csvFileName, resultsCsvText, roundTable, type CsvLabels } from './resultsCsv';
 import { resultKey, type LeadRow, type ResultRow, type Starter } from './roundData';
 import type { Round } from './types';
 
@@ -91,5 +91,36 @@ describe('csvFileName', () => {
     expect(csvFileName(['Open: Cup/2026', 'גברים', 'Final'])).toBe('Open- Cup-2026-גברים-Final.csv');
     expect(csvFileName(['a??b', 'c\u0001d'])).toBe('a-b-c-d.csv');
     expect(csvFileName(['ליגה'])).toBe('ליגה.csv');
+  });
+});
+
+describe('formula injection', () => {
+  it('csvText prefixes a quote on = + - @ tab CR only', () => {
+    for (const v of ['=1+1', '+1', '-x', '@a', '\tx', '\rx']) expect(csvText(v)).toBe(`'${v}`);
+    expect(csvText('Maya')).toBe('Maya');
+    expect(csvText('')).toBe('');
+  });
+  it('free-text cells are neutralised, generated cells are not', () => {
+    const st = [starter('a', '=HYPERLINK("http://x","y")', { bib: 5, age_class: '@U16' }), starter('b', 'B')];
+    st[1].profile.club = '-x';
+    const t = roundTable({ round: boulderRound, boulders, starters: st, title: '=T', labels, lang: 'en',
+      results: new Map([res('b1', 'a', 1, 1, 1)]), leadResults: new Map(), totals: new Map() });
+    expect(t[0]).toEqual(["'=T"]);
+    expect(t[2][2]).toBe(`'=HYPERLINK("http://x","y")`);
+    expect(resultsCsvText([t])).toContain(`"'=HYPERLINK(""http://x"",""y"")"`);
+    expect(t[2][4]).toBe("'@U16");
+    expect(t[3][3]).toBe("'-x");
+    expect(t[2][0]).toBe('1');
+    expect(t[3][0]).toBe('–');
+    expect(t[3][5]).toBe('');
+    expect(t[2][5]).toBe('T1 Z1');
+    expect(t[3].at(-1)).toBe('–');
+  });
+});
+describe('csvFileName: trailing dots', () => {
+  it('no dot or space before .csv', () => {
+    expect(csvFileName(['name.'])).toBe('name.csv');
+    expect(csvFileName(['a', 'b. '])).toBe('a-b.csv');
+    expect(csvFileName(['  '])).toBe('results.csv');
   });
 });

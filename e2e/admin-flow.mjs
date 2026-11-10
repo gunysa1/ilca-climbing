@@ -423,6 +423,16 @@ step('CSV export: the round page and the competition page download a file with t
   const all = readFileSync(await dl2.path(), 'utf8');
   if (!all.startsWith('\uFEFF') || !all.includes('Rank,Bib,Athlete') || !all.includes('מאיה גל')) problems.push(`CSV (competition): ${JSON.stringify(all.slice(0, 120))}`);
   console.log(`  competition file ${dl2.suggestedFilename()}: ${JSON.stringify(all.split('\r\n').slice(0, 2))}`);
+  // The chips fit a 360 px phone (Hebrew): no sideways scroll on the competition and round pages
+  const he360 = await page('he', { width: 360, height: 800 }, null);
+  for (const [name, url] of [['competition', `${view}/competition/${compUrl.split('/').pop()}`], ['round', `${view}/round/${roundId}`]]) {
+    await he360.goto(url);
+    await he360.getByRole('button', { name: /CSV/ }).first().waitFor();
+    await he360.waitForLoadState('networkidle');
+    if (await he360.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) problems.push(`${name} page (he, 360px) scrolls sideways`);
+    if (name === 'competition') await he360.screenshot({ path: `${out}/competition-csv-he-360.png`, fullPage: true });
+  }
+  await he360.close();
   await p.goto(`${view}/round/${roundId}`);
 }
 

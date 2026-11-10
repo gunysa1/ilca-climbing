@@ -18,6 +18,12 @@ export function csvEscape(v: string): string {
   return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }
 
+/** Free text from people (names, clubs, titles): a value a spreadsheet would read as a formula (starts with
+ *  = + - @ tab or CR) gets a leading single quote. Generated cells (places, "T2 Z1", "36+", scores) are not passed through this. */
+export function csvText(v: string): string {
+  return /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
+}
+
 /** Tables (each a list of rows) as one file: UTF-8 with BOM (Excel reads Hebrew), CRLF, a blank line between tables. */
 export function resultsCsvText(tables: string[][][]): string {
   return '﻿' + tables.map((rows) => rows.map((r) => r.map(csvEscape).join(',') + '\r\n').join('')).join('\r\n');
@@ -54,9 +60,9 @@ export function roundTable(i: RoundTableInput): string[][] {
     return [
       row.status ? labels[row.status] : row.rank != null ? String(row.rank) : '–',
       s.bib != null ? String(s.bib) : '',
-      localized(i.lang, s.profile.full_name, s.profile.full_name_he),
-      s.profile.club ?? '', s.age_class ?? '',
-      ...(groups.length ? [s.group_label ?? ''] : []),
+      csvText(localized(i.lang, s.profile.full_name, s.profile.full_name_he)),
+      csvText(s.profile.club ?? ''), csvText(s.age_class ?? ''),
+      ...(groups.length ? [csvText(s.group_label ?? '')] : []),
       ...boulders.map((b) => {
         const key = resultKey(b.id, row.climber_id);
         return ascentCellText({ lead, status: row.status, showTime, boulder: i.results.get(key), route: i.leadResults.get(key) });
@@ -64,13 +70,14 @@ export function roundTable(i: RoundTableInput): string[][] {
       row.score,
     ];
   });
-  return [...(i.title ? [[i.title]] : []), header, ...rows];
+  return [...(i.title ? [[csvText(i.title)]] : []), header, ...rows];
 }
 
 /** `<part>-<part>.csv`: Hebrew kept, characters unsafe in file names (/\:*?"<>| and control characters) become "-", repeats collapse. */
 export function csvFileName(parts: string[]): string {
   // eslint-disable-next-line no-control-regex
-  const name = parts.filter(Boolean).join('-').replace(/[/\\:*?"<>|\u0000-\u001f\u007f]/g, '-').replace(/-{2,}/g, '-').trim() || 'results';
+  const name = parts.filter(Boolean).join('-').trim().replace(/[/\\:*?"<>|\u0000-\u001f\u007f]/g, '-').replace(/-{2,}/g, '-')
+    .replace(/[. ]+$/, '') || 'results';
   return `${name}.csv`;
 }
 
