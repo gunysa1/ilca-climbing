@@ -52,6 +52,26 @@ function rankedRows(
   }));
 }
 
+/** The "group" of starters without one once the round has groups (never a stored label: the admin saves "" as null). */
+export const NO_GROUP = '';
+
+/** Qualification groups of a round, each ranked on its own (SQL partitions by group_label, so starters without
+ *  a group form their own partition): the named groups sorted, then NO_GROUP when some starters have none.
+ *  Empty when nobody has a group (one list). */
+export function roundGroups(starters: Starter[]): string[] {
+  const named = [...new Set(starters.map((s) => s.group_label).filter((g): g is string => !!g))].sort();
+  return named.length && starters.some((s) => !s.group_label) ? [...named, NO_GROUP] : named;
+}
+
+/** Whether `s` belongs to group `key` of roundGroups (NO_GROUP: no label). */
+export const inGroup = (s: Starter, key: string) => (s.group_label || NO_GROUP) === key;
+
+/** Tab / block heading of a group key: "Group A", or "No group". */
+export const groupName = (key: string, t: (k: 'group' | 'noGroup') => string) => key === NO_GROUP ? t('noGroup') : `${t('group')} ${key}`;
+
+/** Starters in groups and others without one: the groups need splitting again (admin warning). */
+export const mixedGroups = (starters: Starter[]) => starters.some((s) => s.group_label) && starters.some((s) => !s.group_label);
+
 /** Heading of the score column: rank points / climbing time (lead), points (IFSC 2025), tops / zones (classic). */
 export function scoreHeader(round: Round, routes: number, t: (k: 'rankPoints' | 'climbTime' | 'points' | 'tops' | 'zones') => string): string {
   return round.scoring === 'lead' ? (routes > 1 ? t('rankPoints') : isTimedRound(round, routes) ? t('climbTime') : '')

@@ -3,6 +3,7 @@ import { Sheet } from '../../components/Sheet';
 import { errorText } from '../../lib/errors';
 import { localized, useI18n } from '../../lib/i18n';
 import type { Starter } from '../../lib/roundData';
+import { mixedGroups } from '../../lib/roundRows';
 import { moveStarter } from '../../lib/startOrder';
 import { supabase } from '../../lib/supabase';
 import { StarterStatus } from './StarterStatus';
@@ -49,6 +50,7 @@ export function StartList({ roundId, starters, hasResults, onOptimistic, onDone 
         <button className="secondary" disabled={busy || starters.length === 0} onClick={() => split(LABELS)}>{t('splitAB')}</button>
         <button className="secondary" disabled={busy || !starters.some((s) => s.group_label)} onClick={() => split([])}>{t('clearGroups')}</button>
       </div>
+      {mixedGroups(starters) && <p className="notice" role="status">{t('groupsMixed')}</p>}
       <ul className="admin-rows">
         {starters.map((s, i) => {
           const name = localized(lang, s.profile.full_name, s.profile.full_name_he);

@@ -2584,6 +2584,17 @@ select pg_temp.assert((select array_agg(right(climber_id::text, 1) || coalesce(r
 select pg_temp.assert((select array_agg(right(climber_id::text, 1) || coalesce(rank::text, '-') order by group_label, rank nulls last, climber_id) from round_scores
     where round_id = '3e000000-0000-0000-0000-000000000002') = '{a1,b2,c1,d-}',
   'status classic with groups: DNS unranked, the group ranks as if the climber were absent');
+-- A starter left without a group in a round with groups ranks in a partition of their own (the pages show it as
+-- "No group"; roundRows.test.ts has the same case): b out of A ranks 1 alone, a still 1 in A.
+reset role;
+update round_starters set group_label = null where round_id = '3e000000-0000-0000-0000-000000000002' and climber_id = 'e0000000-0000-0000-0000-00000000000b';
+select pg_temp.login(null);
+select pg_temp.assert((select array_agg(right(climber_id::text, 1) || coalesce(group_label, '_') || coalesce(rank::text, '-') order by group_label nulls last, rank nulls last, climber_id) from round_scores
+    where round_id = '3e000000-0000-0000-0000-000000000002') = '{aA1,cB1,dB-,b_1}',
+  'groups: a starter without a group ranks on their own (own partition), the named groups as before');
+reset role;
+update round_starters set group_label = 'A' where round_id = '3e000000-0000-0000-0000-000000000002' and climber_id = 'e0000000-0000-0000-0000-00000000000b';
+select pg_temp.login(null);
 select pg_temp.assert((select array_agg(right(climber_id::text, 1) || coalesce(rank::text, '-') || ':' || coalesce(round(points, 2)::text, '')
     order by rank nulls last, climber_id) from lead_scores
     where round_id = '3e000000-0000-0000-0000-000000000003') = '{a1:1.00,b2:2.00,c3:3.00,d-:}',

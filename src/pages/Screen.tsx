@@ -4,7 +4,7 @@ import { dwellMs, nextRoundId, screenRounds, SCREEN_SCROLL_PAUSE_MS, SCREEN_SCRO
 import { localized, useI18n } from '../lib/i18n';
 import { onWallByClimber, onWallList, useOnWall } from '../lib/onWall';
 import { prefetchRound, resultKey, useRoundData, type CategoryRounds } from '../lib/roundData';
-import { roundRows } from '../lib/roundRows';
+import { groupName, inGroup, roundGroups, roundRows } from '../lib/roundRows';
 import { supabase } from '../lib/supabase';
 import { Cell, RouteChip } from './RoundResults';
 
@@ -133,13 +133,13 @@ function ScreenRound({ roundId, live, onOverflow }: { roundId: string; live: boo
   const wallBy = useMemo(() => onWallByClimber(wall), [wall]);
   const byId = useMemo(() => new Map(starters.map((s) => [s.climber_id, s])), [starters]);
 
-  // Qualification groups are ranked separately: one block per group.
+  // Qualification groups are ranked separately: one block per group (starters without one: a block of their own).
   const blocks = useMemo(() => {
     if (!round) return [];
-    const groups = [...new Set(starters.map((s) => s.group_label).filter((g): g is string => !!g))].sort();
+    const groups = roundGroups(starters);
     return (groups.length ? groups : [null]).map((g) => ({
       group: g,
-      rows: roundRows(round, starters.filter((s) => g === null || s.group_label === g), boulders, results, leadResults, totals),
+      rows: roundRows(round, starters.filter((s) => g === null || inGroup(s, g)), boulders, results, leadResults, totals),
     }));
   }, [round, starters, boulders, results, leadResults, totals]);
 
@@ -191,7 +191,7 @@ function ScreenRound({ roundId, live, onOverflow }: { roundId: string; live: boo
         <table className="results">
           <tbody>
             {blocks.map((b) => [
-              b.group !== null && <tr key={`g${b.group}`} className="screen-group"><td colSpan={4}>{t('group')} {b.group}</td></tr>,
+              b.group !== null && <tr key={`g${b.group}`} className="screen-group"><td colSpan={4}>{groupName(b.group, t)}</td></tr>,
               ...b.rows.map((row) => {
                 const s = byId.get(row.climber_id);
                 if (!s) return null;

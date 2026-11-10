@@ -2,7 +2,7 @@
 import { localized, type Lang, type MsgKey } from './i18n';
 import { ascentCellText } from './printing';
 import { resultKey, type LeadRow, type ResultRow, type Starter, type TotalsRow } from './roundData';
-import { roundRows } from './roundRows';
+import { inGroup, roundGroups, roundRows } from './roundRows';
 import type { Boulder, Round } from './types';
 
 export interface CsvLabels {
@@ -49,12 +49,12 @@ export function roundTable(i: RoundTableInput): string[][] {
   const { round, boulders, starters, labels } = i;
   const lead = round.scoring === 'lead';
   const showTime = lead && round.kind === 'final' && round.time_tiebreak !== false;
-  const groups = [...new Set(starters.map((s) => s.group_label).filter((g): g is string => !!g))].sort();
+  const groups = roundGroups(starters); // starters without a group: a list of their own, last (SQL: own partition)
   const byId = new Map(starters.map((s) => [s.climber_id, s]));
   const word = lead ? labels.route : labels.boulder;
   const header = [labels.rank, labels.bib, labels.athlete, labels.club, labels.ageClass, ...(groups.length ? [labels.group] : []),
     ...boulders.map((b) => `${word} ${b.number}`), labels.score];
-  const lists = groups.length ? groups.map((g) => starters.filter((s) => s.group_label === g)) : [starters];
+  const lists = groups.length ? groups.map((g) => starters.filter((s) => inGroup(s, g))) : [starters];
   const rows = lists.flatMap((list) => roundRows(round, list, boulders, i.results, i.leadResults, i.totals)).map((row) => {
     const s = byId.get(row.climber_id)!;
     return [

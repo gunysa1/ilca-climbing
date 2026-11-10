@@ -9,7 +9,7 @@ import { saveLastViewed } from '../lib/lastViewed';
 import { localized, useI18n, type Lang } from '../lib/i18n';
 import { formatHeight } from '../lib/lead';
 import { prefetchRound, resultKey, useRoundData, type LeadRow, type ResultRow, type Starter } from '../lib/roundData';
-import { roundRows, scoreHeader, type Row } from '../lib/roundRows';
+import { groupName, inGroup, roundGroups, roundRows, scoreHeader, type Row } from '../lib/roundRows';
 import { ascentCellText, usePrinting } from '../lib/printing';
 import { csvFileName, csvLabels, downloadCsv, resultsCsvText, roundTable } from '../lib/resultsCsv';
 import { boulderPoints } from '../lib/scoring';
@@ -77,14 +77,15 @@ export function RoundResults() {
   const wall = useMemo(() => onWallList(wallRows, boulders), [wallRows, boulders]);
   const wallByClimber = useMemo(() => onWallByClimber(wall), [wall]);
   const ageClasses = useMemo(() => [...new Set(starters.map((s) => s.age_class).filter((a): a is string => !!a))].sort(), [starters]);
-  // Qualification groups are ranked separately: always show one group at a time.
-  const groups = useMemo(() => [...new Set(starters.map((s) => s.group_label).filter((g): g is string => !!g))].sort(), [starters]);
+  // Qualification groups are ranked separately: always show one group at a time (starters without a group
+  // as a group of their own, like SQL ranks them).
+  const groups = useMemo(() => roundGroups(starters), [starters]);
   const [groupPick, setGroup] = useState<string | null>(null);
-  const group = groups.length ? (groupPick && groups.includes(groupPick) ? groupPick : groups[0]) : null;
+  const group = groups.length ? (groupPick !== null && groups.includes(groupPick) ? groupPick : groups[0]) : null;
 
   // Within an age-class filter the ranking is recomputed among those climbers (like the
   // temporary app's per-category results inside a combined group).
-  const shown = useMemo(() => starters.filter((s) => (!group || s.group_label === group) && (!ageClass || s.age_class === ageClass)),
+  const shown = useMemo(() => starters.filter((s) => (group === null || inGroup(s, group)) && (!ageClass || s.age_class === ageClass)),
     [starters, group, ageClass]);
   const rows = useMemo(() => (round ? roundRows(round, shown, boulders, results, leadResults, storedTotals) : []),
     [round, shown, boulders, results, leadResults, storedTotals]);
@@ -166,20 +167,20 @@ export function RoundResults() {
       </div>
       {printing && (
         <p className="print-meta">
-          {[group && `${t('group')} ${group}`, ageClass, `${t('printedAt')} ${new Date().toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB', { dateStyle: 'short', timeStyle: 'short' })}`]
+          {[group !== null && groupName(group, t), ageClass, `${t('printedAt')} ${new Date().toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB', { dateStyle: 'short', timeStyle: 'short' })}`]
             .filter(Boolean).join(' · ')}
         </p>
       )}
       {printing ? (tab === 'startlist'
-        ? <PrintStartList starters={groups.length ? starters.filter((s) => s.group_label === group) : starters} />
+        ? <PrintStartList starters={group !== null ? starters.filter((s) => inGroup(s, group)) : starters} />
         : <PrintResults rows={visible} byId={byId} boulders={boulders} lead={lead} results={results} leadResults={leadResults} scoreHeader={scoreHead}
             showTime={lead && round.kind === 'final' && round.time_tiebreak !== false} />)
-      : tab === 'startlist' ? <StartList starters={groups.length ? starters.filter((s) => s.group_label === group) : starters} groups={groups} group={group} onGroup={setGroup} climbing={wallByClimber} /> : <>
+      : tab === 'startlist' ? <StartList starters={group !== null ? starters.filter((s) => inGroup(s, group)) : starters} groups={groups} group={group} onGroup={setGroup} climbing={wallByClimber} /> : <>
       {groups.length > 0 && (
         <div className="chips" role="tablist">
           {groups.map((g) => (
             <button key={g} role="tab" aria-selected={g === group} className={`chip ${g === group ? 'selected' : ''}`}
-              onClick={() => setGroup(g)}>{t('group')} {g}</button>
+              onClick={() => setGroup(g)}>{groupName(g, t)}</button>
           ))}
         </div>
       )}
@@ -232,7 +233,7 @@ function StartList({ starters, groups, group, onGroup, climbing }: {
         <div className="chips" role="tablist">
           {groups.map((g) => (
             <button key={g} role="tab" aria-selected={g === group} className={`chip ${g === group ? 'selected' : ''}`}
-              onClick={() => onGroup(g)}>{t('group')} {g}</button>
+              onClick={() => onGroup(g)}>{groupName(g, t)}</button>
           ))}
         </div>
       )}

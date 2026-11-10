@@ -68,6 +68,12 @@ describe('roundTable: boulder', () => {
     expect(t[0]).toContain('Group');
     expect(t.slice(1).map((r) => [r[0], r[5]])).toEqual([['1', 'A'], ['1', 'B']]);
   });
+  it('starters without a group in a round with groups: listed last, ranked among themselves', () => {
+    const g = [starter('n', 'N'), starter('a', 'A', { group_label: 'A' }), starter('m', 'M')];
+    const rs = new Map([res('b1', 'a', 1, 1, 1), res('b1', 'n', 2, 1, null), res('b1', 'm', 1, 1, 1)]);
+    const t = roundTable({ round: boulderRound, boulders, starters: g, results: rs, leadResults: new Map(), totals: new Map(), lang: 'en', labels });
+    expect(t.slice(1).map((r) => [r[0], r[2], r[5]])).toEqual([['1', 'A', 'A'], ['1', 'M', ''], ['2', 'N', '']]);
+  });
 });
 
 describe('roundTable: lead', () => {

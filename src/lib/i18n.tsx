@@ -277,6 +277,7 @@ const dict = {
   starters: { he: 'מטפסים בסבב', en: 'Starters' },
   startPlace: { he: 'מקום בסדר העלייה', en: 'Place in the start order' },
   noGroup: { he: 'ללא קבוצה', en: 'No group' },
+  groupsMixed: { he: 'לחלק מהמטפסים יש קבוצה ולחלק אין. מי שבלי קבוצה מדורג/ת בנפרד (ללא קבוצה). כדאי לחלק שוב לקבוצות.', en: 'Some climbers have a group and others don\'t. Those without one are ranked separately (No group). Consider splitting into groups again.' },
   splitAB: { he: 'חלק לקבוצות A / B לפי סדר העלייה', en: 'Split into A / B by start order' },
   clearGroups: { he: 'נקה קבוצות', en: 'Clear groups' },
   groupsWarnTitle: { he: 'לשנות את הקבוצות?', en: 'Change the groups?' },

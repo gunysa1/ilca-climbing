@@ -488,6 +488,17 @@ await p.goto(`${view}/round/${roundId}`);
 await p.getByRole('tab', { name: 'Group A' }).waitFor();
 await p.getByRole('tab', { name: 'Group B' }).waitFor();
 await p.screenshot({ path: `${out}/results-groups-en.png`, fullPage: true });
+// one starter taken out of the groups: the admin is told to split again; the public page lists them as "No group"
+await p.goto(`${base}/admin/round/${roundId}`);
+await startRows.nth(1).getByLabel(/^Group/).selectOption('');
+await p.getByRole('dialog').getByRole('button', { name: 'Change' }).click();
+await p.getByText(/Consider splitting into groups again/).waitFor();
+await p.goto(`${view}/round/${roundId}`);
+await p.getByRole('tab', { name: 'No group' }).click();
+await p.locator('table.results tbody tr').first().waitFor();
+if ((await p.locator('table.results tbody tr').count()) !== 1) problems.push(`"No group" tab should list the one starter without a group, has ${await p.locator('table.results tbody tr').count()}`);
+if (!(await p.locator('table.results tbody tr').first().innerText()).trim().startsWith('1')) problems.push('the starter without a group should rank 1 among themselves');
+await p.screenshot({ path: `${out}/results-no-group-en.png`, fullPage: true });
 // phone width: the row stays usable (no sideways scroll)
 await p.setViewportSize({ width: 360, height: 800 });
 await p.goto(`${base}/admin/round/${roundId}`);

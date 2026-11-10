@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { resultKey, type LeadRow, type ResultRow, type Starter } from './roundData';
-import { roundRows } from './roundRows';
+import { groupName, inGroup, mixedGroups, NO_GROUP, roundGroups, roundRows } from './roundRows';
 import type { Round } from './types';
 
 const starter = (id: string, order: number, prev: number | null): Starter => ({
@@ -67,6 +67,16 @@ describe('round rows: DNS / DSQ', () => {
     expect([...g('A'), ...g('B')]).toEqual(['a1', 'b2', 'c1', 'd-']);
   });
 
+  it('classic with groups and a starter without one: that starter ranks alone, as "No group" (rls_test.sql case)', () => {
+    const boulders = [{ id: 'b1', round_id: 'q', number: 1 }];
+    const results = new Map([bres('b1', 'a', 1, 1, 1), bres('b1', 'b', 2, 1, null), bres('b1', 'c', 1, 1, 1), bres('b1', 'd', 2, 1, null)]);
+    const all = [st('a', 1, null, 'A'), st('b', 2, null, null), st('c', 3, null, 'B'), st('d', 4, 'dns', 'B')];
+    const groups = roundGroups(all);
+    expect(groups).toEqual(['A', 'B', NO_GROUP]);
+    expect(groups.flatMap((g) => show(roundRows(rd('classic'), all.filter((s) => inGroup(s, g)), boulders, results, new Map(), new Map()))))
+      .toEqual(['a1', 'c1', 'd-', 'b1']);
+  });
+
   it('lead, two routes: route points are computed without the DNS climber (d would have been first on both)', () => {
     const boulders = [{ id: 'r1', round_id: 'q', number: 1 }, { id: 'r2', round_id: 'q', number: 2 }];
     const l = (route: string, climber: string, hold: number): LeadRow => ({ boulder_id: route, climber_id: climber, hold, plus: false, top: false, time_ms: null });
@@ -81,5 +91,24 @@ describe('round rows: DNS / DSQ', () => {
     const fin = (c: Starter['status']) => show(roundRows(round('final'), [st('a', 1, null), st('b', 2, null), st('c', 3, c)], boulders, new Map(), results(rows), new Map()));
     expect(fin(null)).toEqual(['c1', 'b2', 'a3']);
     expect(fin('dsq')).toEqual(['b1', 'a2', 'c-']);
+  });
+});
+
+describe('round groups', () => {
+  const g = (id: string, label: string | null): Starter => ({ ...starter(id, 1, null), group_label: label });
+  it('no groups: one list; all in groups: the named ones sorted; some without: "No group" last', () => {
+    expect(roundGroups([g('a', null), g('b', null)])).toEqual([]);
+    expect(roundGroups([g('a', 'B'), g('b', 'A')])).toEqual(['A', 'B']);
+    expect(roundGroups([g('a', null), g('b', 'B'), g('c', 'A')])).toEqual(['A', 'B', NO_GROUP]);
+  });
+  it('mixedGroups only when some have a group and some do not', () => {
+    expect(mixedGroups([g('a', null)])).toBe(false);
+    expect(mixedGroups([g('a', 'A')])).toBe(false);
+    expect(mixedGroups([g('a', 'A'), g('b', null)])).toBe(true);
+  });
+  it('names: "Group A" and "No group"', () => {
+    const t = (k: 'group' | 'noGroup') => (k === 'group' ? 'Group' : 'No group');
+    expect(groupName('A', t)).toBe('Group A');
+    expect(groupName(NO_GROUP, t)).toBe('No group');
   });
 });
