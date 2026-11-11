@@ -19,6 +19,8 @@ BASE = 'https://ifsc.results.info'
 DCATS = [(3, 'boulder'), (7, 'boulder'), (1, 'lead'), (5, 'lead')]  # men/women boulder, men/women lead
 
 def get(path):
+    # Paths can come from IFSC JSON: only absolute paths on BASE (no other host, port or user part).
+    if not isinstance(path, str) or not path.startswith('/') or path.startswith('//'): raise ValueError(f'unexpected IFSC path: {path!r}')
     for i in range(4):
         out = subprocess.run(['curl', '-s', '-m', '60', '-H', 'referer: ' + BASE + '/', '-H', 'accept: application/json', BASE + path],
                              capture_output=True, text=True)

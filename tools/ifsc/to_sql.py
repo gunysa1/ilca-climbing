@@ -20,6 +20,8 @@ for x in r:
     if not ok or not mm['profile_id']: skipped['no profile: ' + mm['ifsc']] += 1; continue
     if not x['event_type']: skipped['no ILCA table: ' + x['event']] += 1; continue
     if not x['place'] or not x['field_size']: skipped['no place'] += 1; continue
+    # Both go into the SQL unquoted: accept positive integers only (the IFSC API's rank is not validated upstream).
+    if not all(type(v) is int and v > 0 for v in (x['place'], x['field_size'])): skipped['bad place: ' + repr(x['place'])] += 1; continue
     cls = 'youth' if x['event_type'] in YOUTH else 'senior'
     if (x['season'], cls, x['discipline']) in manual_groups: skipped[f"ILCA published: {x['season']} {cls} {x['discipline']}"] += 1; continue
     rows.append((mm['profile_id'], x['season'], x['discipline'], x['event_type'], f"{x['event']} ({x['dcat']})", x['date'], x['place'], x['field_size'], x['reached']))
@@ -32,7 +34,7 @@ for row in rows:
     pid, season, disc, et, name, date, place, n, reached = row
     sql.append(
         "insert into public.international_results (climber_id, season, discipline, event_type, event_name, starts_on, place, field_size, reached) "
-        f"select {q(pid)}, {q(season)}, {q(disc)}, {q(et)}, {q(name)}, {q(date)}, {place}, {n}, {q(reached)} "
+        f"select {q(pid)}, {q(season)}, {q(disc)}, {q(et)}, {q(name)}, {q(date)}, {int(place)}, {int(n)}, {q(reached)} "
         f"where not exists (select 1 from public.international_results where climber_id = {q(pid)} and discipline = {q(disc)} and event_name = {q(name)} and starts_on = {q(date)});")
 sql.append('commit;')
 open(D + 'ifsc_import.sql', 'w').write('\n'.join(sql) + '\n')
