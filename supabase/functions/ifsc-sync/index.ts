@@ -19,10 +19,14 @@ function ifscFetcher(): Ifsc {
       const wait = last + 300 - Date.now();
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       last = Date.now();
-      const res = await fetch(BASE + path, {
+      // Paths come from IFSC JSON too: only ever fetch, and only ever read, ifsc.results.info.
+      const url = new URL(path, BASE);
+      if (url.origin !== BASE) throw new Error(`IFSC ${path}: not an ifsc.results.info path`);
+      const res = await fetch(url, {
         headers: { referer: `${BASE}/`, accept: 'application/json', 'user-agent': 'ilca-climbing-sync/1.0' },
         signal: AbortSignal.timeout(30000),
       });
+      if (new URL(res.url || url.href).origin !== BASE) throw new Error(`IFSC ${path}: redirected off ifsc.results.info`);
       const text = await res.text();
       if (!res.ok) throw new Error(`IFSC ${path}: HTTP ${res.status}`);
       try {

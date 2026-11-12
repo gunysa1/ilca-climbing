@@ -8,6 +8,8 @@ LEAGUES = {'World Cups and World Championships', 'IFSC Youth', 'IFSC Europe Adul
 CACHE = OUT / 'cache'; CACHE.mkdir(exist_ok=True)
 
 def get(path):
+    # Paths can come from IFSC JSON: only absolute paths on BASE (no other host, port or user part).
+    if not isinstance(path, str) or not path.startswith('/') or path.startswith('//'): raise ValueError(f'unexpected IFSC path: {path!r}')
     f = CACHE / (re.sub(r'[^A-Za-z0-9]+', '_', path) + '.json')
     if f.exists(): return json.loads(f.read_text())
     for i in range(4):

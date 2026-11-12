@@ -353,6 +353,27 @@ select pg_temp.assert(not exists (select 1 from profile_private where id = '5000
 update profiles set club = 'Tel Aviv Boulders' where id = auth.uid();
 select pg_temp.assert((select club from profiles where id = auth.uid()) = 'Tel Aviv Boulders',
   'climber still edits own public profile');
+-- ranking identity is admin-curated (migration 054): age class and ranking table come from these
+select pg_temp.denied($$update profile_private set birth_date = '2012-01-01' where id = my_profile_id()$$,
+  'climber changes own birth date (age class)');
+select pg_temp.denied($$update profiles set gender = 'male' where id = my_profile_id()$$,
+  'climber changes own gender (ranking table)');
+select pg_temp.denied($$update profiles set full_name = 'Someone Else' where id = my_profile_id()$$,
+  'climber renames own profile');
+select pg_temp.denied($$update profiles set full_name_he = 'מישהי אחרת' where id = my_profile_id()$$,
+  'climber renames own profile (Hebrew)');
+update profile_private set phone = '050-3333333' where id = my_profile_id();
+select pg_temp.assert((select phone from profile_private where id = my_profile_id()) = '050-3333333',
+  'climber still edits own contact details');
+reset role;
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+update profile_private set birth_date = '2010-03-03' where id = '00000000-0000-0000-0000-000000000001';
+update profiles set full_name = 'Noa A' where id = '00000000-0000-0000-0000-000000000001';
+select pg_temp.assert((select birth_date from profile_private where id = '00000000-0000-0000-0000-000000000001') = '2010-03-03'
+  and (select full_name from profiles where id = '00000000-0000-0000-0000-000000000001') = 'Noa A',
+  'admin still sets birth date and name');
+update profiles set full_name = 'Noa' where id = '00000000-0000-0000-0000-000000000001';
+update profile_private set birth_date = null where id = '00000000-0000-0000-0000-000000000001';
 reset role;
 
 -- a parent signs up (trigger creates an empty profile), admin links the imported profile
@@ -366,6 +387,14 @@ select pg_temp.assert(
   'link_account attaches the account and drops its empty auto profile');
 select pg_temp.denied($$select link_account('50000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')$$,
   'link_account refuses an account whose own profile has data');
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('00000000-0000-0000-0000-0000000000f2', 'other-parent@test', '{"full_name":"Other Parent"}');
+select pg_temp.login('00000000-0000-0000-0000-00000000000a');
+select pg_temp.denied($$select link_account('50000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000f2')$$,
+  'link_account refuses a profile another login already holds (unlink first)');
+select pg_temp.assert((select user_id from admin_accounts() where profile_id = '50000000-0000-0000-0000-000000000001') = '00000000-0000-0000-0000-00000000000f',
+  'a refused link keeps the existing login on the profile');
 reset role;
 
 select pg_temp.login('00000000-0000-0000-0000-00000000000f');
@@ -819,6 +848,8 @@ select release_claim('40000000-0000-0000-0000-000000000001', '00000000-0000-0000
 select pg_temp.assert(not exists (select 1 from judge_claims), 'judge releases own claim');
 select pg_temp.denied($$select claim_climber('30000000-0000-0000-0000-000000000001',
   '40000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000002')$$, 'judge claims on an unassigned boulder');
+select pg_temp.denied($$select claim_climber('30000000-0000-0000-0000-000000000001',
+  '40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000c')$$, 'judge claims a profile that is not a starter');
 select pg_temp.login(null);
 select pg_temp.denied($$select claim_climber('30000000-0000-0000-0000-000000000001',
   '40000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')$$, 'anon claims a climber');

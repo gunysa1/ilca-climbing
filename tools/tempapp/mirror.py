@@ -66,7 +66,7 @@ def main() -> None:
     scoring = 'lead' if lead else 'ifsc2025'
     group_of = {c: g for g, cs in (config.get('categoryGroups') or {}).items() for c in cs}
     key = a.competition_id or a.competition_key
-    comp_id = a.competition_id or uid('competition', key)
+    comp_id = str(uuid.UUID(a.competition_id)) if a.competition_id else uid('competition', key)  # a UUID: it goes into SQL text
 
     # Which groups have results this round (the roster also lists groups that already finished).
     keys = [unquote(k).split('|') for k in (ev.get('results') or {})]
@@ -131,7 +131,8 @@ def main() -> None:
 
     payload = json.dumps({'cats': cats, 'rounds': rounds, 'boulders': boulders, 'climbers': climbers, 'results': results},
                          ensure_ascii=False)
-    assert '$m$' not in payload
+    if '$m$' in payload:  # an explicit check: assert is skipped under python -O
+        raise SystemExit('event data contains the $m$ quote tag')
     q = lambda s: "'" + s.replace("'", "''") + "'"
     competition = f"""insert into public.competitions (id, name, name_he, starts_on, ends_on, status, season, series, discipline)
 values ({q(comp_id)}, {q(a.name)}, {q(a.name)}, {q(a.starts)}, {q(a.ends)}, 'published', {q(season_of(a.starts))}, {q(a.series)}, {q('lead' if lead else 'boulder')})
